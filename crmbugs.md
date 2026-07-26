@@ -1,10 +1,29 @@
 # CRM Bugs Audit
 
 **Date:** 2026-07-26  
-**Scope:** Full CRM audit by area (Clients, Leads, Partners, Agents, Applications, Invoices/Receipts, Email/Messaging, Documents, Followups, Actions, Staff/Roles/Teams/Branches, Reports, Admin Console, Auth/CRM Access, Ongoing Sheet, Notifications, Shared Frontend/Config).  
-**Status:** Document only — **no fixes applied**.
+**Last deep review:** 2026-07-26 (code-verified; false positives retracted; wording corrected)  
+**Scope:** Full CRM audit by area (Clients, Leads, Partners, Agents, Applications, Invoices/Receipts, Email/Messaging, Documents, Followups, Actions, Staff/Roles/Teams/Branches, Reports, Admin Console, Auth/CRM Access, Ongoing Sheet, Notifications, Shared Frontend/Config, SMS Webhooks).  
+**Status:** Document only — **no fixes applied**.  
+**Stack note:** Laravel **13.x** (route parameters bind **by position** after DI, not by PHP parameter name).
 
 Severity: **Critical** (crash / data corruption / money wrong / security) · **High** (major feature broken or serious auth hole) · **Medium** (incorrect behavior) · **Low** (edge case / UX / maintenance risk)
+
+### Deep review changelog (2026-07-26)
+
+| ID | Change |
+|----|--------|
+| **C-6** | **Retracted** — `$slug` still receives `{type}` via positional binding on Laravel 13 |
+| **C-1 / C-7+** | Clarified: login (`auth:admin`) exists; missing piece is **visibility / canEditClient** |
+| **C-12** | Corrected: merge `is_deleted=1` **is** excluded by `whereNull`; real mismatch is `is_deleted=0` handling |
+| **INV-1** | Corrected: `else` overwrites **type 1 only**, not type 2 |
+| **APP-3** | Split: ~1470 request-controlled SQLi; ~1575 same antipattern but ID from DB |
+| **P-3 / P-11** | Removed false “ungrouped OR” on partner Invoice tab (OR **is** grouped); fee-join inflation remains |
+| **FE-4** | Narrowed residual: default Tom Select templates already emit HTML; risk is custom plain-text `render` |
+| **N-1** | Split: initial header badge OK; AJAX poll returns total not unseen |
+| **CA-2** | Downgraded practical risk — grant create/approve always sets `ends_at` |
+| **S-1** | Added exact StaffController arg + double mismatch (values vs keys; string vs module id) |
+| **ACT-1** | Noted `FIXES_APPLIED_assigned_by_me.md` did **not** fix XSS |
+| **NEW** | SMS webhooks unauthenticated; Audit logs login-only (same class as Reports) |
 
 ---
 
@@ -12,23 +31,24 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 
 ### Critical
 
-#### C-1. Client merge with no authorization or transaction
+#### C-1. Client merge with no visibility check or transaction
 - **Files:** `app/Http/Controllers/Admin/Client/ClientMergeController.php` (~25–157); `routes/clients.php` (~219)
-- **What happens:** Any authenticated staff can POST `merge_from` / `merge_into`, re-point activities/notes/applications/documents/invoices, and soft-delete one admin row. No `canEditClient` / `StaffClientVisibility` check. No DB transaction — partial merge on failure.
+- **What happens:** Any **logged-in** staff (`auth:admin`) can POST `merge_from` / `merge_into`, re-point activities/notes/applications/documents/invoices, and soft-delete one admin row. No `canEditClient` / `StaffClientVisibility` check. No `DB::transaction` — partial merge on failure.
 - **Reproduce:** As restricted staff, POST `/merge_records` with two arbitrary client IDs.
-- **Root cause:** Merge moved from legacy without auth or transactional safety.
+- **Root cause:** Merge moved from legacy without authorization or transactional safety.
+- **Review note:** Not “unauthenticated” — login middleware is present.
 
 #### C-2. Document endpoints lack client visibility checks (IDOR)
 - **Files:** `app/Http/Controllers/Admin/Client/ClientDocumentController.php` — `uploaddocument` (~1673), `deletedocs` (~1846), `download_document` (~697), `preview_document` (~727)
-- **What happens:** Upload/delete/download/preview operate on any `client_id` / document without verifying staff may access that client.
+- **What happens:** Upload/delete/download/preview operate on any `client_id` / document without verifying staff may access that client. `ClientAuthorization` may be imported but is unused on these paths.
 - **Reproduce:** Staff A (not allocated to client B) POSTs upload or GETs download for client B’s document.
-- **Root cause:** No `ClientAuthorization` / `StaffClientVisibility`.
+- **Root cause:** No `canViewClient` / `canEditClient` on document endpoints.
 
 #### C-3. Missing controller methods for registered routes
 - **Files:** `routes/clients.php` (111–112); `app/Http/Controllers/Admin/Client/ClientApplicationController.php` (methods absent)
 - **What happens:** `GET /convertapplication` and `GET /deleteservices` resolve to methods that **do not exist** → 500 / “method does not exist”.
 - **Reproduce:** Hit those URLs from client detail application UI (if wired).
-- **Root cause:** Routes registered during refactor; methods never migrated.
+- **Root cause:** Routes registered during refactor; methods never migrated. Controller only has `saveapplication` + `getapplicationlists`.
 
 #### C-4. Legacy phone verification validates against non-existent `clients` table
 - **Files:** `app/Http/Controllers/Admin/Client/PhoneVerificationController.php` (~26–27, 45–46)
@@ -43,14 +63,14 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 - **What happens:** UI sends `rating`; controller never reads request fields, saves unchanged row, logs fake “updated client status”, returns success. Column no longer exists anyway.
 - **Reproduce:** Click status/rating on client detail → success toast, no DB change.
 
-#### C-6. Client/Lead type toggle broken (route param not bound)
-- **Files:** `routes/clients.php` (~80) `{type}`; `ClientController.php` `changetype(..., $slug)` (~1215); `resources/views/Admin/clients/detail.blade.php` (~135–136)
-- **What happens:** Laravel binds `{type}` by name; method param is `$slug` → stays null → `$obj->type = $slug` clears type while showing success.
-- **Reproduce:** Client detail → click Client/Lead badge toggle.
+#### C-6. ~~Client/Lead type toggle broken (route param not bound)~~ — **RETRACTED**
+- **Original claim:** Route `{type}` vs method param `$slug` → `$slug` stays null → type cleared.
+- **Why wrong:** On Laravel 13, after `Request` DI, remaining route params are passed **by position** (`array_values`). For `changetype(Request $request, $id, $slug)`, `{id}` → `$id` and `{type}` → `$slug`. Toggle works; rename is clarity-only.
+- **Evidence:** `routes/clients.php` (~80); `ClientController.php` `changetype` (~1215); live positional bind behaviour.
 
-#### C-7. Notes CRUD without client access checks (IDOR)
+#### C-7. Notes CRUD without client visibility checks (IDOR)
 - **Files:** `ClientNoteController.php` — `createnote`, `getnotedetail`, `viewnotedetail`, `deletenote`, `pinnote`, `getnotes`
-- **What happens:** Any authenticated user can create/read/delete/pin notes for any `client_id` / `note_id`.
+- **What happens:** Any **logged-in** staff can create/read/delete/pin notes for any `client_id` / `note_id` (login auth present; no `canViewClient` / `canEditClient`).
 
 #### C-8. Email verification & contact fetch bypass allocation (IDOR)
 - **Files:** `ClientMessagingController.php` — `updateemailverified`, `emailVerify`, `fetchClientContactNo`
@@ -68,10 +88,12 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 - **Files:** `ClientApplicationController.php` — `saveapplication`, `getapplicationlists`
 - **What happens:** Create applications for any `client_id`; `explode('_', partner_branch)` can undefined-index; missing workflow stage → null deref on `$workflowstage->name`.
 
-#### C-12. Soft-deleted / merged clients still appear in listings
-- **Files:** `app/Traits/ClientQueries.php` (filters `whereNull('is_deleted')` only); merge sets `is_deleted => 1`; permanent delete may use timestamp
-- **What happens:** Merged/deleted records can still appear on `/clients` and `/archived` depending on value semantics.
-- **Contrast:** LeadController correctly uses `whereNull OR = 0`.
+#### C-12. Soft-delete filter semantics inconsistent with LeadController
+- **Files:** `app/Traits/ClientQueries.php` (`whereNull('is_deleted')` only); `ClientMergeController` sets `is_deleted => 1`; LeadController uses `whereNull OR = 0`
+- **Corrected behaviour:**
+  - Merge sets `is_deleted = 1` → **excluded** by `whereNull` (merged rows do **not** still appear solely because of `=1`).
+  - Real bug: ClientQueries also excludes rows with `is_deleted = 0` (treated as “deleted” incorrectly), while LeadController keeps them. Permanent-delete / timestamp semantics may still diverge.
+- **Root cause:** Inconsistent `is_deleted` null/`0`/`1`/timestamp conventions across modules.
 
 #### C-13. Clients index includes leads (no default type filter)
 - **Files:** `ClientQueries.php` `getBaseClientQuery()`; `clients/index.blade.php` shows type badge
@@ -178,10 +200,12 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 ### High
 
 #### P-2. Net Claim (type 1) due ignores prior payments
-- **File:** `PartnersController.php` (~1336–1337) — `$totaldue = $total_fee - $coom_amt` without subtracting `$amount_rec`.
+- **File:** `PartnersController.php` (~1336–1337) — `$totaldue = $total_fee - $coom_amt` without subtracting `$amount_rec`. Payment store uses `$feepaid - $amount_rec`.
 
 #### P-3. Partner Invoice tab summary totals inflated
-- **File:** `partners/detail.blade.php` (~934–957) — `leftJoin` all `application_fee_options` rows without latest-fee constraint; ungrouped OR on stages multiplies totals.
+- **File:** `partners/detail.blade.php` (~934–957)
+- **What happens:** `leftJoin` all `application_fee_options` rows without “latest fee only” (`MAX(id)`) constraint → multiple fee snapshots per application multiply Total Projected Fee / Commission totals.
+- **Review note:** Stage ORs **are** wrapped in `where(function …)` — do **not** blame ungrouped OR here. Other partner student queries correctly use latest-fee logic.
 
 #### P-4. Student tab export ignores table search
 - **File:** `public/js/pages/admin/partner-detail/datatable-handlers.js` (~441–461) — uses client `api.search()` but Student tab is **serverSide**; export dumps unfiltered data.
@@ -196,7 +220,9 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 #### P-8. Accounts tab export search uses `id ILIKE` (fragile)
 #### P-9. Cached staff dropdown stale for 1 hour (`partner_detail_staff_assignees_v2`)
 #### P-10. Column visibility toggle resets after DataTables redraw
-#### P-11. Partner invoice tab stage filter uses ungrouped OR
+
+#### ~~P-11. Partner invoice tab stage filter uses ungrouped OR~~ — **RETRACTED**
+- Stage filter in Invoice tab summary **is** grouped (see P-3). Removed as duplicate/false claim.
 
 ---
 
@@ -205,7 +231,7 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 ### Critical
 
 #### A-1. Business agent import crashes
-- **File:** `AgentController.php` (~301–307) — `Excel::import(...)` with **no** `use Maatwebsite\Excel\Facades\Excel` → fatal “Class Excel not found”.
+- **File:** `AgentController.php` (~301–307) — `Excel::import(...)` with **no** `use Maatwebsite\Excel\Facades\Excel` and no `Excel` alias in `config/app.php` → fatal “Class Excel not found”. Package is in `composer.json` but FQCN/`use` still required.
 - **Reproduce:** Agents → Import Business → upload CSV → 500.
 
 ### High
@@ -227,17 +253,16 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 ### Critical
 
 #### APP-1. Finalize page is a copy of Overdue page
-- **File:** `resources/views/Admin/applications/finalize.blade.php` — title/h4 still say **“All Overdue Applications”**.
+- **File:** `resources/views/Admin/applications/finalize.blade.php` — `@section('title', 'Applications overdue')` and `<h4>All Overdue Applications</h4>`.
 
 #### APP-2. `updatestage` crashes at last workflow stage
 - **File:** `ApplicationsController.php` (~128–169) — no guard when `$workflowstage` / `$nextid` null → `$nextid->name` throws.
 
-#### APP-3. Application checklist upload SQL injection
-- **File:** `ApplicationsController.php` (~1470, also ~1575)
-```php
-DB::select("SELECT COUNT(DISTINCT list_id) AS cnt FROM application_documents where application_id = '$application_id'");
-```
-- **Root cause:** Unescaped `$application_id` interpolated into raw SQL.
+#### APP-3. Application checklist upload SQL injection / raw SQL antipattern
+- **File:** `ApplicationsController.php`
+  - **~1470 (Critical):** `$application_id = $request->application_id` interpolated raw into `DB::select("… application_id = '$application_id'")` — attacker-controlled.
+  - **~1575 (Medium):** Same string interpolation, but `$application_id` comes from `$appdoc->application_id` (DB integer after `note_id` lookup) — unsafe pattern, not classic request SQLi.
+- **Fix direction (not applied):** cast `(int)` or use parameter bindings.
 
 ### High
 
@@ -273,20 +298,33 @@ DB::select("SELECT COUNT(DISTINCT list_id) AS cnt FROM application_documents whe
 #### INV-1. Client invoice list (`getinvoices`) due calculation broken
 - **File:** `InvoiceController.php` (~507–513)
 ```php
-if ($type == 1) { $totaldue = $total_fee - $coom_amt; }  // no payment subtract
-if ($type == 2) { $totaldue = $netamount - $amount_rec; } // wrong base for Gross
-else { $totaldue = $netamount - $amount_rec; }             // overwrites type 1 & 2
+if ($invoicelist->type == 1) {
+    $totaldue = $total_fee - $coom_amt;        // missing -$amount_rec
+}
+if ($invoicelist->type == 2) {
+    $totaldue = $netamount - $amount_rec;      // wrong base (should be coom_amt)
+} else {
+    $totaldue = $netamount - $amount_rec;      // else bound to 2nd if only → overwrites TYPE 1
+}
 ```
+- **Corrected analysis:**
+  - Type **1**: first block sets due, then `else` of second `if` **overwrites** it → `netamount - amount_rec` (wrong).
+  - Type **2**: second `if` true → else skipped; still wrong base vs store (`coom_amt - amount_rec`).
+  - Other types: else applies.
 - **Reproduce:** Client detail → invoices → Make Payment due wrong for Net/Gross claims.
-- **Contrast:** Correct formulas exist in `invoicepaymentstore` (~399–405).
+- **Contrast:** Correct formulas in `invoicepaymentstore` (~399–405).
 
 ### High
 
 #### INV-2. `getinvoices` loads workflow by wrong ID
-- **File:** `InvoiceController.php` (~488–490) — `Workflow::where('id', $invoicelist->application_id)` uses application ID as workflow ID.
+- **File:** `InvoiceController.php` (~488–490) — after loading Application, still does `Workflow::where('id', $invoicelist->application_id)` (application ID as workflow ID). Should use `$applicationdata->workflow`.
 
-#### INV-3. Commission report duplicates rows and bad stage OR
-- **File:** `ClientReceiptController.php` (~737–745) — join all fee options; ungrouped stage OR.
+#### INV-3. Commission report duplicates rows + ungrouped stage OR footgun
+- **File:** `ClientReceiptController.php` `getcommissionreport` (~737–745)
+- **What happens:**
+  - `leftJoin application_fee_options` without latest-fee filter → duplicate students / inflated columns.
+  - Stage filter is `where(…).orWhere(…).orWhere(…)` **without** a grouping closure. Currently those are the only filters (so results happen to match stages), but any future `where partner_id = …` etc. added alongside will leak wrong rows.
+- **Contrast:** Partner Invoice tab (P-3) **does** group its OR correctly.
 
 ### Medium
 
@@ -308,8 +346,9 @@ else { $totaldue = $netamount - $amount_rec; }             // overwrites type 1 
 
 #### E-1. College compose crashes on send
 - **Files:** `AdminController.php` `sendmail` (~1716–1728); `email-handlers.js` (~362)
-- **What happens:** College To entry uses email address as Tom Select `id`. Loop does `Admin::where('id', $l)` → null → fatal on `$client->first_name`.
+- **What happens:** College To entry uses email address as Tom Select `id` (`buildClientRecipientEntry(cEmail, cName, cEmail, 'College')`). Loop does `Admin::where('id', $l)` → null → fatal on `$client->first_name`.
 - **Reproduce:** Client detail → Applications → Compose email to college → Send.
+- **Note:** `resolveRecipientsToEmails()` already accepts `@` addresses for storage; the send loop does not.
 
 #### E-2. Multi-recipient compose sends only to first recipient
 - **File:** `AdminController.php` (~1819–1826) — after first successful send, **returns immediately** inside the foreach. Remaining recipients never get mail.
@@ -326,7 +365,8 @@ else { $totaldue = $netamount - $amount_rec; }             // overwrites type 1 
 - **Files:** Controller docblock lists `sendmsg`; JS opens `#sendmsgmodal` / form `sendmsg`; **no method or route** found.
 
 #### E-6. Elite inbound webhook open when secret unset
-- **File:** `EliteEmailController.php` `assertInboundSecret` (~385–398) — empty secret → **no auth**; anyone can inject `elite_emails`.
+- **File:** `EliteEmailController.php` `assertInboundSecret` (~385–398); `config/crm.php` default `env('EDUCATION_ELITE_INBOUND_SECRET', '')`
+- **What happens:** Empty secret → early `return` (no auth); anyone can inject `elite_emails`.
 
 ### Medium
 
@@ -403,7 +443,8 @@ else { $totaldue = $netamount - $amount_rec; }             // overwrites type 1 
 ### High
 
 #### ACT-1. Assigned-by-me XSS / broken HTML via unescaped description
-- **File:** `resources/views/Admin/action/assigned_by_me.blade.php` (~112–117) — `data-content` and raw `echo $list->description` without `e()`.
+- **File:** `resources/views/Admin/action/assigned_by_me.blade.php` (~112–117) — `data-content="'.$full_description.'"` and raw `echo $list->description` without `e()`.
+- **Review note:** `FIXES_APPLIED_assigned_by_me.md` fixed popover ID scoping / complete flow — **not** XSS escaping. Residual XSS still live.
 
 ### Medium
 
@@ -427,8 +468,12 @@ else { $totaldue = $netamount - $amount_rec; }             // overwrites type 1 
 ### Critical
 
 #### S-1. `checkAuthorizationAction` incompatible with Staff Role UI
-- **Files:** `Controller.php` (~236–256); used by `StaffController` / `StaffroleController`
-- **What happens:** Roles store JSON like `{"20":"on"}`. Auth check does `in_array('user_management', $decoded)` — values are `"on"`, never controller names → **every non–role-1 user treated unauthorized** for Staff create/edit and Staff Role CRUD.
+- **Files:** `Controller.php` (~236–256); `StaffController` / `StaffroleController`
+- **What happens (double mismatch):**
+  1. Roles UI stores `module_access` as JSON object keys → values like `{"3":"on","20":"on"}`.
+  2. StaffController calls `$this->checkAuthorizationAction('user_management', …)`.
+  3. Check does `in_array($controller, $decoded)` on **values** (`"on"`), never keys, and never maps `'user_management'` → module id **3**.
+  4. Result: every **non–role-1** user is treated unauthorized for Staff create/edit and Staff Role CRUD (role 1 bypasses).
 - **Contrast:** `ClientAuthorization` correctly uses `array_key_exists($moduleId, …)`.
 
 ### High
@@ -456,7 +501,11 @@ else { $totaldue = $netamount - $amount_rec; }             // overwrites type 1 
 ### High
 
 #### R-1. No authorization on ReportController
-- **File:** `ReportController.php`; routes `web.php` (~527–539) — any `auth:admin` user can hit report endpoints regardless of module flags.
+- **File:** `ReportController.php`; routes `web.php` (~527–539) — any `auth:admin` user can hit report endpoints regardless of module flags (UI modules 62–69 unused here).
+
+#### R-4. Audit logs index/export login-only (same class as R-1)
+- **Files:** `AuditLogController.php` (constructor `auth:admin` only); `routes/web.php` (~523–524) `/audit-logs`, `/audit-logs/export`
+- **What happens:** Any logged-in staff can view/export staff login logs; no module/super-admin gate.
 
 ### Medium
 
@@ -474,7 +523,7 @@ else { $totaldue = $netamount - $amount_rec; }             // overwrites type 1 
 ### Critical
 
 #### AC-1. Destructive Admin Console ops: `auth:admin` only
-- **Files:** `routes/adminconsole.php`; `RecentlyModifiedClientsController.php` — `toggleArchive`, `bulkArchive`, `deleteDocument`, S3 upload/delete — no role/module/super-admin gate.
+- **Files:** `routes/adminconsole.php`; `RecentlyModifiedClientsController.php` — `toggleArchive`, `bulkArchive`, `deleteDocument`, S3 upload/delete — no role/module/super-admin gate (route group and controller middleware both only `auth:admin`).
 
 ### High
 
@@ -504,12 +553,15 @@ else { $totaldue = $netamount - $amount_rec; }             // overwrites type 1 
 - **Files:** `AccessGrantController.php` `quick` (~358–402); `CrmAccessService.php` (~102–108)
 - **What happens:** Staff with `quick_access_enabled` can POST grant for any `admins.id` without the eligibility check used by `supervisor()`.
 
-#### CA-2. Active grants require `ends_at` not null (may exclude open-ended grants)
-- **File:** `StaffClientVisibility.php` (~212–213) — `whereNotNull('cag.ends_at')->where('cag.ends_at', '>', $now)`
-
 ### Medium
 
 #### CA-3. Notification URLs depend on `APP_URL` (`CrmAccessService` uses `url('/crm/access/...')`)
+
+### Low
+
+#### CA-2. Active grants require `ends_at` not null — **low practical risk**
+- **File:** `StaffClientVisibility.php` (~212–213) — `whereNotNull('cag.ends_at')->where('cag.ends_at', '>', $now)`
+- **Review note:** Quick grant + approve paths **always set** `ends_at`. Pending grants with null `ends_at` are correctly excluded until approved. Only hurts manually inserted open-ended rows. Downgraded from High.
 
 ---
 
@@ -535,8 +587,9 @@ else { $totaldue = $netamount - $amount_rec; }             // overwrites type 1 
 
 ### High
 
-#### N-1. Bell count is total notifications, not unseen
-- **Files:** `AdminController.php` (~123–140) — `receiver_status = 0` filter commented out; `legacy-init.js` treats value as unseen → badge stays high forever.
+#### N-1. Bell count poll returns total notifications, not unseen
+- **Files:** `AdminController.php` `fetchnotification` (~123–140) — `receiver_status = 0` filter **commented**; returns total as `unseen_notification`; `legacy-init.js` treats value as unseen → badge can stay high / never clear when count is 0.
+- **Review note:** Initial header badge in `header.blade.php` **does** filter `receiver_status = 0`. Dual path: first paint OK, poll wrong.
 
 ### Medium
 
@@ -556,6 +609,7 @@ else { $totaldue = $netamount - $amount_rec; }             // overwrites type 1 
 
 #### FE-1. `APP_DEBUG` defaults to `true`
 - **File:** `config/app.php` (~42) — `'debug' => env('APP_DEBUG', true)` — missing env exposes stack traces / sensitive data.
+- **Review note:** No `.env.example` in repo to force a safe default; Laravel convention is default `false`.
 
 ### High
 
@@ -568,12 +622,14 @@ else { $totaldue = $netamount - $amount_rec; }             // overwrites type 1 
 
 ### Medium
 
-#### FE-4. Tom Select `querySelector` crash for names like `"New ."` — **partially fixed**
-- **Fixed path:** `tomselect-init.js` `normalizeTemplateOutput` / `wrapPlainTextForTomSelect` when custom templates are passed; RecipientSelect uses `wrapTomSelectLabel`.
-- **Still vulnerable:** Generic `initTomSelect()` / `initModalTomSelects()` without default safe render wrappers; any plain-text option text that looks like invalid CSS (space + `.`, `#`, etc.) can still throw `Document.querySelector: '…' is not a valid selector`.
-- **Also:** `popover.js` custom templates; plain `<select class="tomselect">` assignee fields.
+#### FE-4. Tom Select `querySelector` crash for names like `"New ."` — **mostly mitigated**
+- **Fixed:** `tomselect-init.js` `normalizeTemplateOutput` / `wrapPlainTextForTomSelect` when legacy `templateResult` / `templateSelection` are mapped; RecipientSelect uses `wrapTomSelectLabel`.
+- **Default path safe:** Tom Select 2.4.x built-in `option`/`item` templates already return HTML containing `<`, so plain `initTomSelect(el)` / `initModalTomSelects` are **not** generally vulnerable to `"New ."`.
+- **Residual risk:** Custom `render` callbacks that return **plain text without `<`** and bypass `normalizeTemplateOutput` (e.g. some popover paths). Original Compose Email crash was this class of bug.
 
 #### FE-5. `recipient-select.js` XSS in HTML builder path (`buildRecipientHtml`)
+- Confirmed: `wrapTomSelectLabel` escapes; `buildRecipientHtml` still concatenates `name`/`email`/`status` raw when `repo.html` / entry builder path is used.
+
 #### FE-6. `modern-search.js` depends on global `site_url` (wrong host if unset/mismatched)
 
 ### Low
@@ -585,26 +641,51 @@ else { $totaldue = $netamount - $amount_rec; }             // overwrites type 1 
 
 ---
 
+## 18. SMS Webhooks (new)
+
+### High
+
+#### SMS-1. Provider webhooks have no signature / shared-secret verification
+- **Files:** `routes/sms.php` (~15–19) — `webhooks/sms/*` under `web` middleware only (no auth); `SmsWebhookController.php`
+- **What happens:** Twilio/Cellcast status endpoints update `SmsLog` by `provider_message_id` with **no** Twilio signature validation or shared secret. Anyone who can guess/obtain a provider message id can spoof delivery status (or DoS update loops). Incoming handlers currently only log + return OK.
+- **Reproduce:** POST `/webhooks/sms/twilio/status` with arbitrary `MessageSid` + `MessageStatus`.
+
+---
+
 ## Cross-cutting themes (for prioritization)
 
-1. **Authorization / IDOR** — Many Client/* AJAX controllers, documents, notes, actions, ongoing sheet mutations, reports, teams/branches, Admin Console destructive ops lack visibility/module checks.
+1. **Authorization / IDOR** — Many Client/* AJAX controllers, documents, notes, actions, ongoing sheet mutations, reports, audit logs, teams/branches, Admin Console destructive ops lack visibility/module checks.
 2. **Money math** — Invoice due formulas diverge between list UI (`getinvoices`, partner Accounts tab) and payment store; fee joins inflate partner/commission totals.
 3. **Broken/missing endpoints** — Convert lead, convert/delete application routes, agent Excel import, SMS sendmsg, finalize view copy.
 4. **Email send loop** — College compose crash; multi-recipient early return; placeholder mutation.
 5. **APP_URL / URL::to** — Absolute URLs break when browser host ≠ `APP_URL`.
-6. **SQL injection** — Raw string interpolation in application checklist upload count.
+6. **SQL injection** — Raw string interpolation in application checklist upload count (request path).
 7. **Document integrity** — Signing fallback copies unsigned PDF; download accepts arbitrary S3 links.
+8. **Unauthenticated ingress** — Elite inbound when secret empty; SMS webhooks without signature checks.
 
 ---
 
 ## Suggested fix priority (do not implement in this pass)
 
-1. APP-3 SQL injection; E-1/E-2 email send; INV-1 + P-1 invoice due math  
+1. APP-3 (~1470) SQL injection; E-1/E-2 email send; INV-1 + P-1 invoice due math  
 2. C-1/C-2/C-7–C-11 IDOR; D-3 document download auth; AC-1 Admin Console gates; S-1 role auth mismatch  
-3. L-1 convert-to-client; C-3/C-6 missing methods & changetype; A-1 agent import; APP-1/APP-2 finalize + stage crash  
-4. D-4 signing unsigned PDF; E-6 Elite webhook auth; FE-1 APP_DEBUG default  
-5. F-1 followup consultant hardcoding; FE-4 Tom Select default safe render; N-1 notification badge  
+3. L-1 convert-to-client; C-3 missing application routes; A-1 agent import; APP-1/APP-2 finalize + stage crash  
+4. D-4 signing unsigned PDF; E-6 Elite webhook auth; SMS-1 webhook signatures; FE-1 APP_DEBUG default  
+5. F-1 followup consultant hardcoding; FE-5 recipient XSS; N-1 notification poll badge  
 
 ---
 
-*End of audit. Generated 2026-07-26. No code changes in this document pass.*
+## Retracted / corrected claims (quick index)
+
+| ID | Verdict |
+|----|---------|
+| C-6 | **False positive** — Laravel 13 positional bind |
+| C-12 (original “merged still appear”) | **Wrong for `is_deleted=1`** — see corrected wording |
+| P-11 | **Retracted** — OR is grouped on partner Invoice tab |
+| INV-1 “overwrites type 1 & 2” | **Partial** — overwrites type 1 only |
+| FE-4 “generic initTomSelect still vulnerable” | **Overstated** — defaults already emit HTML |
+| CA-2 as High | **Downgraded** — grants always get `ends_at` in current paths |
+
+---
+
+*End of audit. Generated 2026-07-26. Deep-reviewed 2026-07-26 against codebase (Laravel 13). No application code fixes in this document pass.*
