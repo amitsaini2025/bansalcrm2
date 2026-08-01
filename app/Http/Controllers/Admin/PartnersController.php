@@ -4720,6 +4720,15 @@ class PartnersController extends Controller
             'enrolment_type' => 'nullable|string',
         ]);
 
+        if (! \App\Models\Application::canUpdateEnrolmentAndCompanyFields()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Only Super Admin and Admin can update Enrolment Type.',
+                'studentId' => '',
+                'enrolmentTypeHtml' => '',
+            ]);
+        }
+
         $enrolmentType = $request->input('enrolment_type');
         if ($enrolmentType !== null && $enrolmentType !== '' && !array_key_exists($enrolmentType, \App\Models\Application::enrolmentTypeOptions())) {
             return response()->json([

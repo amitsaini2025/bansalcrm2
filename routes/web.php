@@ -412,6 +412,7 @@ Route::get('/getapplicationnotes', [ApplicationsController::class, 'getapplicati
 Route::post('/application-sendmail', [ApplicationsController::class, 'applicationsendmail']);
 Route::get('/application/updateintake', [ApplicationsController::class, 'updateintake']);
 Route::post('/application/update-enrolment-type', [ApplicationsController::class, 'updateEnrolmentType'])->name('application.updateEnrolmentType');
+Route::post('/application/update-company-name', [ApplicationsController::class, 'updateCompanyName'])->name('application.updateCompanyName');
 Route::get('/application/updatedates', [ApplicationsController::class, 'updatedates']);
 Route::get('/application/updateexpectwin', [ApplicationsController::class, 'updateexpectwin']);
 Route::get('/application/getapplicationbycid', [ApplicationsController::class, 'getapplicationbycid']);

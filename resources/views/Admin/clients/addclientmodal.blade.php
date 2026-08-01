@@ -64,6 +64,20 @@
 						</div>
 						<div class="col-12 col-md-12 col-lg-12">
 							<div class="form-group">
+								<label for="company_name">Company Name <span class="span_req">*</span></label>
+								<select data-valid="required" class="form-control" id="company_name" name="company_name">
+									<option value="">Please Select Company Name</option>
+									@foreach(\App\Models\Application::companyNameOptions() as $value => $label)
+										<option value="{{ $value }}">{{ $label }}</option>
+									@endforeach
+								</select>
+								<span class="custom-error company_name_error" role="alert">
+									<strong></strong>
+								</span>
+							</div>
+						</div>
+						<div class="col-12 col-md-12 col-lg-12">
+							<div class="form-group">
 								<div class="form-check">
 									<input class="form-check-input" type="checkbox" name="send_checklist_after" id="send_checklist_after" value="1">
 									<label class="form-check-label" for="send_checklist_after">Send Checklist</label>

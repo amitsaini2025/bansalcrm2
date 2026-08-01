@@ -85,7 +85,9 @@ jQuery(document).ready(function($){
 
     function buildEnrolmentTypeSelect(applicationId, currentValue, cssClass) {
         currentValue = parseEnrolmentTypeValue(currentValue);
-        var html = '<select class="' + cssClass + '" data-application-id="' + applicationId + '" data-enrolment-type="' + currentValue + '">';
+        var canEdit = !(typeof PageConfig !== 'undefined' && PageConfig.canEditApplicationEnrolmentCompanyFields === false);
+        var disabledAttr = canEdit ? '' : ' disabled="disabled"';
+        var html = '<select class="' + cssClass + '" data-application-id="' + applicationId + '" data-enrolment-type="' + currentValue + '"' + disabledAttr + '>';
         html += '<option value=""' + (currentValue === '' ? ' selected="selected"' : '') + '>Select</option>';
 
         Object.keys(enrolmentTypeLabels).forEach(function (value) {
@@ -650,9 +652,17 @@ jQuery(document).ready(function($){
     }
 
     $(document).on('change', '.enrolment-type-field, .enrolment-type-field1', function () {
-        var applicationId = $(this).data('application-id');
-        var newValue = $(this).val();
-        var tableType = $(this).hasClass('enrolment-type-field1') ? 'inactive' : 'active';
+        var $select = $(this);
+        if ($select.prop('disabled')) {
+            return;
+        }
+        var applicationId = $select.data('application-id');
+        var newValue = $select.val();
+        var tableType = $select.hasClass('enrolment-type-field1') ? 'inactive' : 'active';
+
+        if ($('.popuploader').length) {
+            $('.popuploader').show();
+        }
 
         $.ajax({
             url: App.getUrl('partnersSaveStudentEnrolmentType'),
@@ -677,6 +687,11 @@ jQuery(document).ready(function($){
             error: function (error) {
                 console.error('Error saving enrolment type:', error);
                 $('.custom-error-msg').html('<span class="alert alert-danger">Failed to update enrolment type. Please try again.</span>');
+            },
+            complete: function () {
+                if ($('.popuploader').length) {
+                    $('.popuploader').hide();
+                }
             }
         });
     });

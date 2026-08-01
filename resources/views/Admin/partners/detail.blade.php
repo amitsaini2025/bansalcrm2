@@ -1834,6 +1834,7 @@ use App\Http\Controllers\Controller;
         getApplicationsLogs: '{{ url("/get-applications-logs") }}',
         getApplicationDetail: '{{ url("/getapplicationdetail") }}',
         updateApplicationEnrolmentType: '{{ url("/application/update-enrolment-type") }}',
+        updateApplicationCompanyName: '{{ url("/application/update-company-name") }}',
         updateApplicationIntake: '{{ url("/application/updateintake") }}',
         updateStage: '{{ url("/updatestage") }}',
         updateBackStage: '{{ url("/updatebackstage") }}',
@@ -1864,6 +1865,7 @@ use App\Http\Controllers\Controller;
     PageConfig.defaultCountryCode = '{{ \App\Helpers\PhoneHelper::getDefaultCountryCode() }}';
     PageConfig.contractStart = '{{ @$fetchedData->contract_start ?? "" }}';
     PageConfig.contractExpiry = '{{ @$fetchedData->contract_expiry ?? "" }}';
+    PageConfig.canEditApplicationEnrolmentCompanyFields = {{ \App\Models\Application::canUpdateEnrolmentAndCompanyFields() ? 'true' : 'false' }};
     
     // ============================================================================
     // PARTNER AGREEMENTS HANDLER

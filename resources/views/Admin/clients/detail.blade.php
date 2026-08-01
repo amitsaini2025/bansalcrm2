@@ -1166,6 +1166,7 @@ use App\Http\Controllers\Controller;
 													<th>Start Date</th>
 													<th>End Date</th>
 													<th>Enrolment Type</th>
+													<th>Company Name</th>
 												</tr>
 											</thead>
 											<tbody class="applicationtdata">
@@ -1219,6 +1220,7 @@ use App\Http\Controllers\Controller;
 													<td><?php if(@$alist->start_date != ''){ echo date('d/m/Y', strtotime($alist->start_date)); } ?></td>
 													<td><?php if(@$alist->end_date != ''){ echo date('d/m/Y', strtotime($alist->end_date)); } ?></td>
 													<td>{{ \App\Models\Application::enrolmentTypeLabel($alist->enrolment_type ?? null) ?: '—' }}</td>
+													<td>{{ \App\Models\Application::companyNameLabel($alist->company_name ?? null) ?: '—' }}</td>
 												</tr>
 												<?php
 											}
@@ -1228,7 +1230,7 @@ use App\Http\Controllers\Controller;
 											<?php
 											}else{ ?>
 												<tr>
-													<td style="text-align:center;" colspan="6">
+													<td style="text-align:center;" colspan="8">
 														No Record found
 													</td>
 												</tr>
@@ -2788,6 +2790,7 @@ use App\Http\Controllers\Controller;
         getApplicationsLogs: '{{ url("/get-applications-logs") }}',
         getApplicationDetail: '{{ url("/getapplicationdetail") }}',
         updateApplicationEnrolmentType: '{{ url("/application/update-enrolment-type") }}',
+        updateApplicationCompanyName: '{{ url("/application/update-company-name") }}',
         getApplicationNotes: '{{ url("/getapplicationnotes") }}',
         updateApplicationDates: '{{ url("/application/updatedates") }}',
         showProductFee: '{{ url("/showproductfee") }}',
@@ -2801,6 +2804,7 @@ use App\Http\Controllers\Controller;
     PageConfig.clientEmail = {!! json_encode($fetchedData->email ?? '') !!};
     PageConfig.clientType = 'client';
     PageConfig.canDeleteActivityLog = {{ Auth::user()->role == 1 ? 'true' : 'false' }};
+    PageConfig.canEditApplicationEnrolmentCompanyFields = {{ \App\Models\Application::canUpdateEnrolmentAndCompanyFields() ? 'true' : 'false' }};
 </script>
 
 @if($showGoogleReviewReminderModal ?? false)

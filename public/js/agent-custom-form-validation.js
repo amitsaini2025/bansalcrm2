@@ -1529,6 +1529,7 @@ $('#add_application').modal('hide');
 									$(".add_appliation #product").val('').trigger('change');
 								}
 			$(".add_appliation #enrolment_type").val('');
+			$(".add_appliation #company_name").val('');
 								if(obj.status){
 									$('.add_appliation').modal('hide');
 								$('.custom-error-msg').html('<span class="alert alert-success">'+obj.message+'</span>');

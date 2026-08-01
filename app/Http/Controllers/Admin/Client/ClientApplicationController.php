@@ -38,6 +38,13 @@ class ClientApplicationController extends Controller
 			return;
 		}
 
+		$companyName = $request->input('company_name');
+		if (! array_key_exists($companyName, \App\Models\Application::companyNameOptions())) {
+			$response['message'] = 'Please select a Company Name.';
+			echo json_encode($response);
+			return;
+		}
+
 		if(Admin::where('id', $request->client_id)->exists()){
 			$workflow = $request->workflow;
 			$explode = explode('_', $request->partner_branch);
@@ -56,6 +63,7 @@ class ClientApplicationController extends Controller
 			$obj->branch = $branch;
 			$obj->product_id = $product;
 			$obj->enrolment_type = $enrolmentType;
+			$obj->company_name = $companyName;
 			$obj->status = $status;
 			$obj->stage = $stage;
 			$obj->checklist_sheet_status = 'active'; // first-stage sheet: new apps show on Checklist until status is changed
@@ -146,6 +154,7 @@ class ClientApplicationController extends Controller
 				<td><?php if(@$alist->start_date != ''){ echo date('d/m/Y', strtotime($alist->start_date)); } ?></td>
 				<td><?php if(@$alist->end_date != ''){ echo date('d/m/Y', strtotime($alist->end_date)); } ?></td>
 				<td><?php echo e(\App\Models\Application::enrolmentTypeLabel($alist->enrolment_type ?? null) ?: '—'); ?></td>
+				<td><?php echo e(\App\Models\Application::companyNameLabel($alist->company_name ?? null) ?: '—'); ?></td>
 			</tr>
 				<?php
 			}

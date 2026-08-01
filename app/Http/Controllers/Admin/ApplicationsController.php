@@ -508,6 +508,14 @@ class ApplicationsController extends Controller
 			'enrolment_type' => 'nullable|string',
 		]);
 
+		if (! Application::canUpdateEnrolmentAndCompanyFields()) {
+			return response()->json([
+				'status' => false,
+				'message' => 'Only Super Admin and Admin can update Enrolment Type.',
+				'enrolmentType' => '',
+			]);
+		}
+
 		$enrolmentType = $request->input('enrolment_type');
 		if ($enrolmentType !== null && $enrolmentType !== '' && !array_key_exists($enrolmentType, Application::enrolmentTypeOptions())) {
 			return response()->json([
@@ -541,6 +549,57 @@ class ApplicationsController extends Controller
 			'status' => true,
 			'message' => 'Enrolment type updated successfully.',
 			'enrolmentType' => $normalized,
+		]);
+	}
+
+	public function updateCompanyName(Request $request)
+	{
+		$request->validate([
+			'appid' => 'required|integer',
+			'company_name' => 'nullable|string',
+		]);
+
+		if (! Application::canUpdateEnrolmentAndCompanyFields()) {
+			return response()->json([
+				'status' => false,
+				'message' => 'Only Super Admin and Admin can update Company Name.',
+				'companyName' => '',
+			]);
+		}
+
+		$companyName = $request->input('company_name');
+		if ($companyName !== null && $companyName !== '' && !array_key_exists($companyName, Application::companyNameOptions())) {
+			return response()->json([
+				'status' => false,
+				'message' => 'Invalid company name selected.',
+				'companyName' => '',
+			]);
+		}
+
+		$application = Application::find($request->appid);
+		if (!$application) {
+			return response()->json([
+				'status' => false,
+				'message' => 'Application not found. Please try again.',
+				'companyName' => '',
+			]);
+		}
+
+		$application->company_name = ($companyName === '' || $companyName === null)
+			? null
+			: Application::normalizeCompanyName($companyName);
+		$application->save();
+
+		if ($application->partner_id) {
+			PartnersController::forgetPartnerStudentTabCache((int) $application->partner_id);
+		}
+
+		$normalized = Application::normalizeCompanyName($application->company_name);
+
+		return response()->json([
+			'status' => true,
+			'message' => 'Company name updated successfully.',
+			'companyName' => $normalized,
 		]);
 	}
 	

@@ -63,6 +63,20 @@
 							</div>
 						</div>
 						<div class="col-12 col-md-12 col-lg-12">
+							<div class="form-group">
+								<label for="company_name">Company Name <span class="span_req">*</span></label>
+								<select data-valid="required" class="form-control" id="company_name" name="company_name">
+									<option value="">Please Select Company Name</option>
+									@foreach(\App\Models\Application::companyNameOptions() as $value => $label)
+										<option value="{{ $value }}">{{ $label }}</option>
+									@endforeach
+								</select>
+								<span class="custom-error company_name_error" role="alert">
+									<strong></strong>
+								</span>
+							</div>
+						</div>
+						<div class="col-12 col-md-12 col-lg-12">
 							<button onclick="customValidate('applicationform')" type="button" class="btn btn-primary">Save</button>
 							<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
 						</div>

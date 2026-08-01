@@ -94,19 +94,11 @@ $collegeRecipientName = $partnerdetail->partner_name ?? 'College';
 		<p>{{@$workflow->name}}</p>
 	</div>
 	<div class="grid_column">
-		<span>Enrolment Type:</span>
-		<p class="mb-0">
-			{!! \App\Models\Application::enrolmentTypeSelectHtml(
-				(int) $fetchData->id,
-				$fetchData->enrolment_type ?? null,
-				'form-control form-control-sm application-enrolment-type-field'
-			) !!}
-		</p>
-	</div>
-	<div class="grid_column">
 		<span>Current Stage:</span>
 		<p class="text-success curerentstage" style="font-weight: 600;font-size: 14px;">{{@$fetchData->stage}}</p>
 	</div>
+</div>
+<div class="application_grid_col application_grid_col_secondary">
 	<div class="grid_column">
 		<span>Application Id:</span>
 		<p>{{$fetchData->id}}</p>
@@ -122,6 +114,31 @@ $collegeRecipientName = $partnerdetail->partner_name ?? 'College';
 	<div class="grid_column">
 		<span>Last Updated:</span>
 		<p>{{date('Y-m-d', strtotime($fetchData->updated_at))}}</p>
+	</div>
+	<div class="grid_column">
+		<span>Enrolment Type:</span>
+		<p class="mb-0">
+			@php
+				$canEditEnrolmentAndCompany = \App\Models\Application::canUpdateEnrolmentAndCompanyFields();
+			@endphp
+			{!! \App\Models\Application::enrolmentTypeSelectHtml(
+				(int) $fetchData->id,
+				$fetchData->enrolment_type ?? null,
+				'form-control form-control-sm application-enrolment-type-field',
+				! $canEditEnrolmentAndCompany
+			) !!}
+		</p>
+	</div>
+	<div class="grid_column">
+		<span>Company Name:</span>
+		<p class="mb-0">
+			{!! \App\Models\Application::companyNameSelectHtml(
+				(int) $fetchData->id,
+				$fetchData->company_name ?? null,
+				'form-control form-control-sm application-company-name-field',
+				! $canEditEnrolmentAndCompany
+			) !!}
+		</p>
 	</div>
 	<div class="grid_column">
 		<div class="overall_progress">
@@ -146,11 +163,6 @@ $collegeRecipientName = $partnerdetail->partner_name ?? 'College';
 			   </div>
 			</div> 
 		</div>
-	</div>
-	<div class="grid_column last_grid_column">
-		<!--<div class="view_other_detail">
-			<a href="#" class="btn btn-outline-primary">View Other Details</a>
-		</div>-->
 	</div>
 </div>
 <div class="clearfix"></div>
@@ -779,9 +791,22 @@ $collegeRecipientName = $partnerdetail->partner_name ?? 'College';
 		return '/application/update-enrolment-type';
 	}
 
+	function getUpdateCompanyNameUrl() {
+		if (typeof App !== 'undefined' && App.getUrl && App.getUrl('updateApplicationCompanyName')) {
+			return App.getUrl('updateApplicationCompanyName');
+		}
+		return '/application/update-company-name';
+	}
+
 	function syncApplicationEnrolmentTypeSelects() {
 		$('.application-enrolment-type-field').each(function() {
 			$(this).val($(this).attr('data-enrolment-type') || '');
+		});
+	}
+
+	function syncApplicationCompanyNameSelects() {
+		$('.application-company-name-field').each(function() {
+			$(this).val($(this).attr('data-company-name') || '');
 		});
 	}
 
@@ -790,8 +815,15 @@ $collegeRecipientName = $partnerdetail->partner_name ?? 'College';
 
 		$(document).on('change', '.application-enrolment-type-field', function() {
 			var $select = $(this);
+			if ($select.prop('disabled')) {
+				return;
+			}
 			var applicationId = $select.data('application-id');
 			var previousValue = $select.attr('data-enrolment-type') || '';
+
+			if ($('.popuploader').length) {
+				$('.popuploader').show();
+			}
 
 			$.ajax({
 				url: getUpdateEnrolmentTypeUrl(),
@@ -834,12 +866,84 @@ $collegeRecipientName = $partnerdetail->partner_name ?? 'College';
 					if ($('.custom-error-msg').length) {
 						$('.custom-error-msg').html('<span class="alert alert-danger">Failed to update enrolment type. Please try again.</span>');
 					}
+				},
+				complete: function() {
+					if ($('.popuploader').length) {
+						$('.popuploader').hide();
+					}
+				}
+			});
+		});
+	}
+
+	if (!window.__applicationCompanyNameHandlerBound) {
+		window.__applicationCompanyNameHandlerBound = true;
+
+		$(document).on('change', '.application-company-name-field', function() {
+			var $select = $(this);
+			if ($select.prop('disabled')) {
+				return;
+			}
+			var applicationId = $select.data('application-id');
+			var previousValue = $select.attr('data-company-name') || '';
+
+			if ($('.popuploader').length) {
+				$('.popuploader').show();
+			}
+
+			$.ajax({
+				url: getUpdateCompanyNameUrl(),
+				method: 'POST',
+				data: {
+					appid: applicationId,
+					company_name: $select.val(),
+					_token: getCsrfToken()
+				},
+				success: function(response) {
+					if (response && response.status) {
+						$select.attr('data-company-name', response.companyName || '');
+						$select.val(response.companyName || '');
+						if ($('.custom-error-msg').length) {
+							$('.custom-error-msg').html('<span class="alert alert-success">' + response.message + '</span>');
+						}
+						var clientId = (typeof App !== 'undefined' && App.getPageConfig) ? App.getPageConfig('clientId') : null;
+						if (clientId && $('.applicationtdata').length) {
+							var listUrl = (typeof App !== 'undefined' && App.getUrl && App.getUrl('getApplicationLists'))
+								? App.getUrl('getApplicationLists')
+								: '/get-application-lists';
+							$.ajax({
+								url: listUrl,
+								type: 'GET',
+								data: { id: clientId },
+								success: function(html) {
+									$('.applicationtdata').html(html);
+								}
+							});
+						}
+					} else {
+						$select.val(previousValue);
+						if ($('.custom-error-msg').length) {
+							$('.custom-error-msg').html('<span class="alert alert-danger">' + (response ? response.message : 'Failed to update company name') + '</span>');
+						}
+					}
+				},
+				error: function() {
+					$select.val(previousValue);
+					if ($('.custom-error-msg').length) {
+						$('.custom-error-msg').html('<span class="alert alert-danger">Failed to update company name. Please try again.</span>');
+					}
+				},
+				complete: function() {
+					if ($('.popuploader').length) {
+						$('.popuploader').hide();
+					}
 				}
 			});
 		});
 	}
 
 	syncApplicationEnrolmentTypeSelects();
+	syncApplicationCompanyNameSelects();
 })(jQuery);
 </script>
 
