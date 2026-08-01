@@ -357,7 +357,6 @@ Route::get('/agents/create', [AgentController::class, 'create'])->name('agents.c
 Route::get('/agents/import', [AgentController::class, 'import'])->name('agents.import');
 Route::post('/agents/store', [AgentController::class, 'store'])->name('agents.store');
 Route::get('/agent/detail/{id}', [AgentController::class, 'detail'])->name('agents.detail');
-Route::post('/agents/savepartner', [AgentController::class, 'savepartner']);
 Route::get('/agents/edit/{id}', [AgentController::class, 'edit'])->name('agents.edit');
 Route::post('/agents/edit', [AgentController::class, 'edit'])->name('agents.update');
 Route::get('/agents/import/business', [AgentController::class, 'businessimport']);

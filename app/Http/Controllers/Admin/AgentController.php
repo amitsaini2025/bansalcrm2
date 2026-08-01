@@ -270,34 +270,6 @@ class AgentController extends Controller
 		}
 	}
 	
-	public function savepartner(Request $request)
-	{		
-		// NOTE: RepresentingPartner table has been removed - this functionality is disabled
-		return redirect()->back()->with('error', 'This feature has been disabled. RepresentingPartner table has been removed.');
-		
-		//check authorization end
-		/*if ($request->isMethod('post')) 
-		{
-			$requestData 		= 	$request->all();
-			 
-			$obj				= 	new RepresentingPartner; 
-			$obj->partner_id	=	@$requestData['represent_partner'];			
-			$obj->agent_id	=	@$requestData['client_id'];			
-						
-			$saved				=	$obj->save();  
-			
-			if(!$saved)
-			{
-				return redirect()->back()->with('error', Config::get('constants.server_error'));
-			}
-			else
-			{
-				return redirect()->route('agents.detail', ['id' => base64_encode(convert_uuencode(@$requestData['client_id']))])->with('success', 'Partner Added Successfully');
-			}				
-		}*/	 
-	}
-	
-	
 	public function businessimport(Request $request){
 		if ($request->isMethod('post')) 
 		{
