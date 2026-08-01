@@ -244,7 +244,8 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 
 ### Medium
 
-#### A-4. `savepartner` disabled but UI may still expose it (“feature disabled” hard failure)
+#### ~~A-4. `savepartner` disabled but UI may still expose it (“feature disabled” hard failure)~~ — **FIXED**
+- **Fix:** Removed Representing Partners tab/pane from agent detail, Connect Partner modal, `POST /agents/savepartner` route, and `savepartner()` method. (`5388792b`)
 
 ---
 

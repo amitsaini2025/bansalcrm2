@@ -85,7 +85,8 @@ jQuery(document).ready(function($){
 
     function buildEnrolmentTypeSelect(applicationId, currentValue, cssClass) {
         currentValue = parseEnrolmentTypeValue(currentValue);
-        var canEdit = !(typeof PageConfig !== 'undefined' && PageConfig.canEditApplicationEnrolmentCompanyFields === false);
+        var isAdminEditor = !(typeof PageConfig !== 'undefined' && PageConfig.canEditApplicationEnrolmentCompanyFields === false);
+        var canEdit = isAdminEditor || currentValue === '';
         var disabledAttr = canEdit ? '' : ' disabled="disabled"';
         var html = '<select class="' + cssClass + '" data-application-id="' + applicationId + '" data-enrolment-type="' + currentValue + '"' + disabledAttr + '>';
         html += '<option value=""' + (currentValue === '' ? ' selected="selected"' : '') + '>Select</option>';

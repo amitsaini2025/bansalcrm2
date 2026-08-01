@@ -4720,15 +4720,6 @@ class PartnersController extends Controller
             'enrolment_type' => 'nullable|string',
         ]);
 
-        if (! \App\Models\Application::canUpdateEnrolmentAndCompanyFields()) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Only Super Admin and Admin can update Enrolment Type.',
-                'studentId' => '',
-                'enrolmentTypeHtml' => '',
-            ]);
-        }
-
         $enrolmentType = $request->input('enrolment_type');
         if ($enrolmentType !== null && $enrolmentType !== '' && !array_key_exists($enrolmentType, \App\Models\Application::enrolmentTypeOptions())) {
             return response()->json([
@@ -4746,6 +4737,17 @@ class PartnersController extends Controller
                 'message' => 'Application not found. Please try again.',
                 'studentId' => '',
                 'enrolmentTypeHtml' => '',
+            ]);
+        }
+
+        $existing = \App\Models\Application::normalizeEnrolmentType($application->enrolment_type);
+        if (! \App\Models\Application::canEditEnrolmentOrCompanyValue($existing)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Only Super Admin and Admin can update Enrolment Type once it is set.',
+                'studentId' => (string) $application->id,
+                'enrolmentTypeHtml' => '',
+                'enrolmentType' => $existing,
             ]);
         }
 

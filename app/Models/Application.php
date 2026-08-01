@@ -51,6 +51,19 @@ class Application extends BaseModel
         return $user && in_array((int) ($user->role ?? 0), [1, 12], true);
     }
 
+    /**
+     * Super Admin/Admin can always edit.
+     * Other roles may only set a value when the current stored value is empty (first fill).
+     */
+    public static function canEditEnrolmentOrCompanyValue(?string $currentValue, ?object $user = null): bool
+    {
+        if (self::canUpdateEnrolmentAndCompanyFields($user)) {
+            return true;
+        }
+
+        return $currentValue === null || $currentValue === '';
+    }
+
     public static function companyNameLabel(?string $value): string
     {
         if ($value === null || $value === '') {

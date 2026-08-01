@@ -508,14 +508,6 @@ class ApplicationsController extends Controller
 			'enrolment_type' => 'nullable|string',
 		]);
 
-		if (! Application::canUpdateEnrolmentAndCompanyFields()) {
-			return response()->json([
-				'status' => false,
-				'message' => 'Only Super Admin and Admin can update Enrolment Type.',
-				'enrolmentType' => '',
-			]);
-		}
-
 		$enrolmentType = $request->input('enrolment_type');
 		if ($enrolmentType !== null && $enrolmentType !== '' && !array_key_exists($enrolmentType, Application::enrolmentTypeOptions())) {
 			return response()->json([
@@ -531,6 +523,15 @@ class ApplicationsController extends Controller
 				'status' => false,
 				'message' => 'Application not found. Please try again.',
 				'enrolmentType' => '',
+			]);
+		}
+
+		$existing = Application::normalizeEnrolmentType($application->enrolment_type);
+		if (! Application::canEditEnrolmentOrCompanyValue($existing)) {
+			return response()->json([
+				'status' => false,
+				'message' => 'Only Super Admin and Admin can update Enrolment Type once it is set.',
+				'enrolmentType' => $existing,
 			]);
 		}
 
@@ -559,14 +560,6 @@ class ApplicationsController extends Controller
 			'company_name' => 'nullable|string',
 		]);
 
-		if (! Application::canUpdateEnrolmentAndCompanyFields()) {
-			return response()->json([
-				'status' => false,
-				'message' => 'Only Super Admin and Admin can update Company Name.',
-				'companyName' => '',
-			]);
-		}
-
 		$companyName = $request->input('company_name');
 		if ($companyName !== null && $companyName !== '' && !array_key_exists($companyName, Application::companyNameOptions())) {
 			return response()->json([
@@ -582,6 +575,15 @@ class ApplicationsController extends Controller
 				'status' => false,
 				'message' => 'Application not found. Please try again.',
 				'companyName' => '',
+			]);
+		}
+
+		$existing = Application::normalizeCompanyName($application->company_name);
+		if (! Application::canEditEnrolmentOrCompanyValue($existing)) {
+			return response()->json([
+				'status' => false,
+				'message' => 'Only Super Admin and Admin can update Company Name once it is set.',
+				'companyName' => $existing,
 			]);
 		}
 

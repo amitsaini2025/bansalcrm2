@@ -118,14 +118,11 @@ $collegeRecipientName = $partnerdetail->partner_name ?? 'College';
 	<div class="grid_column">
 		<span>Enrolment Type:</span>
 		<p class="mb-0">
-			@php
-				$canEditEnrolmentAndCompany = \App\Models\Application::canUpdateEnrolmentAndCompanyFields();
-			@endphp
 			{!! \App\Models\Application::enrolmentTypeSelectHtml(
 				(int) $fetchData->id,
 				$fetchData->enrolment_type ?? null,
 				'form-control form-control-sm application-enrolment-type-field',
-				! $canEditEnrolmentAndCompany
+				! \App\Models\Application::canEditEnrolmentOrCompanyValue($fetchData->enrolment_type ?? null)
 			) !!}
 		</p>
 	</div>
@@ -136,7 +133,7 @@ $collegeRecipientName = $partnerdetail->partner_name ?? 'College';
 				(int) $fetchData->id,
 				$fetchData->company_name ?? null,
 				'form-control form-control-sm application-company-name-field',
-				! $canEditEnrolmentAndCompany
+				! \App\Models\Application::canEditEnrolmentOrCompanyValue($fetchData->company_name ?? null)
 			) !!}
 		</p>
 	</div>
@@ -810,6 +807,11 @@ $collegeRecipientName = $partnerdetail->partner_name ?? 'College';
 		});
 	}
 
+	function shouldLockFieldAfterSave(savedValue) {
+		var isAdminEditor = (typeof PageConfig !== 'undefined' && PageConfig.canEditApplicationEnrolmentCompanyFields === true);
+		return !isAdminEditor && !!savedValue;
+	}
+
 	if (!window.__applicationEnrolmentTypeHandlerBound) {
 		window.__applicationEnrolmentTypeHandlerBound = true;
 
@@ -837,6 +839,9 @@ $collegeRecipientName = $partnerdetail->partner_name ?? 'College';
 					if (response && response.status) {
 						$select.attr('data-enrolment-type', response.enrolmentType || '');
 						$select.val(response.enrolmentType || '');
+						if (shouldLockFieldAfterSave(response.enrolmentType || '')) {
+							$select.prop('disabled', true);
+						}
 						if ($('.custom-error-msg').length) {
 							$('.custom-error-msg').html('<span class="alert alert-success">' + response.message + '</span>');
 						}
@@ -903,6 +908,9 @@ $collegeRecipientName = $partnerdetail->partner_name ?? 'College';
 					if (response && response.status) {
 						$select.attr('data-company-name', response.companyName || '');
 						$select.val(response.companyName || '');
+						if (shouldLockFieldAfterSave(response.companyName || '')) {
+							$select.prop('disabled', true);
+						}
 						if ($('.custom-error-msg').length) {
 							$('.custom-error-msg').html('<span class="alert alert-success">' + response.message + '</span>');
 						}
