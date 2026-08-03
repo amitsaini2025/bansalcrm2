@@ -1778,13 +1778,14 @@ use App\Http\Controllers\Controller;
 													foreach($paymentdetails as $paymentdetail){
 														$amount_rec += $paymentdetail->amount_rec;
 													}
-													if($invoicelist->type == 1){
-														$totaldue = $total_fee - $coom_amt;
-													} if($invoicelist->type == 2){
-														$totaldue = $netamount - $amount_rec;
-													}else{
-														$totaldue = $netamount - $amount_rec;
-													}
+													// INV-1: same due rules as invoicepaymentstore
+													$totaldue = \App\Models\Invoice::computeOutstandingDue(
+														$invoicelist->type,
+														$total_fee,
+														$coom_amt,
+														$netamount,
+														$amount_rec
+													);
 
 
 												?>

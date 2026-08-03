@@ -101,4 +101,32 @@ class Invoice extends Model
 			'feepaid' => $total_fee - ($coom_amt + $tax_amt + $bonus_amt),
 		];
 	}
+
+	/**
+	 * Outstanding due — same rules as invoicepaymentstore (INV-1).
+	 * Type 2 Gross: commission remaining; Type 3 General: net amount remaining;
+	 * else (Net Claim / type 1): (total_fee - commission) - payments.
+	 */
+	public static function computeOutstandingDue(
+		int|string|null $type,
+		float|int|string|null $total_fee,
+		float|int|string|null $coom_amt,
+		float|int|string|null $netamount,
+		float|int|string|null $amount_rec
+	): float {
+		$type = (int) $type;
+		$total_fee = (float) ($total_fee ?? 0);
+		$coom_amt = (float) ($coom_amt ?? 0);
+		$netamount = (float) ($netamount ?? 0);
+		$amount_rec = (float) ($amount_rec ?? 0);
+
+		if ($type === 2) {
+			return $coom_amt - $amount_rec;
+		}
+		if ($type === 3) {
+			return $netamount - $amount_rec;
+		}
+
+		return ($total_fee - $coom_amt) - $amount_rec;
+	}
 }

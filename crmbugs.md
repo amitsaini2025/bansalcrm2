@@ -302,8 +302,8 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 
 ### Critical
 
-#### INV-1. Client invoice list (`getinvoices`) due calculation broken
-- **File:** `InvoiceController.php` (~507–513)
+#### ~~INV-1. Client invoice list (`getinvoices`) due calculation broken~~ — **FIXED**
+- **File:** `InvoiceController.php` (~507–513) [historical bug]
 ```php
 if ($invoicelist->type == 1) {
     $totaldue = $total_fee - $coom_amt;        // missing -$amount_rec
@@ -320,6 +320,7 @@ if ($invoicelist->type == 2) {
   - Other types: else applies.
 - **Reproduce:** Client detail → invoices → Make Payment due wrong for Net/Gross claims.
 - **Contrast:** Correct formulas in `invoicepaymentstore` (~399–405).
+- **Fix:** Shared `Invoice::computeOutstandingDue()` used by `getinvoices`, client Accounts tab, unpaid/paid lists — type 2 = `comm - paid`, type 3 = `net - paid`, else (type 1) = `(total_fee - comm) - paid`.
 
 ### High
 
