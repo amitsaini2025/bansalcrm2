@@ -104,15 +104,31 @@ class ReportController extends Controller
 	
 	public function visaexpires(Request $request)  
 	{	
+		// Match Reports menu (left-side-bar): super admin (1) or admin (12) only
+		$this->ensureReportsRoleAccess();
 		return view('Admin.reports.visaexpires');
 	}
 	public function actionCalendar(Request $request)  
 	{	
+		// Intentionally login-only: view already scopes data (role 1 = all, others = assigned_to self)
 		return view('Admin.reports.action_calendar');
 	}
 	public function agreementexpires(Request $request)  
 	{	
+		// Match Reports menu (left-side-bar): super admin (1) or admin (12) only
+		$this->ensureReportsRoleAccess();
 		return view('Admin.reports.agreementexpires');
+	}
+
+	/**
+	 * Server-side gate for reports that only appear under Reports (role 1 or 12).
+	 */
+	private function ensureReportsRoleAccess(): void
+	{
+		$role = Auth::user()->role ?? null;
+		if ($role != 1 && $role != 12) {
+			abort(403, 'Unauthorized.');
+		}
 	}
 	
 	//Daily no of person office visit
@@ -126,14 +142,12 @@ class ReportController extends Controller
         ->orderByRaw('checkin_logs.date DESC NULLS LAST')
         ->paginate(5);
 
-        if(!empty($lists)){
-            $totalData = count($lists);
-        } else {
-            $totalData = 0;
-        }
-        //dd($totalData);
-		return view('Admin.reports.noofpersonofficevisit',compact(['lists', 'totalData']))
-        ->with('i', (request()->input('page', 1) - 1) * 20);
+		// Full result total (not current page size); Sno offset matches paginate(5) via firstItem()
+		$totalData = $lists->total();
+		$i = ($lists->firstItem() ?? 1) - 1;
+
+		return view('Admin.reports.noofpersonofficevisit', compact(['lists', 'totalData']))
+			->with('i', $i);
 	}
 	
 }

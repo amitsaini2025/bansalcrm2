@@ -3,7 +3,7 @@
 **Date:** 2026-07-26  
 **Last deep review:** 2026-07-26 (code-verified; false positives retracted; wording corrected)  
 **Scope:** Full CRM audit by area (Clients, Leads, Partners, Agents, Applications, Invoices/Receipts, Email/Messaging, Documents, Followups, Actions, Staff/Roles/Teams/Branches, Reports, Admin Console, Auth/CRM Access, Ongoing Sheet, Notifications, Shared Frontend/Config, SMS Webhooks).  
-**Status:** Audit doc; some Agent fixes applied (A-1, A-2, A-3, A-4).  
+**Status:** Audit doc; some fixes applied (A-1–A-4, R-2, R-3 partial).  
 **Stack note:** Laravel **13.x** (route parameters bind **by position** after DI, not by PHP parameter name).
 
 Severity: **Critical** (crash / data corruption / money wrong / security) · **High** (major feature broken or serious auth hole) · **Medium** (incorrect behavior) · **Low** (edge case / UX / maintenance risk)
@@ -27,6 +27,8 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 | **A-1** | **FIXED** — Added `use Maatwebsite\Excel\Facades\Excel;` in `AgentController` |
 | **A-2** | **FIXED** — Individual import POST handler, route, and form |
 | **A-3** | **FIXED** — Null-check after `Agent::find` on edit |
+| **R-3** | **FIXED** (safe partial) — `visaexpires` / `agreementexpires` gated to role 1|12; `actionCalendar` left login-only (data already scoped) |
+| **R-2** | **FIXED** — `noofpersonofficevisit`: `$totalData` via `$lists->total()`; Sno offset via `$lists->firstItem()` (matches `paginate(5)`) |
 
 ---
 
@@ -528,12 +530,16 @@ if ($invoicelist->type == 2) {
 
 ### Medium
 
-#### R-2. Office-visit report wrong totals / page math
-- **File:** `ReportController.php` (~122–136) — `paginate(5)` then `count($lists)` (page size); offset multiplier uses 20 while page size is 5.
+#### ~~R-2. Office-visit report wrong totals / page math~~ — **FIXED**
+- **File:** `ReportController.php` `noofpersonofficevisit` — `paginate(5)` then `count($lists)` (page size only); Sno offset used `* 20` while page size is 5 → wrong Sno on page 2+.
+- **Fix:** `$totalData = $lists->total()`; Sno base `$i = ($lists->firstItem() ?? 1) - 1` so serials match pagination.
 
 ### Low
 
-#### R-3. Thin report endpoints (`visaexpires`, `actionCalendar`, `agreementexpires`) — login only
+#### ~~R-3. Thin report endpoints (`visaexpires`, `actionCalendar`, `agreementexpires`) — login only~~ — **FIXED**
+- **File:** `ReportController.php` — `visaexpires`, `actionCalendar`, `agreementexpires` returned views under `auth:admin` only.
+- **What happens:** Any logged-in staff could open those URLs; menu only showed visa/agreement under Reports (role 1|12).
+- **Fix:** `ensureReportsRoleAccess()` aborts 403 unless role is 1 or 12 on `visaexpires` and `agreementexpires` (matches Reports sidebar). `actionCalendar` intentionally remains login-only — view already scopes non–role-1 to `assigned_to` self; sidebar link is commented out.
 
 ---
 
