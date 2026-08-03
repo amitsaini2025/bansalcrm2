@@ -360,7 +360,9 @@ Route::get('/agent/detail/{id}', [AgentController::class, 'detail'])->name('agen
 Route::get('/agents/edit/{id}', [AgentController::class, 'edit'])->name('agents.edit');
 Route::post('/agents/edit', [AgentController::class, 'edit'])->name('agents.update');
 Route::get('/agents/import/business', [AgentController::class, 'businessimport']);
+Route::post('/agents/import/business', [AgentController::class, 'businessimport']);
 Route::get('/agents/import/individual', [AgentController::class, 'individualimport']);
+Route::post('/agents/import/individual', [AgentController::class, 'individualimport']);
 // Task System Removed - Database tables preserved (tasks, task_logs, to_do_groups)
 // Removed on: December 2025 - System was inactive for 16+ months
 

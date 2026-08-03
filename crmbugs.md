@@ -3,7 +3,7 @@
 **Date:** 2026-07-26  
 **Last deep review:** 2026-07-26 (code-verified; false positives retracted; wording corrected)  
 **Scope:** Full CRM audit by area (Clients, Leads, Partners, Agents, Applications, Invoices/Receipts, Email/Messaging, Documents, Followups, Actions, Staff/Roles/Teams/Branches, Reports, Admin Console, Auth/CRM Access, Ongoing Sheet, Notifications, Shared Frontend/Config, SMS Webhooks).  
-**Status:** Document only — **no fixes applied**.  
+**Status:** Audit doc; some Agent fixes applied (A-1, A-2, A-3, A-4).  
 **Stack note:** Laravel **13.x** (route parameters bind **by position** after DI, not by PHP parameter name).
 
 Severity: **Critical** (crash / data corruption / money wrong / security) · **High** (major feature broken or serious auth hole) · **Medium** (incorrect behavior) · **Low** (edge case / UX / maintenance risk)
@@ -24,6 +24,9 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 | **S-1** | Added exact StaffController arg + double mismatch (values vs keys; string vs module id) |
 | **ACT-1** | Noted `FIXES_APPLIED_assigned_by_me.md` did **not** fix XSS |
 | **NEW** | SMS webhooks unauthenticated; Audit logs login-only (same class as Reports) |
+| **A-1** | **FIXED** — Added `use Maatwebsite\Excel\Facades\Excel;` in `AgentController` |
+| **A-2** | **FIXED** — Individual import POST handler, route, and form |
+| **A-3** | **FIXED** — Null-check after `Agent::find` on edit |
 
 ---
 
@@ -230,17 +233,20 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 
 ### Critical
 
-#### A-1. Business agent import crashes
+#### ~~A-1. Business agent import crashes~~ — **FIXED**
 - **File:** `AgentController.php` (~301–307) — `Excel::import(...)` with **no** `use Maatwebsite\Excel\Facades\Excel` and no `Excel` alias in `config/app.php` → fatal “Class Excel not found”. Package is in `composer.json` but FQCN/`use` still required.
 - **Reproduce:** Agents → Import Business → upload CSV → 500.
+- **Fix:** Added `use Maatwebsite\Excel\Facades\Excel;` in `AgentController`.
 
 ### High
 
-#### A-2. Individual import is non-functional
+#### ~~A-2. Individual import is non-functional~~ — **FIXED**
 - **File:** `AgentController.php` `individualimport` (~313–315) — returns view only; no POST handler.
+- **Fix:** Mirrored business import — POST handler with `Excel::import`, POST route, and form open/close with hidden `struture=Individual`. Also added missing POST route for business import (form already posted there).
 
-#### A-3. Agent edit null dereference
+#### ~~A-3. Agent edit null dereference~~ — **FIXED**
 - **File:** `AgentController.php` (~164–196) — `Agent::find` not null-checked before property writes.
+- **Fix:** After `Agent::find`, return redirect back with “Agent not found” if null; successful edit path unchanged.
 
 ### Medium
 
@@ -657,7 +663,7 @@ if ($invoicelist->type == 2) {
 
 1. **Authorization / IDOR** — Many Client/* AJAX controllers, documents, notes, actions, ongoing sheet mutations, reports, audit logs, teams/branches, Admin Console destructive ops lack visibility/module checks.
 2. **Money math** — Invoice due formulas diverge between list UI (`getinvoices`, partner Accounts tab) and payment store; fee joins inflate partner/commission totals.
-3. **Broken/missing endpoints** — Convert lead, convert/delete application routes, agent Excel import, SMS sendmsg, finalize view copy.
+3. **Broken/missing endpoints** — Convert lead, convert/delete application routes, SMS sendmsg, finalize view copy. (Agent Excel import **A-1/A-2** fixed.)
 4. **Email send loop** — College compose crash; multi-recipient early return; placeholder mutation.
 5. **APP_URL / URL::to** — Absolute URLs break when browser host ≠ `APP_URL`.
 6. **SQL injection** — Raw string interpolation in application checklist upload count (request path).
@@ -670,7 +676,7 @@ if ($invoicelist->type == 2) {
 
 1. APP-3 (~1470) SQL injection; E-1/E-2 email send; INV-1 + P-1 invoice due math  
 2. C-1/C-2/C-7–C-11 IDOR; D-3 document download auth; AC-1 Admin Console gates; S-1 role auth mismatch  
-3. L-1 convert-to-client; C-3 missing application routes; A-1 agent import; APP-1/APP-2 finalize + stage crash  
+3. L-1 convert-to-client; C-3 missing application routes; APP-1/APP-2 finalize + stage crash  *(A-1 agent import — **FIXED**)*  
 4. D-4 signing unsigned PDF; E-6 Elite webhook auth; SMS-1 webhook signatures; FE-1 APP_DEBUG default  
 5. F-1 followup consultant hardcoding; FE-5 recipient XSS; N-1 notification poll badge  
 

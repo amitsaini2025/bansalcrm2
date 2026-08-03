@@ -26,6 +26,8 @@
 							<p>This approach allows you to import your huge amount of existing individual agents at once</p>
 							<div class="tab-content" id="clientContent">	
 								<div class="tab-pane fade show active" id="active" role="tabpanel" aria-labelledby="active-tab">
+								{!! Form::open(array('url' => 'agents/import/individual', 'name'=>"add-agents", 'autocomplete'=>'off', "enctype"=>"multipart/form-data"))  !!}
+								<input class="form-check-input" type="hidden" id="struture" value="Individual" name="struture">
 										<div class="row"> 
 											<div class="col-6 col-md-6 col-lg-6">
 												<label>Agent Type</label>
@@ -86,7 +88,7 @@
 												</ul>
 											</div>
 										</div>
-										
+									{!! Form::close()  !!}	
 								</div>
 							</div> 
 						</div>

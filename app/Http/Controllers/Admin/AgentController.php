@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Redirect;
 use App\Imports\ImportAgent;
 use App\Models\Admin;
 use App\Models\Agent;
+use Maatwebsite\Excel\Facades\Excel;
 // NOTE: RepresentingPartner model and table have been removed
 // use App\Models\RepresentingPartner;
  
@@ -162,6 +163,9 @@ class AgentController extends Controller
 			$this->validate($request, $validationRules);
 								  					  
 			$obj				= 	Agent::find(@$requestData['id']);
+			if (!$obj) {
+				return redirect()->back()->with('error', 'Agent not found');
+			}
 			
 			// Safely handle agent_type - ensure it's an array before imploding
 			$agentType = isset($requestData['agent_type']) && is_array($requestData['agent_type']) 
@@ -283,6 +287,13 @@ class AgentController extends Controller
 	}
 	
 	public function individualimport(Request $request){
-		return view('Admin.agents.importindividual');
+		if ($request->isMethod('post')) 
+		{
+			Excel::import(new ImportAgent($request), 
+                     $request->file('uploadfile')->store('files'));
+			return redirect()->back()->with('success', 'Agents Imported successfully');
+		}else{
+			return view('Admin.agents.importindividual');
+		}
 	}
 }
