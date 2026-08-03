@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Schema;
 
 class FollowupCalendarBlockTiming extends Model
 {
@@ -20,13 +21,56 @@ class FollowupCalendarBlockTiming extends Model
         'monthly' => 'Monthly',
     ];
 
-    /** @var array<string, string> slug => short label (matches followup_consultants.slug) */
+    /**
+     * Built-in short labels (kept so existing block UIs work without the consultants table).
+     *
+     * @var array<string, string>
+     */
     public const CONSULTANT_SLUG_OPTIONS = [
         'ankit' => 'Ankit',
         'rakshita' => 'Rakshita',
         'jaspreet' => 'Jaspreet',
         'syed' => 'Syed',
     ];
+
+    /**
+     * Consultant checkboxes / display: built-in four + active DB consultants.
+     *
+     * @return array<string, string> slug => short label
+     */
+    public static function consultantSlugOptions(): array
+    {
+        $options = self::CONSULTANT_SLUG_OPTIONS;
+
+        if (Schema::hasTable('followup_consultants')) {
+            foreach (FollowupConsultant::activeOrdered() as $consultant) {
+                $slug = (string) $consultant->slug;
+                if ($slug === '') {
+                    continue;
+                }
+                $options[$slug] = FollowupConsultant::shortLabelFromName((string) $consultant->name, $slug);
+            }
+        }
+
+        return $options;
+    }
+
+    /**
+     * Slugs accepted when saving a block (includes inactive/legacy so edits keep working).
+     *
+     * @return list<string>
+     */
+    public static function allowedConsultantSlugsForValidation(): array
+    {
+        $slugs = array_keys(self::CONSULTANT_SLUG_OPTIONS);
+
+        if (Schema::hasTable('followup_consultants')) {
+            $db = FollowupConsultant::query()->pluck('slug')->all();
+            $slugs = array_values(array_unique(array_merge($slugs, array_map('strval', $db))));
+        }
+
+        return array_values(array_filter($slugs, static fn ($s) => is_string($s) && $s !== ''));
+    }
 
     protected $fillable = [
         'title',

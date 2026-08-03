@@ -162,7 +162,7 @@ Route::get('/followups/calendar-settings', [FollowupCalendarSettingController::c
 Route::get('/followups/calendar-settings/{followupCalendarSetting}/edit', [FollowupCalendarSettingController::class, 'edit'])->name('followups.calendar-settings.edit');
 Route::put('/followups/calendar-settings/{followupCalendarSetting}', [FollowupCalendarSettingController::class, 'update'])->name('followups.calendar-settings.update');
 Route::get('/followups/calendar/{consultant}', [FollowupController::class, 'calendar'])
-    ->where('consultant', 'ankit|rakshita|jaspreet|syed')
+    ->where('consultant', '[A-Za-z0-9][A-Za-z0-9\-_]*')
     ->name('followups.calendar');
 Route::post('/followups/reassign-consultant', [FollowupController::class, 'reassignConsultant'])
     ->name('followups.reassign-consultant');
@@ -170,7 +170,7 @@ Route::post('/followups/reschedule', [FollowupController::class, 'rescheduleFoll
 Route::post('/followups/set-outcome', [FollowupController::class, 'setFollowupOutcome'])->name('followups.set-outcome');
 Route::get('/appointments/calendar/{consultant}', function (string $consultant) {
     return redirect()->route('followups.calendar', ['consultant' => $consultant], 301);
-})->where('consultant', 'ankit|rakshita|jaspreet|syed');
+})->where('consultant', '[A-Za-z0-9][A-Za-z0-9\-_]*');
 Route::post('/admin/complete-action', [AdminController::class, 'completeAction'])->name('admin.complete-action');
 Route::get('/my_profile', [AdminController::class, 'myProfile'])->name('my_profile');
 Route::post('/my_profile', [AdminController::class, 'myProfile'])->name('my_profile.update');

@@ -57,15 +57,16 @@
 
 <div class="mb-3">
 	<span class="form-label d-block">Consultants</span>
-	<div class="form-text mb-2">Leave none selected to apply this block to all four calendars.</div>
+	<div class="form-text mb-2">Leave none selected to apply this block to all calendars.</div>
 	@php
 		$consultOld = old('consultants', $b->consultant_slugs ?? []);
 		if (! is_array($consultOld)) {
 			$consultOld = [];
 		}
+		$consultantOptions = FollowupCalendarBlockTiming::consultantSlugOptions();
 	@endphp
 	<div class="d-flex flex-wrap gap-3">
-		@foreach (FollowupCalendarBlockTiming::CONSULTANT_SLUG_OPTIONS as $slug => $label)
+		@foreach ($consultantOptions as $slug => $label)
 			<div class="form-check">
 				<input type="checkbox" name="consultants[]" value="{{ $slug }}" id="consultant_{{ $slug }}" class="form-check-input"
 					{{ in_array($slug, $consultOld, true) ? 'checked' : '' }}>

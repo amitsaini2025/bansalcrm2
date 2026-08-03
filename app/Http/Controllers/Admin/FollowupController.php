@@ -28,7 +28,8 @@ class FollowupController extends Controller
     }
 
     /**
-     * Display heading per consultant (e.g. calendar card title).
+     * Display heading per consultant when still in the built-in set (legacy notes rely on these strings).
+     * New consultants are resolved from {@see FollowupConsultant}.
      *
      * @var array<string, string>
      */
@@ -51,9 +52,90 @@ class FollowupController extends Controller
         'syed' => 'Syed Calendar',
     ];
 
+    /**
+     * Whether a calendar URL / redirect slug is allowed (built-in four or any DB row).
+     */
+    public static function isCalendarConsultantSlug(string $slug): bool
+    {
+        $slug = trim($slug);
+        if ($slug === '' || ! preg_match('/^[a-z0-9][a-z0-9\-_]*$/i', $slug)) {
+            return false;
+        }
+
+        if (array_key_exists($slug, self::CONSULTANT_LABELS)) {
+            return true;
+        }
+
+        if (! Schema::hasTable('followup_consultants')) {
+            return false;
+        }
+
+        return FollowupConsultant::query()->where('slug', $slug)->exists();
+    }
+
+    /**
+     * Validation rule for calendar_consultant on reschedule / outcome (open slug set + DB).
+     *
+     * @return list<mixed>
+     */
+    public static function calendarConsultantValidationRules(): array
+    {
+        return [
+            'nullable',
+            'string',
+            'max:120',
+            function (string $attribute, mixed $value, \Closure $fail): void {
+                if ($value === null || $value === '') {
+                    return;
+                }
+                if (! self::isCalendarConsultantSlug((string) $value)) {
+                    $fail('The selected consultant is invalid.');
+                }
+            },
+        ];
+    }
+
+    /**
+     * slug => “Followups” style label for known consultants (const + active/any DB).
+     *
+     * @return array<string, string>
+     */
+    public static function consultantLabelMap(): array
+    {
+        $map = self::CONSULTANT_LABELS;
+
+        if (Schema::hasTable('followup_consultants')) {
+            foreach (FollowupConsultant::query()->orderBy('sort_order')->orderBy('name')->get(['slug', 'name']) as $row) {
+                $slug = (string) $row->slug;
+                if ($slug === '') {
+                    continue;
+                }
+                // Prefer fixed labels for the original four so existing notes stay consistent.
+                if (! array_key_exists($slug, $map)) {
+                    $map[$slug] = FollowupConsultant::followupLabelFromName((string) $row->name, $slug);
+                }
+            }
+        }
+
+        return $map;
+    }
+
     public static function consultantLabel(string $slug): ?string
     {
-        return self::CONSULTANT_LABELS[$slug] ?? null;
+        if (array_key_exists($slug, self::CONSULTANT_LABELS)) {
+            return self::CONSULTANT_LABELS[$slug];
+        }
+
+        if (! Schema::hasTable('followup_consultants')) {
+            return null;
+        }
+
+        $dbName = FollowupConsultant::query()->where('slug', $slug)->value('name');
+        if ($dbName === null) {
+            return null;
+        }
+
+        return FollowupConsultant::followupLabelFromName((string) $dbName, $slug);
     }
 
     public static function followupNoteTitle(string $slug): ?string
@@ -76,9 +158,9 @@ class FollowupController extends Controller
             return null;
         }
         $suffix = substr($title, strlen($prefix));
-        foreach (array_keys(self::CONSULTANT_LABELS) as $slug) {
-            $label = self::consultantLabel($slug);
-            if ($label !== null && $suffix === $label) {
+
+        foreach (self::consultantLabelMap() as $slug => $label) {
+            if ($label !== '' && $suffix === $label) {
                 return $slug;
             }
             $legacy = self::LEGACY_CONSULTANT_NOTE_SUFFIXES[$slug] ?? null;
@@ -87,11 +169,19 @@ class FollowupController extends Controller
             }
         }
 
+        // Raw DB name as suffix (e.g. "Ankit Calendar" for a renamed display path).
+        if (Schema::hasTable('followup_consultants')) {
+            $byName = FollowupConsultant::query()->where('name', $suffix)->value('slug');
+            if (is_string($byName) && $byName !== '') {
+                return $byName;
+            }
+        }
+
         return null;
     }
 
     /**
-     * Note titles that belong on this consultant’s calendar (current + legacy).
+     * Note titles that belong on this consultant’s calendar (current + legacy + DB name forms).
      *
      * @return list<string>
      */
@@ -110,6 +200,20 @@ class FollowupController extends Controller
             }
         }
 
+        if (Schema::hasTable('followup_consultants')) {
+            $dbName = FollowupConsultant::query()->where('slug', $slug)->value('name');
+            if (is_string($dbName) && $dbName !== '') {
+                $fromDb = 'Followup — '.$dbName;
+                if (! in_array($fromDb, $titles, true)) {
+                    $titles[] = $fromDb;
+                }
+                $followupsForm = 'Followup — '.FollowupConsultant::followupLabelFromName($dbName, $slug);
+                if (! in_array($followupsForm, $titles, true)) {
+                    $titles[] = $followupsForm;
+                }
+            }
+        }
+
         return $titles;
     }
 
@@ -121,17 +225,6 @@ class FollowupController extends Controller
         $mapped = self::consultantLabel($slug);
         if ($mapped !== null) {
             return $mapped;
-        }
-
-        $dbName = FollowupConsultant::query()
-            ->where('slug', $slug)
-            ->where('status', 1)
-            ->value('name');
-
-        if ($dbName !== null) {
-            $replaced = preg_replace('/\s+Calendar$/u', ' Followups', (string) $dbName);
-
-            return $replaced !== null && $replaced !== '' ? $replaced : (string) $dbName;
         }
 
         return $slug;
@@ -427,11 +520,15 @@ class FollowupController extends Controller
 
     public function calendar(string $consultant)
     {
+        if (! self::isCalendarConsultantSlug($consultant)) {
+            abort(404);
+        }
+
         $titleVariants = self::followupNoteTitlesForCalendar($consultant);
         if ($titleVariants === []) {
             abort(404);
         }
-        $consultantLabel = self::consultantLabel($consultant);
+        $consultantLabel = self::consultantLabel($consultant) ?? self::consultantDisplayForSlug($consultant);
 
         $notes = $this->calendarFollowupNotesQuery()
             ->whereIn('title', $titleVariants)
@@ -667,7 +764,7 @@ class FollowupController extends Controller
         $validator = Validator::make($request->all(), [
             'note_id' => ['required', 'integer', Rule::exists('notes', 'id')],
             'followup_datetime' => ['required', 'string', 'max:40'],
-            'calendar_consultant' => ['nullable', 'string', Rule::in(['ankit', 'rakshita', 'jaspreet', 'syed'])],
+            'calendar_consultant' => self::calendarConsultantValidationRules(),
         ]);
 
         if ($validator->fails()) {
@@ -743,7 +840,7 @@ class FollowupController extends Controller
         $validator = Validator::make($request->all(), [
             'note_id' => ['required', 'integer', Rule::exists('notes', 'id')],
             'outcome' => ['required', 'string', 'in:confirmed,completed,cancelled,no_show'],
-            'calendar_consultant' => ['nullable', 'string', Rule::in(['ankit', 'rakshita', 'jaspreet', 'syed'])],
+            'calendar_consultant' => self::calendarConsultantValidationRules(),
         ]);
 
         if ($validator->fails()) {

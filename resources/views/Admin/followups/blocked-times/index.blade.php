@@ -60,7 +60,7 @@
 												}
 												$slugLabels = [];
 												foreach ($row->consultant_slugs ?? [] as $slug) {
-													$slugLabels[] = FollowupCalendarBlockTiming::CONSULTANT_SLUG_OPTIONS[$slug] ?? $slug;
+													$slugLabels[] = FollowupCalendarBlockTiming::consultantSlugOptions()[$slug] ?? $slug;
 												}
 												$consultantsCol = $slugLabels === [] ? 'All consultants' : implode(', ', $slugLabels);
 												$typeBadge = $row->block_type === 'busy' ? 'warning' : 'danger';

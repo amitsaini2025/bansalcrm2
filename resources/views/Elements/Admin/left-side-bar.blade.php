@@ -34,18 +34,33 @@
 					<li class="{{ Route::currentRouteName() === 'followups.index' ? 'active' : '' }}">
 						<a href="{{ route('followups.index') }}" class="nav-link">@icon('list-ul')<span>Listing</span></a>
 					</li>
-					<li class="{{ Route::currentRouteName() === 'followups.calendar' && request()->route('consultant') === 'ankit' ? 'active' : '' }}">
-						<a href="{{ route('followups.calendar', ['consultant' => 'ankit']) }}" class="nav-link">@icon('calendar-alt', 'regular')<span>Ankit</span></a>
-					</li>
-					<li class="{{ Route::currentRouteName() === 'followups.calendar' && request()->route('consultant') === 'rakshita' ? 'active' : '' }}">
-						<a href="{{ route('followups.calendar', ['consultant' => 'rakshita']) }}" class="nav-link">@icon('calendar-alt', 'regular')<span>Rakshita</span></a>
-					</li>
-					<li class="{{ Route::currentRouteName() === 'followups.calendar' && request()->route('consultant') === 'jaspreet' ? 'active' : '' }}">
-						<a href="{{ route('followups.calendar', ['consultant' => 'jaspreet']) }}" class="nav-link">@icon('calendar-alt', 'regular')<span>Jaspreet</span></a>
-					</li>
-					<li class="{{ Route::currentRouteName() === 'followups.calendar' && request()->route('consultant') === 'syed' ? 'active' : '' }}">
-						<a href="{{ route('followups.calendar', ['consultant' => 'syed']) }}" class="nav-link">@icon('calendar-alt', 'regular')<span>Syed</span></a>
-					</li>
+					@php
+						$sidebarFollowupConsultants = \Illuminate\Support\Facades\Schema::hasTable('followup_consultants')
+							? \App\Models\FollowupConsultant::activeOrdered()
+							: collect();
+						if ($sidebarFollowupConsultants->isEmpty()) {
+							$sidebarFollowupConsultants = collect([
+								(object) ['slug' => 'ankit', 'name' => 'Ankit'],
+								(object) ['slug' => 'rakshita', 'name' => 'Rakshita'],
+								(object) ['slug' => 'jaspreet', 'name' => 'Jaspreet'],
+								(object) ['slug' => 'syed', 'name' => 'Syed'],
+							]);
+						}
+					@endphp
+					@foreach ($sidebarFollowupConsultants as $sidebarConsultant)
+						@php
+							$sidebarSlug = (string) ($sidebarConsultant->slug ?? '');
+							$sidebarLabel = \App\Models\FollowupConsultant::shortLabelFromName(
+								(string) ($sidebarConsultant->name ?? ''),
+								$sidebarSlug
+							);
+						@endphp
+						@if ($sidebarSlug !== '')
+							<li class="{{ Route::currentRouteName() === 'followups.calendar' && request()->route('consultant') === $sidebarSlug ? 'active' : '' }}">
+								<a href="{{ route('followups.calendar', ['consultant' => $sidebarSlug]) }}" class="nav-link">@icon('calendar-alt', 'regular')<span>{{ $sidebarLabel }}</span></a>
+							</li>
+						@endif
+					@endforeach
 				</ul>
 			</li>
             

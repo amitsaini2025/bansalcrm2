@@ -46,7 +46,7 @@
 										}
 									@endphp
 									@forelse($showSlugs as $slug)
-										{{ FollowupCalendarBlockTiming::CONSULTANT_SLUG_OPTIONS[$slug] ?? $slug }}@if(!$loop->last), @endif
+										{{ FollowupCalendarBlockTiming::consultantSlugOptions()[$slug] ?? $slug }}@if(!$loop->last), @endif
 									@empty
 										<span class="text-muted">All consultants</span>
 									@endforelse

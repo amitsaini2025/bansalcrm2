@@ -87,7 +87,7 @@ class FollowupCalendarBlockTimingController extends Controller
             'is_all_day' => 'sometimes|boolean',
             'recurrence' => 'required|string|in:'.implode(',', array_keys(FollowupCalendarBlockTiming::RECURRENCE)),
             'consultants' => 'nullable|array',
-            'consultants.*' => 'string|in:'.implode(',', array_keys(FollowupCalendarBlockTiming::CONSULTANT_SLUG_OPTIONS)),
+            'consultants.*' => 'string|in:'.implode(',', FollowupCalendarBlockTiming::allowedConsultantSlugsForValidation()),
             'is_active' => 'sometimes|boolean',
         ];
 

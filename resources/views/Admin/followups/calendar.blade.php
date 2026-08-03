@@ -368,6 +368,74 @@ document.addEventListener('DOMContentLoaded', function() {
 		}
 	}
 
+	/** Matches reassignConsultant / rescheduleFollowup: only open notes (status === 0). */
+	function isFollowupOpenForEdit(row) {
+		if (!row) {
+			return false;
+		}
+		if (row.note_status === 0 || row.note_status === '0') {
+			return true;
+		}
+		if (row.note_status === 1 || row.note_status === '1') {
+			return false;
+		}
+		var cs = row.calendar_status ? String(row.calendar_status) : 'confirmed';
+		return cs === 'confirmed';
+	}
+
+	/**
+	 * Disable reassign/reschedule for closed follow-ups so UI matches API (no surprise 422).
+	 * Change-status stays available (e.g. Mark as confirmed).
+	 */
+	function applyOpenOnlyEditControls(row) {
+		var open = isFollowupOpenForEdit(row);
+		var dtInput = document.getElementById('followup-reschedule-datetime');
+		var rescheduleBtn = document.getElementById('followup-reschedule-btn');
+		var consultantSel = document.getElementById('followup-reassign-consultant');
+		var alertEl = document.getElementById('followup-reassign-alert');
+		var rescheduleHint = document.getElementById('followup-reschedule-closed-hint');
+		var reassignWrap = document.getElementById('followup-reassign-panel');
+		var rescheduleWrap = document.getElementById('followup-reschedule-panel');
+
+		if (dtInput) {
+			dtInput.disabled = !open;
+		}
+		if (rescheduleBtn) {
+			rescheduleBtn.disabled = !open;
+		}
+		if (consultantSel) {
+			if (open && followupConsultantSlugBaseline) {
+				consultantSel.disabled = false;
+			} else {
+				consultantSel.disabled = true;
+			}
+		}
+		if (alertEl) {
+			if (!open) {
+				alertEl.textContent = 'Only open (confirmed) follow-ups can change consultant. Mark as confirmed first.';
+				alertEl.className = 'small mt-2 text-muted';
+			} else {
+				alertEl.textContent = '';
+				alertEl.className = 'small mt-2 text-muted';
+			}
+		}
+		if (rescheduleHint) {
+			if (open) {
+				rescheduleHint.classList.add('d-none');
+				rescheduleHint.textContent = '';
+			} else {
+				rescheduleHint.classList.remove('d-none');
+				rescheduleHint.textContent = 'Only open (confirmed) follow-ups can be rescheduled. Mark as confirmed first.';
+			}
+		}
+		if (reassignWrap) {
+			reassignWrap.classList.toggle('opacity-75', !open);
+		}
+		if (rescheduleWrap) {
+			rescheduleWrap.classList.toggle('opacity-75', !open);
+		}
+	}
+
 	function populateFollowupModal(row) {
 		clearModalAlert();
 		var clientLink = document.getElementById('followup-client-link');
@@ -414,11 +482,10 @@ document.addEventListener('DOMContentLoaded', function() {
 		if (consultantSel) {
 			if (followupConsultantSlugBaseline) {
 				consultantSel.value = followupConsultantSlugBaseline;
-				consultantSel.disabled = false;
-			} else {
-				consultantSel.disabled = true;
 			}
 		}
+
+		applyOpenOnlyEditControls(row);
 	}
 
 	function postJsonWithRedirect(url, body, onFail) {
@@ -544,7 +611,16 @@ document.addEventListener('DOMContentLoaded', function() {
 		var csrfMeta = document.querySelector('meta[name="csrf-token"]');
 		var token = csrfMeta ? csrfMeta.getAttribute('content') : '';
 
-		if (!url || !noteIdEl || !consultantSel || !consultantSel.value) {
+		if (!url || !noteIdEl || !consultantSel || !consultantSel.value || consultantSel.disabled) {
+			return;
+		}
+
+		var rowForGuard = scheds && noteIdEl.value ? scheds[String(noteIdEl.value)] : null;
+		if (rowForGuard && !isFollowupOpenForEdit(rowForGuard)) {
+			if (alertEl) {
+				alertEl.textContent = 'Only open (confirmed) follow-ups can change consultant. Mark as confirmed first.';
+				alertEl.className = 'small mt-2 text-muted';
+			}
 			return;
 		}
 
@@ -605,7 +681,7 @@ document.addEventListener('DOMContentLoaded', function() {
 	if (consultantSelectEl) {
 		consultantSelectEl.addEventListener('change', function() {
 			var sel = consultantSelectEl;
-			if (!followupConsultantSlugBaseline) {
+			if (sel.disabled || !followupConsultantSlugBaseline) {
 				return;
 			}
 			var newSlug = sel.value;
@@ -628,7 +704,15 @@ document.addEventListener('DOMContentLoaded', function() {
 		rescheduleBtn.addEventListener('click', function() {
 			var noteIdEl = document.getElementById('followup-reassign-note-id');
 			var dtEl = document.getElementById('followup-reschedule-datetime');
-			if (!noteIdEl || !dtEl || !dtEl.value) {
+			if (!noteIdEl || !dtEl || rescheduleBtn.disabled) {
+				return;
+			}
+			var rowForGuard = scheds && noteIdEl.value ? scheds[String(noteIdEl.value)] : null;
+			if (rowForGuard && !isFollowupOpenForEdit(rowForGuard)) {
+				showModalAlert('danger', 'Only open (confirmed) follow-ups can be rescheduled. Mark as confirmed first.');
+				return;
+			}
+			if (!dtEl.value) {
 				showModalAlert('danger', 'Choose a date and time.');
 				return;
 			}
@@ -789,15 +873,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
 				<hr class="my-3 text-muted">
 
-				<h6 class="followup-section-label">@icon('calendar-alt', 'regular', ['class' => 'me-2 text-primary'])Reschedule date &amp; time</h6>
-				<div class="row g-2 g-md-3 align-items-end flex-wrap">
-					<div class="col-md-6 col-lg-5">
-						<label class="form-label small text-muted mb-1" for="followup-reschedule-datetime">Appointment date &amp; time</label>
-						<input type="datetime-local" class="form-control form-control-sm" id="followup-reschedule-datetime" step="60">
+				<div id="followup-reschedule-panel">
+					<h6 class="followup-section-label">@icon('calendar-alt', 'regular', ['class' => 'me-2 text-primary'])Reschedule date &amp; time</h6>
+					<div class="row g-2 g-md-3 align-items-end flex-wrap">
+						<div class="col-md-6 col-lg-5">
+							<label class="form-label small text-muted mb-1" for="followup-reschedule-datetime">Appointment date &amp; time</label>
+							<input type="datetime-local" class="form-control form-control-sm" id="followup-reschedule-datetime" step="60">
+						</div>
+						<div class="col-md-auto">
+							<button type="button" class="btn btn-sm btn-primary" id="followup-reschedule-btn">@icon('save', 'regular', ['class' => 'me-1']) Update date &amp; time</button>
+						</div>
 					</div>
-					<div class="col-md-auto">
-						<button type="button" class="btn btn-sm btn-primary" id="followup-reschedule-btn">@icon('save', 'regular', ['class' => 'me-1']) Update date &amp; time</button>
-					</div>
+					<p id="followup-reschedule-closed-hint" class="small text-muted mt-2 mb-0 d-none" role="status"></p>
 				</div>
 
 				<hr class="my-3 text-muted">
@@ -811,7 +898,7 @@ document.addEventListener('DOMContentLoaded', function() {
 							<button type="button" class="list-group-item list-group-item-action followup-outcome-btn followup-outcome-cancelled" data-outcome="cancelled">@icon('times-circle', 'solid', ['class' => 'me-2'])Mark as cancelled</button>
 						</div>
 					</div>
-					<div class="col-lg-6">
+					<div class="col-lg-6" id="followup-reassign-panel">
 						<h6 class="followup-section-label">@icon('exchange-alt', 'solid', ['class' => 'me-2 text-primary'])Change consultant</h6>
 						<div class="followup-consultant-panel border rounded-3 p-3 bg-light">
 							<input type="hidden" id="followup-reassign-note-id" value="">
