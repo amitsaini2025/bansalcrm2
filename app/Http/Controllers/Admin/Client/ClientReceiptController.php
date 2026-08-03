@@ -134,13 +134,20 @@ class ClientReceiptController extends Controller
                         'created_at' => now(),
                         'updated_at' => now()
                     ]);
+
+                    // INV-5: assign trans_no/receipt_id on every inserted line (not only the last)
+                    $lineTransNo = 'Rec'.$saved;
+                    DB::table('account_client_receipts')->where('id', $saved)->update([
+                        'trans_no' => $lineTransNo,
+                        'receipt_id' => $saved,
+                    ]);
+                    $finalArr[$i]['id'] = $saved;
+                    $finalArr[$i]['trans_no'] = $lineTransNo;
                 }
             }
             if($saved) {
-                $requestData['trans_no'][0] = "Rec".$saved;
-                $finalArr[0]['trans_no'] = "Rec".$saved;
+                $requestData['trans_no'][0] = $finalArr[0]['trans_no'] ?? ('Rec'.$saved);
                 $receipt_id = $saved;
-                DB::table('account_client_receipts')->where('id',$saved)->update(['trans_no' => $requestData['trans_no'][0],'receipt_id'=>$receipt_id]);
                 $response['status'] = true;
                 $response['requestData'] = $finalArr;
                 $response['lastInsertedId'] = $saved;
@@ -161,27 +168,27 @@ class ClientReceiptController extends Controller
                     
                     $response['awsUrl'] = $awsUrl;
                     $response['message'] = 'Client receipt with document added successfully';
-					$subject = 'added client receipt with Receipt Id-'.$receipt_id.' and Trans. No	-'.$requestData['trans_no'][0].' and document' ;
+					$subject = 'added client receipt with Receipt Id-'.$receipt_id.' and Trans. No	-'.($finalArr[count($finalArr)-1]['trans_no'] ?? ('Rec'.$saved)).' and document' ;
                 } else {
                     $response['message'] = 'Client receipt added successfully';
                     $response['awsUrl'] =  "";
-                    $subject = 'added client receipt with Receipt Id-'.$receipt_id.' and Trans. No	-'.$requestData['trans_no'][0];
+                    $subject = 'added client receipt with Receipt Id-'.$receipt_id.' and Trans. No	-'.($finalArr[count($finalArr)-1]['trans_no'] ?? ('Rec'.$saved));
                 }
 
                 // Relative path avoids APP_URL host/scheme mismatch (INV-8)
                 $response['printUrl'] = '/clients/printpreview/'.$receipt_id;
 
                 if($request->type == 'client'){
-                    $firstLine = $finalArr[0] ?? [];
+                    $lastLine = $finalArr[count($finalArr) - 1] ?? [];
                     $appName = $this->getApplicationDisplayName($requestData['application_id'] ?? null);
                     $logDesc = $this->buildReceiptLogDescription('receipt_created', [
                         'receipt_id' => $saved,
-                        'trans_no' => $requestData['trans_no'][0] ?? 'Rec'.$saved,
-                        'trans_date' => $firstLine['trans_date'] ?? '',
-                        'entry_date' => $firstLine['entry_date'] ?? '',
-                        'payment_method' => $firstLine['payment_method'] ?? '',
-                        'description' => $firstLine['description'] ?? '',
-                        'deposit_amount' => $firstLine['deposit_amount'] ?? '',
+                        'trans_no' => $lastLine['trans_no'] ?? ('Rec'.$saved),
+                        'trans_date' => $lastLine['trans_date'] ?? '',
+                        'entry_date' => $lastLine['entry_date'] ?? '',
+                        'payment_method' => $lastLine['payment_method'] ?? '',
+                        'description' => $lastLine['description'] ?? '',
+                        'deposit_amount' => $lastLine['deposit_amount'] ?? '',
                         'application_id' => $requestData['application_id'] ?? null,
                         'application_name' => $appName,
                         'document_attached' => !empty($doc_saved),

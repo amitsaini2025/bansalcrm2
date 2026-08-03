@@ -618,22 +618,24 @@ function customValidate(formName, savetype = '')
                                             var printUrl = obj.printUrl || (lastInsertedId ? '/clients/printpreview/' + lastInsertedId : '');
                                             var trRows = "";
                                             $.each(reqData, function(index, subArray) {
+                                                var rowId = subArray.id || lastInsertedId;
+                                                var rowPrintUrl = rowId ? ('/clients/printpreview/' + rowId) : (printUrl || '');
                                                 if(awsUrl != ""){
                                                     var awsLink = '<a target="_blank" class="link-primary client-receipt-action" href="'+awsUrl+'">' + crmIcon('file-pdf') + '</a>';
                                                 } else {
                                                     var awsLink = '';
                                                 }
 
-                                                if(printUrl != ""){
-                                                    var printLink = '<a target="_blank" class="link-primary client-receipt-action" href="'+printUrl+'" title="Print receipt">' + crmIcon('print') + '</a>';
+                                                if(rowPrintUrl != ""){
+                                                    var printLink = '<a target="_blank" class="link-primary client-receipt-action" href="'+rowPrintUrl+'" title="Print receipt">' + crmIcon('print') + '</a>';
                                                 } else {
                                                     var printLink = '';
                                                 }
 
-                                                var editLink = '<a class="link-primary client-receipt-action updateclientreceipt" href="javascript:;" data-id="'+lastInsertedId+'" title="Edit receipt">' + crmIcon('pencil-alt') + '</a>';
-                                                var refundLink = ' <a class="link-primary client-receipt-action createclientrefund" href="javascript:;" data-id="'+lastInsertedId+'" data-trans-no="'+subArray.trans_no+'" data-amount="'+subArray.deposit_amount+'" data-application-id="" title="Create Refund">' + crmIcon('undo') + '</a>';
+                                                var editLink = '<a class="link-primary client-receipt-action updateclientreceipt" href="javascript:;" data-id="'+rowId+'" title="Edit receipt">' + crmIcon('pencil-alt') + '</a>';
+                                                var refundLink = ' <a class="link-primary client-receipt-action createclientrefund" href="javascript:;" data-id="'+rowId+'" data-trans-no="'+(subArray.trans_no || '')+'" data-amount="'+subArray.deposit_amount+'" data-application-id="" title="Create Refund">' + crmIcon('undo') + '</a>';
 
-                                                trRows += "<tr id=\"TrRow_"+lastInsertedId+"\"><td>"+subArray.trans_date+" "+awsLink+"</td><td>"+subArray.entry_date+"</td><td>"+subArray.trans_no+"</td><td>"+subArray.payment_method+"</td><td>"+subArray.description+"</td><td>$"+subArray.deposit_amount+" "+printLink+" "+editLink+refundLink+"</td></tr>";
+                                                trRows += "<tr id=\"TrRow_"+rowId+"\"><td>"+subArray.trans_date+" "+awsLink+"</td><td>"+subArray.entry_date+"</td><td>"+(subArray.trans_no || '')+"</td><td>"+subArray.payment_method+"</td><td>"+subArray.description+"</td><td>$"+subArray.deposit_amount+" "+printLink+" "+editLink+refundLink+"</td></tr>";
                                             });
                                         }
                                         //console.log('trRows='+trRows);

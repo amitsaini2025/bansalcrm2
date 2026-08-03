@@ -310,19 +310,10 @@ class InvoiceController extends Controller
 			}
 		}
 
-		$coom_amt = 0;
-		$total_fee = 0;
-		$tax_amt = 0;
-		$bonus_amt = 0;
-
-		foreach ($invoiceitemdetails as $invoiceitemdetail) {
-			$coom_amt += $invoiceitemdetail->comm_amt;
-			$total_fee += $invoiceitemdetail->total_fee;
-			$tax_amt += $invoiceitemdetail->tax_amount;
-			$bonus_amt += $invoiceitemdetail->bonus_amount;
-		}
-
-		$feepaid = $total_fee - ($coom_amt + $tax_amt + $bonus_amt);
+		$fees = Invoice::sumLineFeeTotals($invoiceitemdetails);
+		$coom_amt = $fees['coom_amt'];
+		$tax_amt = $fees['tax_amt'];
+		$feepaid = $fees['feepaid'];
 		$issueDate = $invoicelist->invoice_date
 			? date('d/m/Y', strtotime($invoicelist->invoice_date))
 			: '';

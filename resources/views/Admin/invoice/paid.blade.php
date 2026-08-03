@@ -150,19 +150,13 @@
 																		$assignedTo = isset($applicationdata->user_id) && $applicationdata->user_id ? \App\Models\Staff::find($applicationdata->user_id) : null;
 																	}
 																	$invoiceitemdetails = \App\Models\InvoiceDetail::where('invoice_id', $invoicelist->id)->orderby('id','ASC')->get();
-																	$netamount = 0;
-																	$coom_amt = 0;
-																	$total_fee = 0;
-																	$tax_amt = 0;
-																	$bonus_amt = 0;
-																	foreach($invoiceitemdetails as $invoiceitemdetail){
-																		$netamount += $invoiceitemdetail->netamount;
-																		$coom_amt += $invoiceitemdetail->comm_amt;
-																		$total_fee += $invoiceitemdetail->total_fee;
-																		$tax_amt += $invoiceitemdetail->tax_amount;
-																		$bonus_amt += $invoiceitemdetail->bonus_amount;
-																	}
-																	$feepaid = $total_fee - ($coom_amt + $tax_amt + $bonus_amt);
+																	$feeTotals = \App\Models\Invoice::sumLineFeeTotals($invoiceitemdetails);
+																	$netamount = $feeTotals['netamount'];
+																	$coom_amt = $feeTotals['coom_amt'];
+																	$total_fee = $feeTotals['total_fee'];
+																	$tax_amt = $feeTotals['tax_amt'];
+																	$bonus_amt = $feeTotals['bonus_amt'];
+																	$feepaid = $feeTotals['feepaid'];
 																	
 																	$paymentdetails = \App\Models\InvoicePayment::where('invoice_id', $invoicelist->id)->orderby('created_at', 'DESC')->get();
 																	$amount_rec = 0;

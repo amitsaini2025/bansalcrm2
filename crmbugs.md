@@ -341,11 +341,13 @@ if ($invoicelist->type == 2) {
 #### ~~INV-4. `validate_receipt` returns empty/misleading JSON when no IDs~~ — **FIXED**
 - **Fix:** Empty/missing `clickedReceiptIds` now returns `{status:false, message, record_data:[], clickedIds:[]}`.
 
-#### INV-5. Multi-line receipt save only updates `trans_no` on last insert
+#### ~~INV-5. Multi-line receipt save only updates `trans_no` on last insert~~ — **FIXED**
+- **Fix:** Each insert now sets `trans_no`/`receipt_id` and returns per-line `id`/`trans_no` in `requestData`; UI uses per-row ids for print/edit/refund.
 #### ~~INV-6. `saveaccountreport` null deref on validate flag race~~ — **FIXED**
 - **Fix:** `validate_receipt` response uses `?? 0` when receipt row missing on add/edit.
 
-#### INV-7. Paid invoice export fee formula may not match list UI
+#### ~~INV-7. Paid invoice export fee formula may not match list UI~~ — **FIXED**
+- **Fix:** Shared `Invoice::sumLineFeeTotals()` used by paid list UI and export (`feepaid = total_fee - (comm + tax + bonus)`).
 #### ~~INV-8. Client receipt `printUrl` via `URL::to` (APP_URL mismatch)~~ — **FIXED**
 - **Fix:** Add/edit/refund `printUrl` now relative `/clients/printpreview/{id}` (matches current host).
 
