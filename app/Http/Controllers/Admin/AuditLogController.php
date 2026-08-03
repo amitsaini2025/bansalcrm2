@@ -20,6 +20,17 @@ class AuditLogController extends Controller
     }
 
     /**
+     * Staff Login Log is super admin only (matches left-side-bar role == 1).
+     * Use loose compare so string/int role values both work.
+     */
+    private function ensureSuperAdminAccess(): void
+    {
+        if ((Auth::user()->role ?? null) != 1) {
+            abort(403, 'Unauthorized.');
+        }
+    }
+
+    /**
      * Build base query with all applied filters.
      */
     protected function baseQuery(Request $request)
@@ -73,6 +84,8 @@ class AuditLogController extends Controller
 
     public function index(Request $request)
     {
+        $this->ensureSuperAdminAccess();
+
         $perPage = (int) $request->get('per_page', 20);
         $perPage = in_array($perPage, [20, 50, 100]) ? $perPage : 20;
 
@@ -321,6 +334,8 @@ class AuditLogController extends Controller
 
     public function exportCsv(Request $request): StreamedResponse
     {
+        $this->ensureSuperAdminAccess();
+
         $query = $this->baseQuery($request)
             ->orderBy('created_at', 'desc')
             ->limit(5000);

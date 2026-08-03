@@ -3,7 +3,7 @@
 **Date:** 2026-07-26  
 **Last deep review:** 2026-07-26 (code-verified; false positives retracted; wording corrected)  
 **Scope:** Full CRM audit by area (Clients, Leads, Partners, Agents, Applications, Invoices/Receipts, Email/Messaging, Documents, Followups, Actions, Staff/Roles/Teams/Branches, Reports, Admin Console, Auth/CRM Access, Ongoing Sheet, Notifications, Shared Frontend/Config, SMS Webhooks).  
-**Status:** Audit doc; some fixes applied (A-1–A-4, R-2, R-3 partial).  
+**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4).  
 **Stack note:** Laravel **13.x** (route parameters bind **by position** after DI, not by PHP parameter name).
 
 Severity: **Critical** (crash / data corruption / money wrong / security) · **High** (major feature broken or serious auth hole) · **Medium** (incorrect behavior) · **Low** (edge case / UX / maintenance risk)
@@ -29,6 +29,8 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 | **A-3** | **FIXED** — Null-check after `Agent::find` on edit |
 | **R-3** | **FIXED** (safe partial) — `visaexpires` / `agreementexpires` gated to role 1|12; `actionCalendar` left login-only (data already scoped) |
 | **R-2** | **FIXED** — `noofpersonofficevisit`: `$totalData` via `$lists->total()`; Sno offset via `$lists->firstItem()` (matches `paginate(5)`) |
+| **R-4** | **FIXED** — `AuditLogController` index/export gated to super admin (role == 1); matches Staff Login Log sidebar |
+| **R-1** | **FIXED** — `ReportController` gates match sidebar: role 1|12 + modules 62–65; date-wise report role 1; actionCalendar left login-only |
 
 ---
 
@@ -521,12 +523,14 @@ if ($invoicelist->type == 2) {
 
 ### High
 
-#### R-1. No authorization on ReportController
-- **File:** `ReportController.php`; routes `web.php` (~527–539) — any `auth:admin` user can hit report endpoints regardless of module flags (UI modules 62–69 unused here).
+#### ~~R-1. No authorization on ReportController~~ — **FIXED**
+- **File:** `ReportController.php`; routes `web.php` — any `auth:admin` user could hit report endpoints regardless of module flags (UI modules 62–65).
+- **Fix:** Server gates match left-side-bar: role 1|12 + `StaffRole` module **62** (client/application), **63** (invoice), **64** (office check-in), **65** (sale forecast); date-wise office visit role `== 1` only; visa/agreement role 1|12 (R-3). `actionCalendar` intentionally remains login-only (data scoped in view).
 
-#### R-4. Audit logs index/export login-only (same class as R-1)
-- **Files:** `AuditLogController.php` (constructor `auth:admin` only); `routes/web.php` (~523–524) `/audit-logs`, `/audit-logs/export`
-- **What happens:** Any logged-in staff can view/export staff login logs; no module/super-admin gate.
+#### ~~R-4. Audit logs index/export login-only (same class as R-1)~~ — **FIXED**
+- **Files:** `AuditLogController.php` (constructor `auth:admin` only); `routes/web.php` `/audit-logs`, `/audit-logs/export`
+- **What happens:** Any logged-in staff could view/export staff login logs; no module/super-admin gate. Menu (Staff Login Log) is role 1 only.
+- **Fix:** `ensureSuperAdminAccess()` on `index` and `exportCsv` — abort 403 unless role `== 1` (loose compare for string/int). Filter/export behavior unchanged for super admin.
 
 ### Medium
 
