@@ -338,11 +338,16 @@ if ($invoicelist->type == 2) {
 
 ### Medium
 
-#### INV-4. `validate_receipt` returns empty/misleading JSON when no IDs
+#### ~~INV-4. `validate_receipt` returns empty/misleading JSON when no IDs~~ — **FIXED**
+- **Fix:** Empty/missing `clickedReceiptIds` now returns `{status:false, message, record_data:[], clickedIds:[]}`.
+
 #### INV-5. Multi-line receipt save only updates `trans_no` on last insert
-#### INV-6. `saveaccountreport` null deref on validate flag race
+#### ~~INV-6. `saveaccountreport` null deref on validate flag race~~ — **FIXED**
+- **Fix:** `validate_receipt` response uses `?? 0` when receipt row missing on add/edit.
+
 #### INV-7. Paid invoice export fee formula may not match list UI
-#### INV-8. Client receipt `printUrl` via `URL::to` (APP_URL mismatch)
+#### ~~INV-8. Client receipt `printUrl` via `URL::to` (APP_URL mismatch)~~ — **FIXED**
+- **Fix:** Add/edit/refund `printUrl` now relative `/clients/printpreview/{id}` (matches current host).
 
 ### Low
 

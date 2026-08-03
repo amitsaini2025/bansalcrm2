@@ -7,7 +7,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\URL;
 use Yajra\DataTables\Facades\DataTables;
 use Barryvdh\DomPDF\Facade\Pdf as PDF;
 
@@ -155,7 +154,7 @@ class ClientReceiptController extends Controller
                 $response['db_total_deposit_amount'] = $db_total_deposit_amount;
               
                 $validate_receipt_info = DB::table('account_client_receipts')->select('validate_receipt')->where('id',$saved)->first();
-                $response['validate_receipt'] = $validate_receipt_info->validate_receipt;
+                $response['validate_receipt'] = $validate_receipt_info->validate_receipt ?? 0;
 
                 if($doc_saved){
                     $awsUrl = $fileUrl;
@@ -169,8 +168,8 @@ class ClientReceiptController extends Controller
                     $subject = 'added client receipt with Receipt Id-'.$receipt_id.' and Trans. No	-'.$requestData['trans_no'][0];
                 }
 
-                $printUrl = URL::to('/clients/printpreview').'/'.$receipt_id;
-                $response['printUrl'] = $printUrl;
+                // Relative path avoids APP_URL host/scheme mismatch (INV-8)
+                $response['printUrl'] = '/clients/printpreview/'.$receipt_id;
 
                 if($request->type == 'client'){
                     $firstLine = $finalArr[0] ?? [];
@@ -336,7 +335,7 @@ class ClientReceiptController extends Controller
                 $response['lastInsertedId'] = $requestData['id'][0];
               
                 $validate_receipt_info = DB::table('account_client_receipts')->select('validate_receipt')->where('id',$requestData['id'][0])->first();
-                $response['validate_receipt'] = $validate_receipt_info->validate_receipt;
+                $response['validate_receipt'] = $validate_receipt_info->validate_receipt ?? 0;
               
                 if($doc_savedL){
                   	$awsUrl = $fileUrl;
@@ -364,8 +363,8 @@ class ClientReceiptController extends Controller
                     }
                 }
 
-                $printUrl = URL::to('/clients/printpreview').'/'.$requestData['id'][0];
-                $response['printUrl'] = $printUrl;
+                // Relative path avoids APP_URL host/scheme mismatch (INV-8)
+                $response['printUrl'] = '/clients/printpreview/'.$requestData['id'][0];
 
                 if($request->type == 'client'){
                     $oldAppName = $this->getApplicationDisplayName($originalAppId);
@@ -501,7 +500,7 @@ class ClientReceiptController extends Controller
                 'message' => 'Refund created successfully.',
                 'db_total_deposit_amount' => $dbTotal,
                 'lastInsertedId' => $saved,
-                'printUrl' => URL::to('/clients/printpreview') . '/' . $saved,
+                'printUrl' => '/clients/printpreview/' . $saved,
             ]);
         }
 
@@ -643,6 +642,12 @@ class ClientReceiptController extends Controller
                 $response['message']	=	'No record was updated.';
                 $response['clickedIds'] = 	array();
             }
+        } else {
+            // INV-4: never return bare {} — UI relies on status/message
+            $response['status'] = false;
+            $response['message'] = 'No receipt IDs provided.';
+            $response['record_data'] = [];
+            $response['clickedIds'] = [];
         }
         echo json_encode($response);
     }
