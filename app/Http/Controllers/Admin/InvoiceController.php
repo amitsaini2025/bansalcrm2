@@ -372,7 +372,15 @@ class InvoiceController extends Controller
 	
 	public function invoicepaymentstore(Request $request){
 		$requestData 		= 	$request->all();
-		$invoicedetail = \App\Models\Invoice::where('id', $requestData['invoice_id'])->first();
+		$invoicedetail = \App\Models\Invoice::where('id', @$requestData['invoice_id'])->first();
+		if (!$invoicedetail) {
+			if ($request->is_ajax == 'true') {
+				echo json_encode(['status' => false, 'message' => 'Invoice not found']);
+				return;
+			}
+			return redirect()->back()->with('error', 'Invoice not found');
+		}
+
 		$invoiceitemdetails = \App\Models\InvoiceDetail::where('invoice_id', $requestData['invoice_id'])->orderby('id','ASC')->get();
 		$coom_amt = 0;
 		$total_fee = 0;
@@ -395,30 +403,55 @@ class InvoiceController extends Controller
 			$feepaid = $total_fee - $coom_amt;
 			$totaldue = $feepaid - $amount_rec;
 		}
+
+		// INV-9: only count/insert non-empty, positive payment lines
+		$paymentAmounts = is_array($requestData['payment_amount'] ?? null) ? $requestData['payment_amount'] : [];
+		$paymentDates = is_array($requestData['payment_date'] ?? null) ? $requestData['payment_date'] : [];
+		$paymentModes = is_array($requestData['payment_mode'] ?? null) ? $requestData['payment_mode'] : [];
+		$validLineIndexes = [];
 		$payment_amount = 0;
-		for($ia =0; $ia<count(@$requestData['payment_amount']); $ia++){
-			$payment_amount += @$requestData['payment_amount'][$ia];
+		foreach ($paymentAmounts as $ia => $rawAmount) {
+			if ($rawAmount === null || $rawAmount === '') {
+				continue;
+			}
+			if (!is_numeric($rawAmount)) {
+				continue;
+			}
+			$lineAmount = (float) $rawAmount;
+			if ($lineAmount <= 0) {
+				continue;
+			}
+			$validLineIndexes[] = $ia;
+			$payment_amount += $lineAmount;
 		}
-	//echo $payment_amount; die;
+
+		if (empty($validLineIndexes)) {
+			if ($request->is_ajax == 'true') {
+				echo json_encode(['status' => false, 'message' => 'Please enter a valid payment amount']);
+				return;
+			}
+			return redirect()->back()->with('error', 'Please enter a valid payment amount');
+		}
+
 		if($payment_amount > $totaldue){
 			if($request->is_ajax == 'true'){
 				$response['status'] 	= 	false;
 				$response['message']	=	'Amount should be less than total due';
 				echo json_encode($response);
-			}else{
-				return redirect()->back()->with('error', 'Amount should be less than total due');
+				return;
 			}
+			return redirect()->back()->with('error', 'Amount should be less than total due');
 		}
-		
-		for($ia =0; $ia<count(@$requestData['payment_amount']); $ia++){
-				$objf				= 	new InvoicePayment;
-				$objf->invoice_id	=	$requestData['invoice_id'];
-				$objf->amount_rec	=	@$requestData['payment_amount'][$ia];
-				$objf->payment_date	=	@$requestData['payment_date'][$ia];
-				$objf->payment_mode	=	@$requestData['payment_mode'][$ia];
-				
-				$followupsaved				=	$objf->save(); 
-			}
+
+		$followupsaved = false;
+		foreach ($validLineIndexes as $ia) {
+			$objf				= 	new InvoicePayment;
+			$objf->invoice_id	=	$requestData['invoice_id'];
+			$objf->amount_rec	=	(float) $paymentAmounts[$ia];
+			$objf->payment_date	=	$paymentDates[$ia] ?? null;
+			$objf->payment_mode	=	$paymentModes[$ia] ?? null;
+			$followupsaved = $objf->save() || $followupsaved;
+		}
 		
 		$invoicedetail = \App\Models\Invoice::where('id', $requestData['invoice_id'])->first();
 		$invoiceitemdetails = \App\Models\InvoiceDetail::where('invoice_id', $requestData['invoice_id'])->orderby('id','ASC')->get();

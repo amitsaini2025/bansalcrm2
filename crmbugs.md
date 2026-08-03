@@ -353,7 +353,8 @@ if ($invoicelist->type == 2) {
 
 ### Low
 
-#### INV-9. `invoicepaymentstore` can insert empty payment rows
+#### ~~INV-9. `invoicepaymentstore` can insert empty payment rows~~ — **FIXED**
+- **Fix:** Only positive numeric payment lines are summed/saved; empty lines skipped; over-due and no-valid-line paths return without insert.
 
 ---
 
