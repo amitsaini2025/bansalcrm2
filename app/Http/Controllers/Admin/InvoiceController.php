@@ -486,8 +486,8 @@ class InvoiceController extends Controller
 				$workflowdaa = \App\Models\Workflow::where('id', $invoicelist->application_id)->first();
 			}else{
 				$applicationdata = \App\Models\Application::where('id', $invoicelist->application_id)->first();
-				$workflowdaa = \App\Models\Workflow::where('id', $invoicelist->application_id)->first();
-				$partnerdata = \App\Models\Partner::where('id', $applicationdata->partner_id)->first();
+				$workflowdaa = \App\Models\Workflow::where('id', @$applicationdata->workflow)->first();
+				$partnerdata = \App\Models\Partner::where('id', @$applicationdata->partner_id)->first();
 			}
 			$invoiceitemdetails = \App\Models\InvoiceDetail::where('invoice_id', $invoicelist->id)->orderby('id','ASC')->get();
 			$netamount = 0;

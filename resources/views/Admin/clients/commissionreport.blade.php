@@ -151,7 +151,7 @@ $(function () {
         serverSide: true,
         
         ajax: {
-            url: "{{ route('admin.commissionreportlist') }}",
+            url: "{{ route('clients.getcommissionreport') }}",
             type: "POST"
         },
         dom: 'Blfrtip', // Defines the position of the buttons in the DOM

@@ -323,15 +323,18 @@ if ($invoicelist->type == 2) {
 
 ### High
 
-#### INV-2. `getinvoices` loads workflow by wrong ID
+#### ~~INV-2. `getinvoices` loads workflow by wrong ID~~ — **FIXED**
 - **File:** `InvoiceController.php` (~488–490) — after loading Application, still does `Workflow::where('id', $invoicelist->application_id)` (application ID as workflow ID). Should use `$applicationdata->workflow`.
+- **Fix:** Controller `getinvoices` now uses `@$applicationdata->workflow` (and `@$applicationdata->partner_id`). Type 3 unchanged.
+- **Note:** Initial Accounts tab render in `clients/detail.blade.php` (~1763) still has the old lookup until that copy is updated; AJAX `/get-invoices` path is correct.
 
-#### INV-3. Commission report duplicates rows + ungrouped stage OR footgun
+#### ~~INV-3. Commission report duplicates rows + ungrouped stage OR footgun~~ — **FIXED**
 - **File:** `ClientReceiptController.php` `getcommissionreport` (~737–745)
 - **What happens:**
   - `leftJoin application_fee_options` without latest-fee filter → duplicate students / inflated columns.
   - Stage filter is `where(…).orWhere(…).orWhere(…)` **without** a grouping closure. Currently those are the only filters (so results happen to match stages), but any future `where partner_id = …` etc. added alongside will leak wrong rows.
 - **Contrast:** Partner Invoice tab (P-3) **does** group its OR correctly.
+- **Fix:** Latest fee-row join via `MAX(id)` subquery (mysql/pgsql); stage OR wrapped in `where(function …)`. Also fixed page 500: blade now uses `route('clients.getcommissionreport')` instead of missing `admin.commissionreportlist`.
 
 ### Medium
 

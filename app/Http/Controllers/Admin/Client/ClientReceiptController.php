@@ -734,14 +734,24 @@ class ClientReceiptController extends Controller
      */
     public function getcommissionreport(Request $request) {
         if ($request->ajax()) {
+			// Latest fee row only (prevents multi fee-option duplicate report rows)
+			$latestFeeConstraint = DB::getDriverName() === 'pgsql'
+				? 'application_fee_options.id = (SELECT MAX(afo2.id) FROM application_fee_options afo2 WHERE afo2.app_id = applications.id)'
+				: 'application_fee_options.id = (SELECT MAX(afo2.id) FROM application_fee_options afo2 WHERE afo2.app_id = applications.id LIMIT 1)';
+
 			$data = Application::join('admins', 'applications.client_id', '=', 'admins.id')
             ->leftJoin('partners', 'applications.partner_id', '=', 'partners.id')
             ->leftJoin('products', 'applications.product_id', '=', 'products.id')
-            ->leftJoin('application_fee_options', 'applications.id', '=', 'application_fee_options.app_id')
+            ->leftJoin('application_fee_options', function ($join) use ($latestFeeConstraint) {
+                $join->on('applications.id', '=', 'application_fee_options.app_id')
+                    ->whereRaw($latestFeeConstraint);
+            })
             ->select('applications.*','admins.client_id as client_reference', 'admins.first_name','admins.last_name','admins.dob','partners.partner_name','products.name as coursename','application_fee_options.total_course_fee_amount','application_fee_options.enrolment_fee_amount','application_fee_options.material_fees','application_fee_options.tution_fees','application_fee_options.fee_reported_by_college','application_fee_options.bonus_amount','application_fee_options.bonus_pending_amount','application_fee_options.commission_as_per_fee_reported','application_fee_options.commission_payable_as_per_anticipated_fee','application_fee_options.commission_paid_as_per_fee_reported','application_fee_options.commission_pending')
-            ->where('applications.stage','Coe issued')
-            ->orWhere('applications.stage','Enrolled')
-            ->orWhere('applications.stage','Coe Cancelled')
+            ->where(function ($query) {
+                $query->where('applications.stage', 'Coe issued')
+                    ->orWhere('applications.stage', 'Enrolled')
+                    ->orWhere('applications.stage', 'Coe Cancelled');
+            })
             ->latest()->get();
             return Datatables::of($data)
             ->addIndexColumn()
