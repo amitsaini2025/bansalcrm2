@@ -3,7 +3,7 @@
 **Date:** 2026-07-26  
 **Last deep review:** 2026-07-26 (code-verified; false positives retracted; wording corrected)  
 **Scope:** Full CRM audit by area (Clients, Leads, Partners, Agents, Applications, Invoices/Receipts, Email/Messaging, Documents, Followups, Actions, Staff/Roles/Teams/Branches, Reports, Admin Console, Auth/CRM Access, Ongoing Sheet, Notifications, Shared Frontend/Config, SMS Webhooks).  
-**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4).  
+**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-2, F-4).  
 **Stack note:** Laravel **13.x** (route parameters bind **by position** after DI, not by PHP parameter name).
 
 Severity: **Critical** (crash / data corruption / money wrong / security) · **High** (major feature broken or serious auth hole) · **Medium** (incorrect behavior) · **Low** (edge case / UX / maintenance risk)
@@ -31,6 +31,8 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 | **R-2** | **FIXED** — `noofpersonofficevisit`: `$totalData` via `$lists->total()`; Sno offset via `$lists->firstItem()` (matches `paginate(5)`) |
 | **R-4** | **FIXED** — `AuditLogController` index/export gated to super admin (role == 1); matches Staff Login Log sidebar |
 | **R-1** | **FIXED** — `ReportController` gates match sidebar: role 1|12 + modules 62–65; date-wise report role 1; actionCalendar left login-only |
+| **F-4** | **FIXED** — Scheduled follow-up activity sync: subject + full title match (no last-40 window; no `note_id` column) |
+| **F-2** | **FIXED** — Calendar Show filter defaults to open (confirmed); Completed/Cancelled/No show/All remain available |
 
 ---
 
@@ -452,12 +454,16 @@ if ($invoicelist->type == 2) {
 
 ### Medium
 
-#### F-2. Calendar shows completed/cancelled on same footing as open (no status filter in query)
+#### ~~F-2. Calendar shows completed/cancelled on same footing as open (no status filter in query)~~ — **FIXED**
+- **File:** `resources/views/Admin/followups/calendar.blade.php` (+ `FollowupController` calendar load still includes all statuses for filter options).
+- **Fix:** Calendar **Show** filter defaults to **Open (confirmed)**; Completed / Cancelled / No show / All preserve access to closed follow-ups. No API/migration change.
 #### F-3. Reassign consultant blocked when note `status != 0`
 
 ### Low
 
-#### F-4. Activity log sync for consultant change is best-effort string match (last 40 rows)
+#### ~~F-4. Activity log sync for consultant change is best-effort string match (last 40 rows)~~ — **FIXED**
+- **File:** `FollowupController.php` — `findScheduledFollowupActivityLogId` / consultant + date sync.
+- **Fix:** Target only `Scheduled follow-up (%` rows; match full note title in description; no last-40 cap. Soft-fail if no match (reassign/reschedule still succeed). No `note_id` column.
 
 ---
 

@@ -274,8 +274,9 @@ class FollowupController extends Controller
     }
 
     /**
-     * Notes shown on consultant calendars — same note set as follow-up listing (no status/outcome filter).
-     * Consultant routing uses note title in {@see calendar()}; pill colours still use outcome/status in the view payload.
+     * Notes loaded for consultant calendars (all open/closed outcomes).
+     * UI defaults to showing open (confirmed) only; filter can show completed/cancelled/no_show/all.
+     * Consultant routing uses note title in {@see calendar()}; status colours come from the view payload.
      */
     protected function calendarFollowupNotesQuery(): \Illuminate\Database\Eloquent\Builder
     {
@@ -283,6 +284,53 @@ class FollowupController extends Controller
             ->where('type', 'client')
             ->where('is_action', 1)
             ->where('task_group', 'Followup');
+    }
+
+    /**
+     * Resolve the original “Scheduled follow-up” activities_logs id for a note.
+     * Matches subject prefix + full note title in description (no note_id / no row-window cap).
+     * Soft-fail: returns null if nothing matches — callers must not fail the user action.
+     */
+    protected function findScheduledFollowupActivityLogId(Note $note, ?string $titleNeedle = null): ?int
+    {
+        if (! Schema::hasTable('activities_logs') || ! $note->client_id) {
+            return null;
+        }
+
+        $titleNeedle = $titleNeedle !== null && $titleNeedle !== ''
+            ? $titleNeedle
+            : (string) $note->title;
+
+        if ($titleNeedle === '') {
+            return null;
+        }
+
+        $q = DB::table('activities_logs')
+            ->where('client_id', $note->client_id);
+
+        if (Schema::hasColumn('activities_logs', 'task_group')) {
+            $q->where('task_group', 'Followup');
+        }
+
+        // Only the original schedule row — never reschedule / consultant-changed / status logs.
+        if (Schema::hasColumn('activities_logs', 'subject')) {
+            $q->where('subject', 'like', 'Scheduled follow-up (%');
+        }
+
+        // Prefer exact title span as written on schedule; fall back to raw title.
+        $titleInSpan = '<span class="text-semi-bold">'.e($titleNeedle).'</span>';
+
+        foreach ($q->orderByDesc('id')->get(['id', 'description']) as $row) {
+            $description = (string) $row->description;
+            if (
+                str_contains($description, $titleInSpan)
+                || str_contains($description, $titleNeedle)
+            ) {
+                return (int) $row->id;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -299,29 +347,25 @@ class FollowupController extends Controller
             return;
         }
 
+        $logId = $this->findScheduledFollowupActivityLogId($note, $oldNoteTitle);
+        if ($logId === null) {
+            return;
+        }
+
         $consultantDisplay = self::consultantDisplayForSlug($slug);
         $newSubject = 'Scheduled follow-up ('.$consultantDisplay.')';
         $newDesc = '<span class="text-semi-bold">'.e($note->title).'</span><p>'.$note->description.'</p>';
 
-        $q = DB::table('activities_logs')
-            ->where('client_id', $note->client_id);
+        $payload = array_filter([
+            'subject' => Schema::hasColumn('activities_logs', 'subject') ? $newSubject : null,
+            'description' => $newDesc,
+        ], fn ($v) => $v !== null);
 
-        if (Schema::hasColumn('activities_logs', 'task_group')) {
-            $q->where('task_group', 'Followup');
+        if ($payload === []) {
+            return;
         }
 
-        $rows = $q->orderByDesc('id')->limit(40)->get(['id', 'description']);
-
-        foreach ($rows as $row) {
-            if (! str_contains((string) $row->description, $oldNoteTitle)) {
-                continue;
-            }
-            DB::table('activities_logs')->where('id', $row->id)->update(array_filter([
-                'subject' => Schema::hasColumn('activities_logs', 'subject') ? $newSubject : null,
-                'description' => $newDesc,
-            ], fn ($v) => $v !== null));
-            break;
-        }
+        DB::table('activities_logs')->where('id', $logId)->update($payload);
     }
 
     public function index()
@@ -608,20 +652,14 @@ class FollowupController extends Controller
             return;
         }
 
-        $q = DB::table('activities_logs')->where('client_id', $note->client_id);
-        if (Schema::hasColumn('activities_logs', 'task_group')) {
-            $q->where('task_group', 'Followup');
+        $logId = $this->findScheduledFollowupActivityLogId($note, $needleInDescription);
+        if ($logId === null) {
+            return;
         }
 
-        foreach ($q->orderByDesc('id')->limit(40)->get(['id', 'description']) as $row) {
-            if (! str_contains((string) $row->description, $needleInDescription)) {
-                continue;
-            }
-            DB::table('activities_logs')->where('id', $row->id)->update([
-                'followup_date' => $note->action_assign_date,
-            ]);
-            break;
-        }
+        DB::table('activities_logs')->where('id', $logId)->update([
+            'followup_date' => $note->action_assign_date,
+        ]);
     }
 
     public function rescheduleFollowup(Request $request): JsonResponse

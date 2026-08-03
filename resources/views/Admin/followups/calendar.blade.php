@@ -292,7 +292,17 @@
 					<div class="card">
 						<div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
 							<h4 class="mb-0">{{ $consultantLabel }}</h4>
-							<a href="{{ route('followups.index') }}" class="btn btn-outline-secondary btn-sm">Back to listing</a>
+							<div class="d-flex align-items-center gap-2 flex-wrap">
+								<label for="followup-status-filter" class="form-label mb-0 small text-muted">Show</label>
+								<select id="followup-status-filter" class="form-select form-select-sm" style="width: auto; min-width: 11rem;" aria-label="Filter follow-ups by status">
+									<option value="open" selected>Open (confirmed)</option>
+									<option value="completed">Completed</option>
+									<option value="cancelled">Cancelled</option>
+									<option value="no_show">No show</option>
+									<option value="all">All</option>
+								</select>
+								<a href="{{ route('followups.index') }}" class="btn btn-outline-secondary btn-sm">Back to listing</a>
+							</div>
 						</div>
 						<div class="card-body">
 							<div class="fc-overflow">
@@ -466,10 +476,19 @@ document.addEventListener('DOMContentLoaded', function() {
 		return d.innerHTML;
 	}
 
-	var events = [];
 	var scheds = {!! json_encode($sched_res, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) !!};
-	if (!!scheds && typeof scheds === 'object') {
-		Object.keys(scheds).map(function(k) {
+
+	/**
+	 * Build FullCalendar events. Default status filter is open (confirmed) so
+	 * completed/cancelled/no_show are not mixed into the main grid; “All” restores prior view.
+	 */
+	function buildFollowupEvents(statusFilter) {
+		var filter = statusFilter || 'open';
+		var out = [];
+		if (!scheds || typeof scheds !== 'object') {
+			return out;
+		}
+		Object.keys(scheds).forEach(function(k) {
 			var row = scheds[k];
 			var startIso = row.start_iso || row.startdate;
 			var endIso = row.end_iso || startIso;
@@ -477,7 +496,16 @@ document.addEventListener('DOMContentLoaded', function() {
 			if (cs !== 'confirmed' && cs !== 'completed' && cs !== 'cancelled' && cs !== 'no_show') {
 				cs = 'confirmed';
 			}
-			events.push({
+			if (filter !== 'all') {
+				if (filter === 'open') {
+					if (cs !== 'confirmed') {
+						return;
+					}
+				} else if (cs !== filter) {
+					return;
+				}
+			}
+			out.push({
 				id: String(row.id),
 				title: row.client_display_name || row.stitle,
 				start: startIso,
@@ -496,7 +524,10 @@ document.addEventListener('DOMContentLoaded', function() {
 				}
 			});
 		});
+		return out;
 	}
+
+	var events = buildFollowupEvents('open');
 
 	var calendarEl = document.getElementById('followupCalendar');
 	if (!calendarEl) return;
@@ -689,6 +720,15 @@ document.addEventListener('DOMContentLoaded', function() {
 	});
 
 	calendar.render();
+
+	var statusFilterEl = document.getElementById('followup-status-filter');
+	if (statusFilterEl) {
+		statusFilterEl.addEventListener('change', function() {
+			var selected = statusFilterEl.value || 'open';
+			calendar.removeAllEvents();
+			calendar.addEventSource(buildFollowupEvents(selected));
+		});
+	}
 });
 </script>
 
