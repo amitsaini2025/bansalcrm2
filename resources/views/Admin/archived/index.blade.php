@@ -154,7 +154,7 @@
 															<label for="checkbox-1" class="custom-control-label">&nbsp;</label>
 														</div>
 													</td>
-													<td style="white-space: initial;">{{ @$list->first_name == "" ? config('constants.empty') : str_limit(@$list->first_name, '50', '...') }} {{ @$list->last_name == "" ? config('constants.empty') : str_limit(@$list->last_name, '50', '...') }}</td>
+													<td style="white-space: initial;">{{ @$list->first_name == "" ? config('constants.empty') : str_limit(@$list->first_name, '50', '...') }} {{ @$list->last_name == "" ? config('constants.empty') : str_limit(@$list->last_name, '50', '...') }} @if(!empty($list->type))<span class="badge btn-warning">{{ $list->type }}</span>@endif</td>
 													<?php
 													$assignee = \App\Support\StaffAssigneeResolver::firstStaffFromAssigneeValue(@$list->assignee);
 													$archivedBy = null;

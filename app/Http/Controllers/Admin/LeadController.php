@@ -47,6 +47,7 @@ class LeadController extends Controller
 		//check authorization end
 
 		$baseQuery = Admin::where('type', 'lead')->where('converted', 0)
+			->where('is_archived', 0)
 			->where(function ($q) {
 				$q->whereNull('is_deleted')->orWhere('is_deleted', 0);
 			});
@@ -80,6 +81,7 @@ class LeadController extends Controller
 		}
 
 		$baseQuery = Admin::where('type', 'lead')->where('converted', 0)
+			->where('is_archived', 0)
 			->where(function ($q) {
 				$q->whereNull('is_deleted')->orWhere('is_deleted', 0);
 			});

@@ -3,7 +3,7 @@
 **Date:** 2026-07-26  
 **Last deep review:** 2026-07-26 (code-verified; false positives retracted; wording corrected)  
 **Scope:** Full CRM audit by area (Clients, Leads, Partners, Agents, Applications, Invoices/Receipts, Email/Messaging, Documents, Followups, Actions, Staff/Roles/Teams/Branches, Reports, Admin Console, Auth/CRM Access, Ongoing Sheet, Notifications, Shared Frontend/Config, SMS Webhooks).  
-**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4).  
+**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4, L-5).  
 **Stack note:** Laravel **13.x** (route parameters bind **by position** after DI, not by PHP parameter name).
 
 Severity: **Critical** (crash / data corruption / money wrong / security) · **High** (major feature broken or serious auth hole) · **Medium** (incorrect behavior) · **Low** (edge case / UX / maintenance risk)
@@ -35,6 +35,7 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 | **F-2** | **FIXED** — Calendar Show filter defaults to open (confirmed); Completed/Cancelled/No show/All remain available |
 | **F-3** | **FIXED** — Calendar disables reassign/reschedule when note not open; server open-only rule unchanged |
 | **F-1** | **FIXED** — Consultants from followup_consultants (routes/labels/blocked-times/nav); legacy four-slug maps kept |
+| **L-5** | **FIXED** — Lead list + export base query filters `is_archived = 0`; archived type badge on `/archived` |
 
 ---
 
@@ -175,8 +176,10 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 #### L-4. Lead phone “Verify” button hidden for new admin-only leads (`lead_id` null)
 - **File:** `clients/detail.blade.php` (~351–357) — Verify only when `$conVal->lead_id` non-empty; new leads from `LeadController::store` have `lead_id = null`.
 
-#### L-5. Lead list does not filter `is_archived`
-- **File:** `LeadController.php` (~49–51) — archived leads still appear on `/leads`.
+#### ~~L-5. Lead list does not filter `is_archived`~~ — **FIXED**
+- **File:** `LeadController.php` (`index` / `exportList` base query)
+- **What happens:** archived leads still appeared on `/leads`.
+- **Fix:** Base query includes `where('is_archived', 0)` (list + CSV export). Archived leads remain on `/archived` (type badge shows lead/client).
 
 #### L-6. Lead uniqueness AJAX / store ignore `client_phones`
 - **Files:** `is_contactno_unique` (~400–411); store validation `unique:admins,phone` only.
