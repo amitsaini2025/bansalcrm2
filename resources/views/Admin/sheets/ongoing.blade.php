@@ -387,6 +387,8 @@
                                             });
                                         @endphp
                                         <select name="current_stage" id="ongoing-current-stage-filter" class="form-control ongoing-filter-stage-select" data-selected-stage="{{ e($selectedCurrentStageValue) }}">
+                                            {{-- Empty option is required: without it the browser/Tom Select submit the first stage (e.g. Offer letter processing) and hide matching search results. --}}
+                                            <option value="" {{ $selectedCurrentStage === '' ? 'selected' : '' }}>All stages</option>
                                             @foreach($currentStages as $value => $label)
                                                 <option value="{{ $value }}" {{ $selectedCurrentStage !== '' && strtolower(trim((string) $value)) === strtolower($selectedCurrentStage) ? 'selected' : '' }}>
                                                     {{ $label ?: '—' }}
@@ -801,19 +803,27 @@ $(document).ready(function() {
         if (!stageEl) {
             return null;
         }
-        var fromData = (stageEl.getAttribute('data-selected-stage') || '').trim();
-        var resolved = resolveOngoingStageOptionValue(stageEl, fromData);
-        if (resolved) {
-            return resolved;
+        // data-selected-stage is always set server-side; empty means "All stages" and must not
+        // fall back to the first real stage option (browser default).
+        if (stageEl.hasAttribute('data-selected-stage')) {
+            var fromData = (stageEl.getAttribute('data-selected-stage') || '').trim();
+            if (fromData === '') {
+                return '';
+            }
+            return resolveOngoingStageOptionValue(stageEl, fromData) || fromData;
         }
         var selected = stageEl.querySelector('option:checked');
-        if (selected && String(selected.value || '').trim() !== '') {
-            return resolveOngoingStageOptionValue(stageEl, selected.value) || selected.value;
+        if (selected) {
+            var selectedVal = String(selected.value || '').trim();
+            if (selectedVal === '') {
+                return '';
+            }
+            return resolveOngoingStageOptionValue(stageEl, selectedVal) || selectedVal;
         }
         if (stageEl.value && String(stageEl.value).trim() !== '') {
             return resolveOngoingStageOptionValue(stageEl, stageEl.value) || stageEl.value;
         }
-        return null;
+        return '';
     }
 
     function initOngoingFilterTomSelects() {

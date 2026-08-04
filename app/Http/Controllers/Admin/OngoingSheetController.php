@@ -536,16 +536,43 @@ class OngoingSheetController extends Controller
             }
         }
 
-        // Search (name, CRM ref, current status)
+        // Search (name, CRM ref, current status, stage)
+        // Full names ("Jaspreet Singh") must match combined first+last, not only single columns.
         if ($request->filled('search')) {
-            $search = '%' . strtolower($request->input('search')) . '%';
-            $query->where(function ($q) use ($search) {
-                $q->whereRaw('LOWER(admins.first_name) LIKE ?', [$search])
-                    ->orWhereRaw('LOWER(admins.last_name) LIKE ?', [$search])
-                    ->orWhereRaw('LOWER(admins.client_id) LIKE ?', [$search])
-                    ->orWhereRaw('LOWER(ongoing.current_status) LIKE ?', [$search])
-                    ->orWhereRaw('LOWER(applications.stage) LIKE ?', [$search]);
-            });
+            $term = trim((string) $request->input('search'));
+            if ($term !== '') {
+                $like = '%' . strtolower($term) . '%';
+                $fullNameExpr = DB::getDriverName() === 'pgsql'
+                    ? "LOWER(TRIM(COALESCE(admins.first_name, '') || ' ' || COALESCE(admins.last_name, '')))"
+                    : "LOWER(TRIM(CONCAT(COALESCE(admins.first_name, ''), ' ', COALESCE(admins.last_name, ''))))";
+                $fullNameReverseExpr = DB::getDriverName() === 'pgsql'
+                    ? "LOWER(TRIM(COALESCE(admins.last_name, '') || ' ' || COALESCE(admins.first_name, '')))"
+                    : "LOWER(TRIM(CONCAT(COALESCE(admins.last_name, ''), ' ', COALESCE(admins.first_name, ''))))";
+
+                $query->where(function ($q) use ($like, $term, $fullNameExpr, $fullNameReverseExpr) {
+                    $q->whereRaw('LOWER(admins.first_name) LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(admins.last_name) LIKE ?', [$like])
+                        ->orWhereRaw($fullNameExpr . ' LIKE ?', [$like])
+                        ->orWhereRaw($fullNameReverseExpr . ' LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(admins.client_id) LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(ongoing.current_status) LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(applications.stage) LIKE ?', [$like]);
+
+                    // Multi-word names: each token must appear in first or last name
+                    $words = preg_split('/\s+/', $term, -1, PREG_SPLIT_NO_EMPTY);
+                    if (is_array($words) && count($words) > 1) {
+                        $q->orWhere(function ($nameQ) use ($words) {
+                            foreach ($words as $word) {
+                                $wordLike = '%' . strtolower($word) . '%';
+                                $nameQ->where(function ($part) use ($wordLike) {
+                                    $part->whereRaw('LOWER(admins.first_name) LIKE ?', [$wordLike])
+                                        ->orWhereRaw('LOWER(admins.last_name) LIKE ?', [$wordLike]);
+                                });
+                            }
+                        });
+                    }
+                });
+            }
         }
 
         return $query;
