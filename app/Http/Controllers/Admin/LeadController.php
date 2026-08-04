@@ -282,16 +282,30 @@ class LeadController extends Controller
 			return null;
 		}
 
+		// Multi-select assign_to[]: store like clients (comma-separated when >1; single id when one).
+		// office_id is single — always resolve from the first selected staff.
 		$assignee = null;
+		$firstAssigneeId = null;
 		if (isset($requestData['assign_to']) && is_array($requestData['assign_to'])) {
-			$assignee = $requestData['assign_to'][0];
-		} else {
-			$assignee = $requestData['assign_to'] ?? null;
+			$assignIds = array_values(array_filter($requestData['assign_to'], static function ($id) {
+				return $id !== null && $id !== '';
+			}));
+			$assignCount = count($assignIds);
+			if ($assignCount > 1) {
+				$assignee = implode(',', $assignIds);
+				$firstAssigneeId = $assignIds[0];
+			} elseif ($assignCount === 1) {
+				$assignee = $assignIds[0];
+				$firstAssigneeId = $assignIds[0];
+			}
+		} elseif (isset($requestData['assign_to']) && $requestData['assign_to'] !== '' && $requestData['assign_to'] !== null) {
+			$assignee = $requestData['assign_to'];
+			$firstAssigneeId = $requestData['assign_to'];
 		}
 
 		$officeId = null;
-		if ($assignee) {
-			$staff = \App\Models\Staff::find($assignee);
+		if ($firstAssigneeId !== null && $firstAssigneeId !== '' && is_numeric($firstAssigneeId)) {
+			$staff = \App\Models\Staff::find((int) $firstAssigneeId);
 			$officeId = $staff ? $staff->office_id : null;
 		}
 

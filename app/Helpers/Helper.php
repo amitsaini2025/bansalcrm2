@@ -135,4 +135,48 @@ class Helper
         }
         return $out;
     }
+
+    /**
+     * Human label for lead list status (display only — does not change stored values).
+     *
+     * Supports modern string statuses from create/edit, plus legacy numeric IDs from
+     * the removed followup_types workflow (see pre-refactor LeadController counters).
+     */
+    public static function formatLeadStatusDisplay(mixed $status): string
+    {
+        if ($status === null || $status === '') {
+            return '—';
+        }
+
+        // Modern string statuses (create/edit forms) — show as stored
+        if (is_string($status) && ! is_numeric($status)) {
+            $trimmed = trim($status);
+
+            return $trimmed !== '' ? $trimmed : '—';
+        }
+
+        // Numeric / numeric-string legacy codes (0/1/11/… from old followup_types IDs)
+        if (is_numeric($status) && (string) (int) $status === (string) trim((string) $status)) {
+            $id = (int) $status;
+            $legacy = [
+                0 => 'Not Contacted',
+                1 => 'Create Proposal',
+                11 => 'Undecided',
+                12 => 'Lost',
+                13 => 'Won',
+                14 => 'Ready to Pay',
+            ];
+
+            if (array_key_exists($id, $legacy)) {
+                return $legacy[$id];
+            }
+
+            // Unmapped legacy code: avoid blank "—" for int; show raw id string for auditability
+            return (string) $id;
+        }
+
+        $asString = trim((string) $status);
+
+        return $asString !== '' ? $asString : '—';
+    }
 }

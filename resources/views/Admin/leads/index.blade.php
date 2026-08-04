@@ -150,12 +150,11 @@ bottom: 100%;left: 50%;pointer-events: none;-webkit-transform: translateX(-50%);
 										$leadIdForLinks = $list->lead_id ?? $list->id;
 										$displayId = $list->lead_id ?? $list->id;
 										$assigneeId = $list->assignee ?? $list->assign_to ?? null;
-										$statusDisplay = ($list->status === 0 || $list->status === '0') ? 'Not Contacted' : ((is_string($list->status) && $list->status !== '') ? $list->status : '—');
+										$statusDisplay = \App\Helpers\Helper::formatLeadStatusDisplay($list->status);
 										?> 
 										<tr id="id_{{@$list->id}}">
 											<td>@icon('ticket-alt') <a class="" href="{{route('leads.detail', base64_encode(convert_uuencode($leadIdForLinks)))}}">Lead - {{str_pad($displayId, 3, '0', STR_PAD_LEFT)}}</a> <br/>@icon('calendar-alt') 
-										
-											{{@$list->created_at}}
+										 							{{@$list->created_at}}
 											<?php
 											$assigneduser = \App\Support\StaffAssigneeResolver::firstStaffFromAssigneeValue($assigneeId);
 											if($assigneduser){

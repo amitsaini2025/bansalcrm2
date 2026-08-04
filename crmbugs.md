@@ -3,7 +3,7 @@
 **Date:** 2026-07-26  
 **Last deep review:** 2026-07-26 (code-verified; false positives retracted; wording corrected)  
 **Scope:** Full CRM audit by area (Clients, Leads, Partners, Agents, Applications, Invoices/Receipts, Email/Messaging, Documents, Followups, Actions, Staff/Roles/Teams/Branches, Reports, Admin Console, Auth/CRM Access, Ongoing Sheet, Notifications, Shared Frontend/Config, SMS Webhooks).  
-**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4, L-5).  
+**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4, L-5, L-7, L-8, L-9, L-11).  
 **Stack note:** Laravel **13.x** (route parameters bind **by position** after DI, not by PHP parameter name).
 
 Severity: **Critical** (crash / data corruption / money wrong / security) · **High** (major feature broken or serious auth hole) · **Medium** (incorrect behavior) · **Low** (edge case / UX / maintenance risk)
@@ -37,6 +37,10 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 | **F-1** | **FIXED** — Consultants from followup_consultants (routes/labels/blocked-times/nav); legacy four-slug maps kept |
 | **L-5** | **FIXED** — Lead list + export base query filters `is_archived = 0`; archived type badge on `/archived` |
 | **L-6** | **Retracted** — uniqueness must stay on `admins.phone` only; `client_phones` holds related contacts (e.g. sister) shared across people |
+| **L-7** | **FIXED** — Lead list phone (+ email) filter also matches `client_phones` / `client_emails` via subquery; client list filters aligned |
+| **L-8** | **FIXED** — Lead list status labels via `Helper::formatLeadStatusDisplay` (strings + legacy numeric IDs; display-only) |
+| **L-9** | **FIXED** — Lead create multi-assign saves all `assign_to[]` (comma-separated like clients; office from first) |
+| **L-11** | **FIXED** — Removed duplicate `leads.detail` from `web.php`; single registration in `clients.php` under `auth:admin` |
 
 ---
 
@@ -187,19 +191,27 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 - **Why wrong (by design):** `client_phones` stores multi/related contact numbers (e.g. sister of Lead 1). That same person can later be created as Lead 2 with the same number. Enforcing uniqueness on `client_phones` would block valid lead creates.
 - **Correct behavior:** Keep uniqueness on primary `admins.phone` + existing AJAX only; do **not** apply uniqueness across `client_phones`.
 
-#### L-7. Lead list phone filter only searches `admins.phone`
-- **File:** `buildLeadListQuery` (~124–128)
+#### ~~L-7. Lead list phone filter only searches `admins.phone`~~ — **FIXED**
+- **File:** `LeadController.php` `buildLeadListQuery` (phone + email; list + export)
+- **What happens:** `/leads` phone (and email) filters only checked primary `admins` columns; related rows in `client_phones` / `client_emails` were missed.
+- **Fix:** Match primary `admins.phone` / `admins.email` **or** related `client_phones.client_phone` / `client_emails.client_email` via `orWhereIn` subquery (no join so counts/paginate/export stay correct). Client list `/clients` filters updated the same way in `ClientQueries::applyClientFilters`.
 
 ### Medium
 
-#### L-8. Lead status display wrong for numeric statuses
-- **Files:** `leads/index.blade.php` (~153); create form uses string statuses — integer `0`/`1` show wrong labels.
+#### ~~L-8. Lead status display wrong for numeric statuses~~ — **FIXED**
+- **Files:** `leads/index.blade.php`; `Helper::formatLeadStatusDisplay`
+- **What happens:** list treated non-string statuses poorly — `0`/`"0"` → “Not Contacted”, other ints → `—` or raw `1`; create uses string labels.
+- **Fix:** Display-only mapping — modern strings unchanged; legacy IDs `0`→Not Contacted, `1`→Create Proposal, `11`–`14`→Undecided/Lost/Won/Ready to Pay (from pre-refactor counters); unmapped numeric IDs show as digits (not blank). Stored `admins.status` not rewritten.
 
-#### L-9. Lead create multi-assign UI only saves first assignee
-- **File:** `createAdminFromRequestData` (~261–264) uses `assign_to[0]` only.
+#### ~~L-9. Lead create multi-assign UI only saves first assignee~~ — **FIXED**
+- **File:** `LeadController.php` `createAdminFromRequestData`
+- **What happens:** create form multi-select `assign_to[]` was accepted, but only `assign_to[0]` was written to `admins.assignee`.
+- **Fix:** Same as clients — multiple ids → comma-separated string; single id → one value; `office_id` still from the first selected staff only.
 
 #### L-10. `leaddetail` auto-migration side effect on GET
-#### L-11. Duplicate `leads.detail` route registration (`web.php` + `clients.php`)
+#### ~~L-11. Duplicate `leads.detail` route registration (`web.php` + `clients.php`)~~ — **FIXED**
+- **What happens:** same `GET /leads/detail/{id}/{tab?}` + name `leads.detail` registered twice (`web.php` outside `auth:admin` group; `clients.php` inside).
+- **Fix:** Removed duplicate from `web.php`. Kept `leads.detail` (+ `leads.detail.application`) only in `clients.php` under `auth:admin`.
 #### L-12. Lead import inherits client import duplicate-check gaps
 #### L-13. `convertoClient` route outside auth group (relies on controller middleware only)
 

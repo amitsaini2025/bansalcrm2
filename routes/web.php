@@ -248,13 +248,13 @@ Route::get('/staffrole/edit/{id}', [StaffroleController::class, 'edit'])->name('
 Route::post('/staffrole/edit', [StaffroleController::class, 'edit'])->name('staffrole.update');
 
 // Leads Start - Updated to modern syntax
+// Note: leads.detail (+ application) live in routes/clients.php under auth:admin (avoid duplicate registration).
 Route::get('/leads', [LeadController::class, 'index'])->name('leads.index');
 Route::get('/leads/export-list', [LeadController::class, 'exportList'])->name('leads.export-list');
 Route::get('/leads/create', [LeadController::class, 'create'])->name('leads.create');
 Route::post('/leads/store', [LeadController::class, 'store'])->name('leads.store');
 Route::post('/leads/assign', [LeadController::class, 'assign'])->name('leads.assign');
 Route::post('/leads/import', [LeadController::class, 'import'])->name('leads.import');
-Route::get('/leads/detail/{id}/{tab?}', [ClientController::class, 'leaddetail'])->name('leads.detail');  // Lead detail page (uses client detail view)
 Route::get('/leads/convert/{id?}', [LeadController::class, 'convertoClient']);
 // Invoices Start
 
