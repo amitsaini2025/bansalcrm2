@@ -7,6 +7,7 @@ use App\Models\Staff;
 use App\Support\StaffClientVisibility;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Http\Request;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -100,27 +101,53 @@ trait ClientQueries
             }
         }
         
-        // Email filter
+        // Email filter — primary admins.email + client_emails (subquery; no join row explosion)
         if ($request->has('email')) {
             $email = $request->input('email');
             if (trim($email) != '') {
-                if ($this->isAgentContext()) {
-                    $query->where('email', $email);
-                } else {
-                    $query->where('email', 'ilike', '%' . $email . '%');
-                }
+                $isAgent = $this->isAgentContext();
+                $query->where(function ($q) use ($email, $isAgent) {
+                    if ($isAgent) {
+                        $q->where('email', $email);
+                    } else {
+                        $q->where('email', 'ilike', '%' . $email . '%');
+                    }
+                    if (Schema::hasTable('client_emails')) {
+                        $q->orWhereIn('id', function ($sub) use ($email, $isAgent) {
+                            $sub->select('client_id')->from('client_emails');
+                            if ($isAgent) {
+                                $sub->where('client_email', $email);
+                            } else {
+                                $sub->where('client_email', 'ilike', '%' . $email . '%');
+                            }
+                        });
+                    }
+                });
             }
         }
         
-        // Phone filter
+        // Phone filter — primary admins.phone + client_phones (subquery; no join row explosion)
         if ($request->has('phone')) {
             $phone = $request->input('phone');
             if (trim($phone) != '') {
-                if ($this->isAgentContext()) {
-                    $query->where('phone', $phone);
-                } else {
-                    $query->where('phone', 'ilike', '%' . $phone . '%');
-                }
+                $isAgent = $this->isAgentContext();
+                $query->where(function ($q) use ($phone, $isAgent) {
+                    if ($isAgent) {
+                        $q->where('phone', $phone);
+                    } else {
+                        $q->where('phone', 'ilike', '%' . $phone . '%');
+                    }
+                    if (Schema::hasTable('client_phones')) {
+                        $q->orWhereIn('id', function ($sub) use ($phone, $isAgent) {
+                            $sub->select('client_id')->from('client_phones');
+                            if ($isAgent) {
+                                $sub->where('client_phone', $phone);
+                            } else {
+                                $sub->where('client_phone', 'ilike', '%' . $phone . '%');
+                            }
+                        });
+                    }
+                });
             }
         }
         

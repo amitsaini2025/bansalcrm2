@@ -36,6 +36,7 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 | **F-3** | **FIXED** — Calendar disables reassign/reschedule when note not open; server open-only rule unchanged |
 | **F-1** | **FIXED** — Consultants from followup_consultants (routes/labels/blocked-times/nav); legacy four-slug maps kept |
 | **L-5** | **FIXED** — Lead list + export base query filters `is_archived = 0`; archived type badge on `/archived` |
+| **L-6** | **Retracted** — uniqueness must stay on `admins.phone` only; `client_phones` holds related contacts (e.g. sister) shared across people |
 
 ---
 
@@ -181,8 +182,10 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 - **What happens:** archived leads still appeared on `/leads`.
 - **Fix:** Base query includes `where('is_archived', 0)` (list + CSV export). Archived leads remain on `/archived` (type badge shows lead/client).
 
-#### L-6. Lead uniqueness AJAX / store ignore `client_phones`
-- **Files:** `is_contactno_unique` (~400–411); store validation `unique:admins,phone` only.
+#### L-6. ~~Lead uniqueness AJAX / store ignore `client_phones`~~ — **RETRACTED**
+- **Original claim:** `is_contactno_unique` / store only check `admins.phone`; should also unique-check `client_phones`.
+- **Why wrong (by design):** `client_phones` stores multi/related contact numbers (e.g. sister of Lead 1). That same person can later be created as Lead 2 with the same number. Enforcing uniqueness on `client_phones` would block valid lead creates.
+- **Correct behavior:** Keep uniqueness on primary `admins.phone` + existing AJAX only; do **not** apply uniqueness across `client_phones`.
 
 #### L-7. Lead list phone filter only searches `admins.phone`
 - **File:** `buildLeadListQuery` (~124–128)

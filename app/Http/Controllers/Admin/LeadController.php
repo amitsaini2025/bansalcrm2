@@ -114,7 +114,18 @@ class LeadController extends Controller
 		if ($request->has('email')) {
 			$email = $request->input('email');
 			if (trim($email) != '') {
-				$query->where('email', '=', $email);
+				// Match primary admins.email and related emails in client_emails (no join → no
+				// row multiplication for count/paginate/export).
+				$query->where(function ($q) use ($email) {
+					$q->where('email', '=', $email);
+					if (Schema::hasTable('client_emails')) {
+						$q->orWhereIn('id', function ($sub) use ($email) {
+							$sub->select('client_id')
+								->from('client_emails')
+								->where('client_email', '=', $email);
+						});
+					}
+				});
 			}
 		}
 		if ($request->has('name')) {
@@ -126,7 +137,18 @@ class LeadController extends Controller
 		if ($request->has('phone')) {
 			$phone = $request->input('phone');
 			if (trim($phone) != '') {
-				$query->where('phone', '=', $phone);
+				// Match primary admins.phone and related numbers in client_phones (no join → no
+				// row multiplication for count/paginate/export).
+				$query->where(function ($q) use ($phone) {
+					$q->where('phone', '=', $phone);
+					if (Schema::hasTable('client_phones')) {
+						$q->orWhereIn('id', function ($sub) use ($phone) {
+							$sub->select('client_id')
+								->from('client_phones')
+								->where('client_phone', '=', $phone);
+						});
+					}
+				});
 			}
 		}
 		if ($request->has('status')) {
