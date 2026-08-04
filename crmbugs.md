@@ -3,7 +3,7 @@
 **Date:** 2026-07-26  
 **Last deep review:** 2026-07-26 (code-verified; false positives retracted; wording corrected)  
 **Scope:** Full CRM audit by area (Clients, Leads, Partners, Agents, Applications, Invoices/Receipts, Email/Messaging, Documents, Followups, Actions, Staff/Roles/Teams/Branches, Reports, Admin Console, Auth/CRM Access, Ongoing Sheet, Notifications, Shared Frontend/Config, SMS Webhooks).  
-**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-2, F-3, F-4).  
+**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4).  
 **Stack note:** Laravel **13.x** (route parameters bind **by position** after DI, not by PHP parameter name).
 
 Severity: **Critical** (crash / data corruption / money wrong / security) · **High** (major feature broken or serious auth hole) · **Medium** (incorrect behavior) · **Low** (edge case / UX / maintenance risk)
@@ -34,6 +34,7 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 | **F-4** | **FIXED** — Scheduled follow-up activity sync: subject + full title match (no last-40 window; no `note_id` column) |
 | **F-2** | **FIXED** — Calendar Show filter defaults to open (confirmed); Completed/Cancelled/No show/All remain available |
 | **F-3** | **FIXED** — Calendar disables reassign/reschedule when note not open; server open-only rule unchanged |
+| **F-1** | **FIXED** — Consultants from followup_consultants (routes/labels/blocked-times/nav); legacy four-slug maps kept |
 
 ---
 
@@ -202,34 +203,44 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 
 ### Critical
 
-#### P-1. Gross Claim (type 2) due amount wrong in Accounts tab
-- **Files:** `PartnersController.php` `formatPartnerAccountsTabRow` (~1336–1341, 1367–1369)
+#### ~~P-1. Gross Claim (type 2) due amount wrong in Accounts tab~~ — **FIXED**
+- **Files:** `PartnersController.php` `formatPartnerAccountsTabRow`
 - **What happens:** Type-2 due computed as `netamount - amount_rec`, but payment storage uses `coom_amt - amount_rec`. Make Payment modal gets wrong `data-dueamount`.
-- **Contrast:** `InvoiceController` payment store uses correct formulas (~399–405).
+- **Fix:** Uses `Invoice::computeOutstandingDue(...)` (same as payment store / InvoiceController).
 
 ### High
 
-#### P-2. Net Claim (type 1) due ignores prior payments
-- **File:** `PartnersController.php` (~1336–1337) — `$totaldue = $total_fee - $coom_amt` without subtracting `$amount_rec`. Payment store uses `$feepaid - $amount_rec`.
+#### ~~P-2. Net Claim (type 1) due ignores prior payments~~ — **FIXED**
+- **File:** `PartnersController.php` `formatPartnerAccountsTabRow`
+- **What happens:** `$totaldue = $total_fee - $coom_amt` without subtracting `$amount_rec`.
+- **Fix:** Same `Invoice::computeOutstandingDue` path as P-1 (includes `$amount_rec`).
 
 #### P-3. Partner Invoice tab summary totals inflated
 - **File:** `partners/detail.blade.php` (~934–957)
 - **What happens:** `leftJoin` all `application_fee_options` rows without “latest fee only” (`MAX(id)`) constraint → multiple fee snapshots per application multiply Total Projected Fee / Commission totals.
 - **Review note:** Stage ORs **are** wrapped in `where(function …)` — do **not** blame ungrouped OR here. Other partner student queries correctly use latest-fee logic.
 
-#### P-4. Student tab export ignores table search
-- **File:** `public/js/pages/admin/partner-detail/datatable-handlers.js` (~441–461) — uses client `api.search()` but Student tab is **serverSide**; export dumps unfiltered data.
+#### ~~P-4. Student tab export ignores table search~~ — **FIXED**
+- **File:** `public/js/pages/admin/partner-detail/datatable-handlers.js`
+- **What happens:** Export path could miss server-side search filter.
+- **Fix:** `resolveStudentSearchValue()` (`api.search()` + ajax params fallback) wired into export, totals, and count requests; server already applied `search` on export.
 
-#### P-5. Student tab pagination shows fake counts when count query fails
-- **Files:** `PartnersController.php` `estimatePartnerStudentTabCounts` / `getStudentTabCount`; JS treats `estimated: true` as success — silent wrong N.
+#### ~~P-5. Student tab pagination shows fake counts when count query fails~~ — **FIXED**
+- **Files:** `PartnersController.php` `getStudentTabCount` (+ estimate); `datatable-handlers.js`
+- **What happens:** JS treated `estimated: true` as exact success totals.
+- **Fix:** JS ignores count responses with `estimated: true` (does not overwrite pagination N with invented totals). Estimate endpoint still returned for graceful degrade.
 
 ### Medium
 
 #### P-6. `URL::to` / hardcoded S3 URL host mismatch risk (print/download)
-#### P-7. Partner student invoice ID generation race (`MAX(invoice_id)+1` without lock)
-#### P-8. Accounts tab export search uses `id ILIKE` (fragile)
-#### P-9. Cached staff dropdown stale for 1 hour (`partner_detail_staff_assignees_v2`)
-#### P-10. Column visibility toggle resets after DataTables redraw
+#### ~~P-7. Partner student invoice ID generation race (`MAX(invoice_id)+1` without lock)~~ — **FIXED**
+- **Fix:** New creates only — `withNextPartnerStudentInvoiceId` lock (PG advisory / MySQL GET_LOCK) + max+1, then insert in same transaction for types 1/2/3. Existing rows not rewritten.
+#### ~~P-8. Accounts tab export search uses `id ILIKE` (fragile)~~ — **FIXED**
+- **Fix:** Shared `applyPartnerAccountsTabSearch` — exact numeric id + `CAST(id AS TEXT) ILIKE` + workflow name; used by Accounts table + export.
+#### ~~P-9. Cached staff dropdown stale for 1 hour (`partner_detail_staff_assignees_v2`)~~ — **FIXED**
+- **Fix:** Cache key `partner_detail_staff_assignees_v3`, TTL 300s (5 min) on Partner Detail.
+#### ~~P-10. Column visibility toggle resets after DataTables redraw~~ — **FIXED**
+- **Fix:** Student tab uses DataTables `column().visible()` from checkbox state (1-based map preserved); re-applies on `draw`. Removed fragile jQuery `nth-child` handlers from `legacy-init.js` (partner student only).
 
 #### ~~P-11. Partner invoice tab stage filter uses ungrouped OR~~ — **RETRACTED**
 - Stage filter in Invoice tab summary **is** grouped (see P-3). Removed as duplicate/false claim.
@@ -449,9 +460,9 @@ if ($invoicelist->type == 2) {
 
 ### High
 
-#### F-1. Consultant slugs hardcoded — new DB consultants broken
-- **Files:** `FollowupController.php` (~35–40, 384–389, 632, 708); `FollowupCalendarBlockTimingController.php` (~90)
-- **What happens:** Fixed slug lists (ankit/rakshita/jaspreet/syed). Consultants added via calendar settings are not wired into calendar routes / reschedule / block APIs.
+#### ~~F-1. Consultant slugs hardcoded — new DB consultants broken~~ — **FIXED**
+- **Files:** `FollowupController.php`; `routes/web.php`; `FollowupCalendarBlockTiming*`; `left-side-bar.blade.php`; `FollowupConsultant.php`
+- **Fix:** Resolve calendars/labels/titles/redirect validation from `followup_consultants`; keep built-in four-slug label/title maps and legacy “Calendar” titles. Sidebar + blocked-times options load active DB consultants.
 
 ### Medium
 

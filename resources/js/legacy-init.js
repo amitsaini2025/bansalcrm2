@@ -297,74 +297,11 @@
                 }
             });
             
-            // Student dropdown logic (active)
-            $('.student_drop_table_data button').on('click', function(){
-                $('.student_dropdown_list').toggleClass('active');
-            });
-            $('.student_dropdown_list label.dropdown-option input').on('click', function(){
-                var val = $(this).val();
-                if(val == 'all'){
-                    if ($(this).is(":checked")) {
-                        $('.student_table_data table tr td').show();
-                        $('.student_table_data table tr th').show();
-                        $('.student_dropdown_list label.dropdown-option input').prop('checked', true);
-                    } else {
-                        $('.student_dropdown_list label.dropdown-option input').prop('checked', false);
-                        $('.student_table_data table tr td').hide();
-                        $('.student_table_data table tr th').hide();
-                        $('.student_table_data table tr td:nth-child(1)').show();
-                        $('.student_table_data table tr th:nth-child(1)').show();
-                        $('.student_table_data table tr td:nth-child(2)').show();
-                        $('.student_table_data table tr th:nth-child(2)').show();
-                        $('.student_table_data table tr td:nth-child(22)').show();
-                        $('.student_table_data table tr th:nth-child(22)').show();
-                    }
-                } else {
-                    if ($(this).is(":checked")) {
-                        $('.student_table_data table tr td:nth-child('+val+')').show();
-                        $('.student_table_data table tr th:nth-child('+val+')').show();
-                    } else{
-                        $('.student_dropdown_list label.dropdown-option.all input').prop('checked', false);
-                        $('.student_table_data table tr td:nth-child('+val+')').hide();
-                        $('.student_table_data table tr th:nth-child('+val+')').hide();
-                    }
-                }
-            });
-            
-            // Student dropdown logic (inactive)
-            $('.student_drop_table_data1 button').on('click', function(){
-                $('.student_dropdown_list1').toggleClass('active');
-            });
-            $('.student_dropdown_list1 label.dropdown-option input').on('click', function(){
-                var val = $(this).val();
-                if(val == 'all'){
-                    if ($(this).is(":checked")) {
-                        $('.student_table_data1 table tr td').show();
-                        $('.student_table_data1 table tr th').show();
-                        $('.student_dropdown_list1 label.dropdown-option input').prop('checked', true);
-                    } else {
-                        $('.student_dropdown_list1 label.dropdown-option input').prop('checked', false);
-                        $('.student_table_data1 table tr td').hide();
-                        $('.student_table_data1 table tr th').hide();
-                        $('.student_table_data1 table tr td:nth-child(1)').show();
-                        $('.student_table_data1 table tr th:nth-child(1)').show();
-                        $('.student_table_data1 table tr td:nth-child(2)').show();
-                        $('.student_table_data1 table tr th:nth-child(2)').show();
-                        $('.student_table_data1 table tr td:nth-child(22)').show();
-                        $('.student_table_data1 table tr th:nth-child(22)').show();
-                    }
-                } else {
-                    if ($(this).is(":checked")) {
-                        $('.student_table_data1 table tr td:nth-child('+val+')').show();
-                        $('.student_table_data1 table tr th:nth-child('+val+')').show();
-                    } else{
-                        $('.student_dropdown_list1 label.dropdown-option.all input').prop('checked', false);
-                        $('.student_table_data1 table tr td:nth-child('+val+')').hide();
-                        $('.student_table_data1 table tr th:nth-child('+val+')').hide();
-                    }
-                }
-            });
-            
+            // Student column visibility (Active/Inactive) is owned by
+            // partner-detail/datatable-handlers.js via DataTables column().visible() (P-10).
+            // Do not use jQuery nth-child show/hide here — it resets on serverSide redraw.
+
+
             // Client report dropdown
             $('.drop_table_data button').on('click', function(){
                 $('.client_report_list').toggleClass('active');

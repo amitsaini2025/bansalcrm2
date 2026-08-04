@@ -833,7 +833,8 @@ class PartnersController extends Controller
 				->all();
 		});
 
-		$partnerDetailStaffAssignees = Cache::remember('partner_detail_staff_assignees_v2', 3600, function () {
+		// P-9: shorter TTL so new/disabled staff show up on Partner Detail without waiting an hour
+		$partnerDetailStaffAssignees = Cache::remember('partner_detail_staff_assignees_v3', 300, function () {
 			return Staff::query()
 				->select('id', 'office_id', 'first_name', 'last_name')
 				->where('status', 1)
@@ -1027,15 +1028,7 @@ class PartnersController extends Controller
 		$recordsTotal = (clone $query)->count();
 
 		$searchValue = trim((string) data_get($request->input('search'), 'value', ''));
-		if ($searchValue !== '') {
-			$like = '%' . addcslashes($searchValue, '%_\\') . '%';
-			$query->where(function ($q) use ($like) {
-				$q->where('id', 'ilike', $like)
-					->orWhereHas('application.workflow', function ($w) use ($like) {
-						$w->where('name', 'ilike', $like);
-					});
-			});
-		}
+		$this->applyPartnerAccountsTabSearch($query, $searchValue);
 
 		$recordsFiltered = (clone $query)->count();
 
@@ -1177,21 +1170,41 @@ class PartnersController extends Controller
 		}
 
 		$query = Invoice::query()->whereIn('application_id', $applicationIds);
-
-		if ($searchValue !== '') {
-			$like = '%'.addcslashes($searchValue, '%_\\').'%';
-			$query->where(function ($q) use ($like) {
-				$q->where('id', 'ilike', $like)
-					->orWhereHas('application.workflow', function ($w) use ($like) {
-						$w->where('name', 'ilike', $like);
-					});
-			});
-		}
+		$this->applyPartnerAccountsTabSearch($query, $searchValue);
 
 		return (clone $query)
 			->orderBy('invoice_date', 'desc')
 			->orderBy('id', 'desc')
 			->pluck('id');
+	}
+
+	/**
+	 * Accounts tab table/export search: invoice id (PG-safe) or workflow name.
+	 * Replaces fragile `id ILIKE` (P-8) which can fail on integer columns.
+	 *
+	 * @param  \Illuminate\Database\Eloquent\Builder|\Illuminate\Database\Query\Builder  $query
+	 * @return \Illuminate\Database\Eloquent\Builder|\Illuminate\Database\Query\Builder
+	 */
+	private function applyPartnerAccountsTabSearch($query, string $searchValue)
+	{
+		$searchValue = trim($searchValue);
+		if ($searchValue === '') {
+			return $query;
+		}
+
+		$like = '%'.addcslashes($searchValue, '%_\\').'%';
+
+		return $query->where(function ($q) use ($like, $searchValue) {
+			// Exact id when the term is purely numeric (common DataTables use)
+			if (ctype_digit($searchValue)) {
+				$q->where('id', (int) $searchValue);
+			}
+			// Partial id match without casting issues of `id ILIKE` on integer
+			$q->orWhereRaw('CAST(id AS TEXT) ILIKE ?', [$like])
+				->orWhereHas('application.workflow', function ($w) use ($like) {
+					$w->where('name', 'ilike', $like);
+				});
+		});
 	}
 
 	/**
@@ -1333,13 +1346,14 @@ class PartnersController extends Controller
 			$amount_rec += $paymentdetail->amount_rec;
 		}
 
-		if ((int) $invoicelist->type === 1) {
-			$totaldue = $total_fee - $coom_amt;
-		} elseif ((int) $invoicelist->type === 2) {
-			$totaldue = $netamount - $amount_rec;
-		} else {
-			$totaldue = $netamount - $amount_rec;
-		}
+		// P-1 / P-2: same outstanding formula as InvoiceController payment store
+		$totaldue = Invoice::computeOutstandingDue(
+			$invoicelist->type,
+			$total_fee,
+			$coom_amt,
+			$netamount,
+			$amount_rec
+		);
 
 		if ((int) $invoicelist->type === 1) {
 			$rtype = 'Net Claim';
@@ -3122,6 +3136,68 @@ class PartnersController extends Controller
 		echo json_encode($response);
 	}
 	
+	/**
+	 * P-7: Allocate next partner_student_invoices.invoice_id for a type under an exclusive lock.
+	 * New creates only — never rewrites existing rows. Call from withNextPartnerStudentInvoiceId.
+	 */
+	private function allocateNextPartnerStudentInvoiceId(int $invoiceType): int
+	{
+		$max = DB::table('partner_student_invoices')
+			->where('invoice_type', $invoiceType)
+			->max('invoice_id');
+
+		return ($max === null || $max === '') ? 1 : ((int) $max + 1);
+	}
+
+	/**
+	 * Hold a short exclusive lock for the invoice_type namespace while allocating + inserting.
+	 * PostgreSQL: transaction-scoped advisory lock. MySQL/MariaDB: GET_LOCK/RELEASE_LOCK.
+	 */
+	private function withNextPartnerStudentInvoiceId(int $invoiceType, callable $callback)
+	{
+		$driver = DB::connection()->getDriverName();
+		$mysqlLockName = null;
+
+		try {
+			return DB::transaction(function () use ($invoiceType, $callback, $driver, &$mysqlLockName) {
+				if ($driver === 'pgsql') {
+					// Key space dedicated to partner student invoice ids (per type)
+					DB::select('SELECT pg_advisory_xact_lock(?)', [917334000 + (int) $invoiceType]);
+				} elseif (in_array($driver, ['mysql', 'mariadb'], true)) {
+					$mysqlLockName = 'partner_student_invoice_id_'.$invoiceType;
+					$row = DB::selectOne('SELECT GET_LOCK(?, 15) AS acquired', [$mysqlLockName]);
+					if (!$row || (int) $row->acquired !== 1) {
+						throw new \RuntimeException('Unable to allocate invoice id; please try again.');
+					}
+				} else {
+					// Best-effort lock on an existing max row (empty table still uses max=null path)
+					DB::table('partner_student_invoices')
+						->where('invoice_type', $invoiceType)
+						->orderByDesc('invoice_id')
+						->lockForUpdate()
+						->limit(1)
+						->get(['id']);
+				}
+
+				$nextId = $this->allocateNextPartnerStudentInvoiceId($invoiceType);
+
+				return $callback($nextId);
+			});
+		} finally {
+			if ($mysqlLockName !== null) {
+				try {
+					DB::selectOne('SELECT RELEASE_LOCK(?) AS released', [$mysqlLockName]);
+				} catch (\Throwable $e) {
+					// Avoid masking the original error/transaction outcome
+					Log::warning('Failed to release partner student invoice id lock', [
+						'lock' => $mysqlLockName,
+						'message' => $e->getMessage(),
+					]);
+				}
+			}
+		}
+	}
+
      //Save Partner Student Invoice
     public function savepartnerstudentinvoice(Request $request, $id = NULL)
 	{
@@ -3184,41 +3260,47 @@ class PartnersController extends Controller
             }
 
             if(isset($requestData['invoice_date'])){
-                //Generate unique invoice_id
-                $is_record_exist = DB::table('partner_student_invoices')->select('invoice_id')->where('invoice_type',1)->orderBy('invoice_id', 'desc')->first();
-                //dd($is_record_exist);
-                if(!$is_record_exist){
-                    $invoice_id = 1;
-                } else {
-                    $invoice_id = $is_record_exist->invoice_id;
-                    $invoice_id = $invoice_id +1;
-                }  //dd($invoice_id);
-                $finalArr = array();
-                $finalArr['invoice_date'] = $requestData['invoice_date'];
-                $finalArr['invoice_no'] = $requestData['invoice_no'];
-                $finalArr['save_type'] = $requestData['save_type'];
-                for($i=0; $i<count($requestData['description']); $i++){
-                    $saved	= DB::table('partner_student_invoices')->insertGetId([
-                        'user_id' => $requestData['loggedin_userid'],
-                        'partner_id' =>  $requestData['partner_id'],
-                        'invoice_id'=>  $invoice_id,
-                        'invoice_type' => $requestData['invoice_type'],
+                // P-7: race-safe invoice_id for new create only (type 1)
+                $allocation = $this->withNextPartnerStudentInvoiceId(1, function (int $allocatedInvoiceId) use ($requestData, $insertedDocId) {
+                    $localSaved = false;
+                    $localFinalArr = [
                         'invoice_date' => $requestData['invoice_date'],
                         'invoice_no' => $requestData['invoice_no'],
-                        'student_id' => $requestData['student_id'][$i],
-                        'student_dob' => $requestData['student_dob'][$i],
-                        'student_name' => $requestData['student_name'][$i],
-                        'student_ref_no' => $requestData['student_ref_no'][$i],
-                        'course_name' => $requestData['course_name'][$i],
-                        'student_info_id' => $requestData['student_info_id'][$i],
-                        'description' => $requestData['description'][$i],
-                        'amount_aud' => $requestData['amount_aud'][$i],
-                        'uploaded_doc_id'=> $insertedDocId,
-                        'save_type'=> $requestData['save_type'],
-                        'created_at'=> date('Y-m-d H:i:s'),
-                        'updated_at'=> date('Y-m-d H:i:s')
-                    ]);
-                }
+                        'save_type' => $requestData['save_type'],
+                    ];
+                    $lineCount = is_array($requestData['description'] ?? null) ? count($requestData['description']) : 0;
+                    for ($i = 0; $i < $lineCount; $i++) {
+                        $localSaved = DB::table('partner_student_invoices')->insertGetId([
+                            'user_id' => $requestData['loggedin_userid'],
+                            'partner_id' =>  $requestData['partner_id'],
+                            'invoice_id'=>  $allocatedInvoiceId,
+                            'invoice_type' => $requestData['invoice_type'],
+                            'invoice_date' => $requestData['invoice_date'],
+                            'invoice_no' => $requestData['invoice_no'],
+                            'student_id' => $requestData['student_id'][$i],
+                            'student_dob' => $requestData['student_dob'][$i],
+                            'student_name' => $requestData['student_name'][$i],
+                            'student_ref_no' => $requestData['student_ref_no'][$i],
+                            'course_name' => $requestData['course_name'][$i],
+                            'student_info_id' => $requestData['student_info_id'][$i],
+                            'description' => $requestData['description'][$i],
+                            'amount_aud' => $requestData['amount_aud'][$i],
+                            'uploaded_doc_id'=> $insertedDocId,
+                            'save_type'=> $requestData['save_type'],
+                            'created_at'=> date('Y-m-d H:i:s'),
+                            'updated_at'=> date('Y-m-d H:i:s')
+                        ]);
+                    }
+
+                    return [
+                        'invoice_id' => $allocatedInvoiceId,
+                        'saved' => $localSaved,
+                        'finalArr' => $localFinalArr,
+                    ];
+                });
+                $invoice_id = $allocation['invoice_id'];
+                $saved = $allocation['saved'];
+                $finalArr = $allocation['finalArr'];
             }
             //echo '<pre>'; print_r($finalArr); die;
             if($saved) {
@@ -3591,36 +3673,41 @@ class PartnersController extends Controller
             }
 
             if(isset($requestData['invoice_date'])){
-                //Generate unique invoice_id
-                $is_record_exist = DB::table('partner_student_invoices')->select('invoice_id')->where('invoice_type',2)->orderBy('invoice_id', 'desc')->first();
-                //dd($is_record_exist);
-                if(!$is_record_exist){
-                    $invoice_id = 1;
-                } else {
-                    $invoice_id = $is_record_exist->invoice_id;
-                    $invoice_id = $invoice_id +1;
-                }  //dd($invoice_id);
-                $finalArr = array();
-                for($i=0; $i<count($requestData['invoice_date']); $i++){
-                    $finalArr[$i]['invoice_date'] = $requestData['invoice_date'][$i];
-                    $finalArr[$i]['sent_date'] = $requestData['sent_date'][$i];
-                    $finalArr[$i]['invoice_no'] = $requestData['invoice_no'][$i];
-                    $finalArr[$i]['amount_aud'] = $requestData['amount_aud'][$i];
-                    $finalArr[$i]['partnerid'] = $requestData['partner_id'];
+                // P-7: race-safe invoice_id for new record-invoice only (type 2)
+                $allocation = $this->withNextPartnerStudentInvoiceId(2, function (int $allocatedInvoiceId) use ($requestData, $insertedDocId) {
+                    $localSaved = false;
+                    $localFinalArr = [];
+                    $lineCount = is_array($requestData['invoice_date'] ?? null) ? count($requestData['invoice_date']) : 0;
+                    for ($i = 0; $i < $lineCount; $i++) {
+                        $localFinalArr[$i]['invoice_date'] = $requestData['invoice_date'][$i];
+                        $localFinalArr[$i]['sent_date'] = $requestData['sent_date'][$i];
+                        $localFinalArr[$i]['invoice_no'] = $requestData['invoice_no'][$i];
+                        $localFinalArr[$i]['amount_aud'] = $requestData['amount_aud'][$i];
+                        $localFinalArr[$i]['partnerid'] = $requestData['partner_id'];
 
-                    $saved	= DB::table('partner_student_invoices')->insertGetId([
-                        'user_id' => $requestData['loggedin_userid'],
-                        'partner_id' =>  $requestData['partner_id'],
-                        'invoice_id'=>  $invoice_id,
-                        'invoice_type' => $requestData['invoice_type'],
-                        'invoice_date' => $requestData['invoice_date'][$i],
-                        'invoice_no' => $requestData['invoice_no'][$i],
-                        'sent_date' => $requestData['sent_date'][$i],
-                        'amount_aud' => $requestData['amount_aud'][$i],
-                        'uploaded_doc_id'=> $insertedDocId
-                    ]);
-                    $finalArr[$i]['id'] = $saved;
-                }
+                        $localSaved = DB::table('partner_student_invoices')->insertGetId([
+                            'user_id' => $requestData['loggedin_userid'],
+                            'partner_id' =>  $requestData['partner_id'],
+                            'invoice_id'=>  $allocatedInvoiceId,
+                            'invoice_type' => $requestData['invoice_type'],
+                            'invoice_date' => $requestData['invoice_date'][$i],
+                            'invoice_no' => $requestData['invoice_no'][$i],
+                            'sent_date' => $requestData['sent_date'][$i],
+                            'amount_aud' => $requestData['amount_aud'][$i],
+                            'uploaded_doc_id'=> $insertedDocId
+                        ]);
+                        $localFinalArr[$i]['id'] = $localSaved;
+                    }
+
+                    return [
+                        'invoice_id' => $allocatedInvoiceId,
+                        'saved' => $localSaved,
+                        'finalArr' => $localFinalArr,
+                    ];
+                });
+                $invoice_id = $allocation['invoice_id'];
+                $saved = $allocation['saved'];
+                $finalArr = $allocation['finalArr'];
             }
             //echo '<pre>'; print_r($finalArr); die;
             if($saved) {
@@ -3753,38 +3840,43 @@ class PartnersController extends Controller
             }
 
             if(isset($requestData['verified_date'])){
-                //Generate unique invoice_id
-                $is_record_exist = DB::table('partner_student_invoices')->select('invoice_id')->where('invoice_type',3)->orderBy('invoice_id', 'desc')->first();
-                //dd($is_record_exist);
-                if(!$is_record_exist){
-                    $invoice_id = 1;
-                } else {
-                    $invoice_id = $is_record_exist->invoice_id;
-                    $invoice_id = $invoice_id +1;
-                }  //dd($invoice_id);
-                $finalArr = array();
-                for($i=0; $i<count($requestData['verified_date']); $i++){
-                    $finalArr[$i]['invoice_no'] = $requestData['invoice_no'][$i];
-                    $finalArr[$i]['method_received'] = $requestData['method_received'][$i];
-                    $finalArr[$i]['verified_by'] = $requestData['verified_by'][$i];
-                    $finalArr[$i]['verified_date'] = $requestData['verified_date'][$i];
-                    $finalArr[$i]['amount_aud'] = $requestData['amount_aud'][$i];
-                    $finalArr[$i]['partnerid'] = $requestData['partner_id'];
+                // P-7: race-safe invoice_id for new record-payment only (type 3)
+                $allocation = $this->withNextPartnerStudentInvoiceId(3, function (int $allocatedInvoiceId) use ($requestData, $insertedDocId) {
+                    $localSaved = false;
+                    $localFinalArr = [];
+                    $lineCount = is_array($requestData['verified_date'] ?? null) ? count($requestData['verified_date']) : 0;
+                    for ($i = 0; $i < $lineCount; $i++) {
+                        $localFinalArr[$i]['invoice_no'] = $requestData['invoice_no'][$i];
+                        $localFinalArr[$i]['method_received'] = $requestData['method_received'][$i];
+                        $localFinalArr[$i]['verified_by'] = $requestData['verified_by'][$i];
+                        $localFinalArr[$i]['verified_date'] = $requestData['verified_date'][$i];
+                        $localFinalArr[$i]['amount_aud'] = $requestData['amount_aud'][$i];
+                        $localFinalArr[$i]['partnerid'] = $requestData['partner_id'];
 
-                    $saved	= DB::table('partner_student_invoices')->insertGetId([
-                        'user_id' => $requestData['loggedin_userid'],
-                        'partner_id' =>  $requestData['partner_id'],
-                        'invoice_id'=>  $invoice_id,
-                        'invoice_type' => $requestData['invoice_type'],
-                        'invoice_no' => $requestData['invoice_no'][$i],
-                        'method_received' => $requestData['method_received'][$i],
-                        'verified_by' => $requestData['verified_by'][$i],
-                        'verified_date' => $requestData['verified_date'][$i],
-                        'amount_aud' => $requestData['amount_aud'][$i],
-                        'uploaded_doc_id'=> $insertedDocId
-                    ]);
-                    $finalArr[$i]['id'] = $saved;
-                }
+                        $localSaved = DB::table('partner_student_invoices')->insertGetId([
+                            'user_id' => $requestData['loggedin_userid'],
+                            'partner_id' =>  $requestData['partner_id'],
+                            'invoice_id'=>  $allocatedInvoiceId,
+                            'invoice_type' => $requestData['invoice_type'],
+                            'invoice_no' => $requestData['invoice_no'][$i],
+                            'method_received' => $requestData['method_received'][$i],
+                            'verified_by' => $requestData['verified_by'][$i],
+                            'verified_date' => $requestData['verified_date'][$i],
+                            'amount_aud' => $requestData['amount_aud'][$i],
+                            'uploaded_doc_id'=> $insertedDocId
+                        ]);
+                        $localFinalArr[$i]['id'] = $localSaved;
+                    }
+
+                    return [
+                        'invoice_id' => $allocatedInvoiceId,
+                        'saved' => $localSaved,
+                        'finalArr' => $localFinalArr,
+                    ];
+                });
+                $invoice_id = $allocation['invoice_id'];
+                $saved = $allocation['saved'];
+                $finalArr = $allocation['finalArr'];
             }
             //echo '<pre>'; print_r($finalArr); die;
             if($saved) {

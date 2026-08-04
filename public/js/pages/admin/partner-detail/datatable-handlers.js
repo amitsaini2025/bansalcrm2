@@ -141,6 +141,124 @@ jQuery(document).ready(function($){
             '</select></label>';
     }
 
+    /**
+     * P-10: apply Student column visibility from checkbox state via DataTables API
+     * so it survives serverSide redraw. Checkbox values stay 1-based (nth-child / legacy map):
+     * value N → column index N-1. SNo (0) + CRM Ref (1) always stay visible; app id (23) always hidden.
+     */
+    function applyStudentColumnVisibility(api, $colRoot) {
+        if (!api || !$colRoot || !$colRoot.length) {
+            return;
+        }
+
+        var colCount = api.columns().count();
+        var $items = $colRoot.find('label.dropdown-option input').not('[value="all"]');
+        var anyToggleableChecked = false;
+
+        $items.each(function () {
+            var n = parseInt($(this).val(), 10);
+            if (isNaN(n) || n < 1) {
+                return;
+            }
+            var idx = n - 1;
+            if (idx < 0 || idx >= colCount) {
+                return;
+            }
+            // Never toggle the hidden application-id column via a mistaken index
+            if (idx === 23) {
+                return;
+            }
+            var on = $(this).is(':checked');
+            if (on) {
+                anyToggleableChecked = true;
+            }
+            api.column(idx).visible(on, false);
+        });
+
+        if (colCount > 0) {
+            api.column(0).visible(true, false);
+        }
+        if (colCount > 1) {
+            api.column(1).visible(true, false);
+        }
+        if (colCount > 23) {
+            api.column(23).visible(false, false);
+        }
+
+        if (!anyToggleableChecked) {
+            // Match legacy "Display All" off: only SNo, CRM Ref, Student Status (nth-child 1,2,22)
+            for (var i = 0; i < colCount; i++) {
+                if (i === 0 || i === 1 || i === 21) {
+                    api.column(i).visible(true, false);
+                } else {
+                    api.column(i).visible(false, false);
+                }
+            }
+        } else {
+            // Note + Action are not in the toggle list — keep visible during normal use
+            if (colCount > 24) {
+                api.column(24).visible(true, false);
+            }
+            if (colCount > 25) {
+                api.column(25).visible(true, false);
+            }
+        }
+
+        try {
+            api.columns.adjust();
+        } catch (e) {
+            // ignore layout adjust errors
+        }
+    }
+
+    function setupStudentColumnVisibility(api, $colRoot) {
+        if (!api || !$colRoot || !$colRoot.length) {
+            return;
+        }
+
+        $colRoot.find('button').off('click.partnerColvis').on('click.partnerColvis', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            $colRoot.find('.dropdown_list').toggleClass('active');
+        });
+
+        $colRoot.find('label.dropdown-option input')
+            .off('click.partnerColvis')
+            .on('click.partnerColvis', function () {
+                var $input = $(this);
+                var val = $input.val();
+
+                // Run after the checkbox default toggle so .is(':checked') is correct
+                setTimeout(function () {
+                    if (val === 'all') {
+                        if ($input.is(':checked')) {
+                            $colRoot.find('label.dropdown-option input').prop('checked', true);
+                        } else {
+                            $colRoot.find('label.dropdown-option input').prop('checked', false);
+                        }
+                    } else if (!$input.is(':checked')) {
+                        $colRoot.find('label.dropdown-option.all input').prop('checked', false);
+                    } else {
+                        var allOn = true;
+                        $colRoot.find('label.dropdown-option input').not('[value="all"]').each(function () {
+                            if (!$(this).is(':checked')) {
+                                allOn = false;
+                            }
+                        });
+                        $colRoot.find('label.dropdown-option.all input').prop('checked', allOn);
+                    }
+                    applyStudentColumnVisibility(api, $colRoot);
+                }, 0);
+            });
+
+        // Re-apply after any redraw (counts update, search, paging) as belt-and-suspenders
+        api.off('draw.partnerColvis').on('draw.partnerColvis', function () {
+            applyStudentColumnVisibility(api, $colRoot);
+        });
+
+        applyStudentColumnVisibility(api, $colRoot);
+    }
+
     function setupStudentToolbar(api, options) {
         var $wrapper = $(api.table().container()).closest('.dataTables_wrapper');
         var $toolbar = $wrapper.children('.student-dt-toolbar').first();
@@ -153,6 +271,8 @@ jQuery(document).ready(function($){
         var $colToggle = $(options.columnToggleSelector).detach().removeAttr('style');
         $toolbar.prepend($('<div class="col-auto student-dt-columns">').append($colToggle));
         $toolbar.detach().appendTo($toolbarHost);
+
+        setupStudentColumnVisibility(api, $colToggle);
 
         var $filter = $toolbar.find('.dataTables_filter');
         $filter.addClass('student-dt-filter-controls');
@@ -392,7 +512,7 @@ jQuery(document).ready(function($){
             start: api.page.info().start,
             length: api.page.len(),
             row_count: api.rows({ page: 'current' }).count(),
-            search: typeof api.search === 'function' ? api.search() : ''
+            search: resolveStudentSearchValue(api)
         };
         if (list === 'active' && options && options.statusFilterId) {
             payload.status_filter = normaliseStudentStatusFilterValue(
@@ -410,6 +530,10 @@ jQuery(document).ready(function($){
                 if (!resp || !resp.status) {
                     return;
                 }
+                // P-5: do not install estimated/fake totals as exact pagination N
+                if (resp.estimated) {
+                    return;
+                }
                 applyStudentTableCounts(api, resp.recordsTotal, resp.recordsFiltered);
             }
         });
@@ -421,6 +545,31 @@ jQuery(document).ready(function($){
         }
         var trimmed = String(value).trim();
         return (trimmed === '' || trimmed === '-' || trimmed === 'null') ? '' : trimmed;
+    }
+
+    /**
+     * Resolve the active DataTables search string for server-side Student tab.
+     * Prefers api.search(); falls back to last ajax params (P-4).
+     */
+    function resolveStudentSearchValue(api) {
+        if (!api) {
+            return '';
+        }
+        var searchVal = '';
+        if (typeof api.search === 'function') {
+            searchVal = api.search() || '';
+        }
+        if (!searchVal && api.ajax && typeof api.ajax.params === 'function') {
+            try {
+                var ajaxParams = api.ajax.params();
+                if (ajaxParams && ajaxParams.search && ajaxParams.search.value) {
+                    searchVal = ajaxParams.search.value;
+                }
+            } catch (e) {
+                // ignore: keep empty search
+            }
+        }
+        return String(searchVal || '').trim();
     }
 
     function scheduleStudentTotalsRefresh(api, list, delayMs) {
@@ -449,11 +598,9 @@ jQuery(document).ready(function($){
         params.set('partner_id', partnerNumericId);
         params.set('list', list);
         params.set('format', format === 'xlsx' ? 'xlsx' : 'csv');
-        if (api && typeof api.search === 'function') {
-            var searchVal = api.search();
-            if (searchVal) {
-                params.set('search', searchVal);
-            }
+        var searchVal = resolveStudentSearchValue(api);
+        if (searchVal) {
+            params.set('search', searchVal);
         }
         if (list === 'active') {
             var statusVal = normaliseStudentStatusFilterValue($('#statusFilter').val());
@@ -471,7 +618,7 @@ jQuery(document).ready(function($){
         var payload = {
             partner_id: partnerNumericId,
             list: list,
-            search: api && typeof api.search === 'function' ? api.search() : ''
+            search: resolveStudentSearchValue(api)
         };
         if (list === 'active') {
             payload.status_filter = normaliseStudentStatusFilterValue($('#statusFilter').val());
