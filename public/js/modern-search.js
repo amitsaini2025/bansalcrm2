@@ -632,6 +632,10 @@
         }
 
         var siteUrl = siteBase();
+        // Only latest successful API response should be scored/visible (same pattern as recipient-select.js).
+        // Prevents Tom Select client-side re-filtering from hiding server matches
+        // (e.g. phone found only in client_phones, while option.phone is primary admins.phone).
+        var modernSearchLoadState = { seq: 0 };
         var instance = initTomSelect(searchElement, {
             maxItems: 1,
             width: '450px',
@@ -646,12 +650,19 @@
             shouldLoad: function (query) {
                 return query.length >= 2;
             },
+            // Keep current API hits only — do not re-filter by typed query against displayed fields.
+            score: function () {
+                return function (item) {
+                    return item && item._modernSearchLoadToken === modernSearchLoadState.seq ? 1 : 0;
+                };
+            },
             load: function (query, callback) {
                 if (!query || query.length < 2) {
                     callback();
                     return;
                 }
                 var ts = this;
+                var requestSeq = ++modernSearchLoadState.seq;
                 if (!window.jQuery || !window.jQuery.ajax) {
                     callback();
                     return;
@@ -667,8 +678,20 @@
                         page: 1
                     },
                     success: function (data) {
+                        // Drop out-of-order / superseded responses
+                        if (requestSeq !== modernSearchLoadState.seq) {
+                            callback();
+                            return;
+                        }
+                        // Remove previous search options so stale hits cannot reappear
+                        if (typeof ts.clearOptions === 'function') {
+                            ts.clearOptions();
+                        }
                         var grouped = groupResultsByCategory(data.items || []);
                         var flat = flattenGroupedForTomSelect(grouped, ts);
+                        flat.forEach(function (item) {
+                            item._modernSearchLoadToken = requestSeq;
+                        });
                         callback(flat);
                         if (flat.length) {
                             window.setTimeout(function () {
@@ -681,6 +704,7 @@
                     },
                     error: function (xhr, status, error) {
                         console.error('Search error:', error, xhr);
+                        // Always end Tom Select's loading state for this request
                         callback();
                     }
                 });
