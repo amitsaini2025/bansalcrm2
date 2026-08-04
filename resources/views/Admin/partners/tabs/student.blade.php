@@ -39,6 +39,7 @@
 
                                                             <label class="dropdown-option"><input type="checkbox" value="22" checked /> Student Status</label>
                                                             <label class="dropdown-option"><input type="checkbox" value="23" checked /> Enrolment Type</label>
+                                                            <label class="dropdown-option"><input type="checkbox" value="24" checked /> Company Name</label>
                                                         </div>
                                                     </div>
                                                         <div class="totals-container mb-3 row g-1">
@@ -81,6 +82,7 @@
 
                                                                     <th>Student Status</th>
                                                                     <th>Enrolment Type</th>
+                                                                    <th>Company Name</th>
                                                                     <th style="display: none;">Student ID</th> <!-- Hidden column -->
                                                                     <th>Add Note</th>
                                                                     <th>Action</th>
@@ -415,6 +417,7 @@
                                                         <label class="dropdown-option"><input type="checkbox" value="21" checked /> Commission Pending</label>
                                                         <label class="dropdown-option"><input type="checkbox" value="22" checked /> Student Status</label>
                                                         <label class="dropdown-option"><input type="checkbox" value="23" checked /> Enrolment Type</label>
+                                                        <label class="dropdown-option"><input type="checkbox" value="24" checked /> Company Name</label>
                                                     </div>
                                                 </div>
                                                 <div class="student-dt-toolbar-host"></div>
@@ -450,6 +453,7 @@
 
                                                                 <th>Student Status</th>
                                                                 <th>Enrolment Type</th>
+                                                                <th>Company Name</th>
                                                                 <th style="display: none;">Student ID</th> <!-- Hidden column -->
                                                                 <th>Add Note</th>
                                                                 <th>Action</th>

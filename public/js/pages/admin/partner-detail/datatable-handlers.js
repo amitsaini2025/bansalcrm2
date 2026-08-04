@@ -61,20 +61,36 @@ jQuery(document).ready(function($){
         course_progression: 'Course progression'
     };
 
-    function parseEnrolmentTypeValue(data) {
+    var companyNameLabels = {
+        bansal_education_group: 'Bansal Education Group',
+        elite_11: 'Elite 11'
+    };
+
+    // Column indices after Enrolment Type + Company Name insert:
+    // 22 = Enrolment Type, 23 = Company Name, 24 = Application ID (hidden), 25 = Note, 26 = Action
+    var STUDENT_COL_ENROLMENT = 22;
+    var STUDENT_COL_COMPANY = 23;
+    var STUDENT_COL_APP_ID = 24;
+    var STUDENT_COL_NOTE = 25;
+    var STUDENT_COL_ACTION = 26;
+
+    function parseSelectFieldValue(data, dataAttr, knownValues) {
         if (data === null || data === undefined) {
             return '';
         }
 
         if (typeof data === 'string' && data.indexOf('<select') !== -1) {
-            var attrMatch = data.match(/data-enrolment-type="([^"]*)"/);
+            var attrRegex = new RegExp('data-' + dataAttr + '="([^"]*)"');
+            var attrMatch = data.match(attrRegex);
             if (attrMatch) {
                 return attrMatch[1] || '';
             }
 
-            var selectedMatch = data.match(/<option value="(transfer_option|course_progression)" selected/);
-            if (selectedMatch) {
-                return selectedMatch[1];
+            if (knownValues && knownValues.length) {
+                var selectedMatch = data.match(new RegExp('<option value="(' + knownValues.join('|') + ')" selected'));
+                if (selectedMatch) {
+                    return selectedMatch[1];
+                }
             }
 
             return '';
@@ -83,10 +99,21 @@ jQuery(document).ready(function($){
         return String(data);
     }
 
+    function parseEnrolmentTypeValue(data) {
+        return parseSelectFieldValue(data, 'enrolment-type', Object.keys(enrolmentTypeLabels));
+    }
+
+    function parseCompanyNameValue(data) {
+        return parseSelectFieldValue(data, 'company-name', Object.keys(companyNameLabels));
+    }
+
+    function isStudentFieldAdminEditor() {
+        return !(typeof PageConfig !== 'undefined' && PageConfig.canEditApplicationEnrolmentCompanyFields === false);
+    }
+
     function buildEnrolmentTypeSelect(applicationId, currentValue, cssClass) {
         currentValue = parseEnrolmentTypeValue(currentValue);
-        var isAdminEditor = !(typeof PageConfig !== 'undefined' && PageConfig.canEditApplicationEnrolmentCompanyFields === false);
-        var canEdit = isAdminEditor || currentValue === '';
+        var canEdit = isStudentFieldAdminEditor() || currentValue === '';
         var disabledAttr = canEdit ? '' : ' disabled="disabled"';
         var html = '<select class="' + cssClass + '" data-application-id="' + applicationId + '" data-enrolment-type="' + currentValue + '"' + disabledAttr + '>';
         html += '<option value=""' + (currentValue === '' ? ' selected="selected"' : '') + '>Select</option>';
@@ -99,9 +126,24 @@ jQuery(document).ready(function($){
         return html;
     }
 
+    function buildCompanyNameSelect(applicationId, currentValue, cssClass) {
+        currentValue = parseCompanyNameValue(currentValue);
+        var canEdit = isStudentFieldAdminEditor() || currentValue === '';
+        var disabledAttr = canEdit ? '' : ' disabled="disabled"';
+        var html = '<select class="' + cssClass + '" data-application-id="' + applicationId + '" data-company-name="' + currentValue + '"' + disabledAttr + '>';
+        html += '<option value=""' + (currentValue === '' ? ' selected="selected"' : '') + '>Select</option>';
+
+        Object.keys(companyNameLabels).forEach(function (value) {
+            html += '<option value="' + value + '"' + (currentValue === value ? ' selected="selected"' : '') + '>' + companyNameLabels[value] + '</option>';
+        });
+
+        html += '</select>';
+        return html;
+    }
+
     function enrolmentTypeColumnRender(cssClass) {
         return function (data, type, row) {
-            var applicationId = row[23];
+            var applicationId = row[STUDENT_COL_APP_ID];
             var currentValue = parseEnrolmentTypeValue(data);
 
             if (type === 'display') {
@@ -116,9 +158,33 @@ jQuery(document).ready(function($){
         };
     }
 
+    function companyNameColumnRender(cssClass) {
+        return function (data, type, row) {
+            var applicationId = row[STUDENT_COL_APP_ID];
+            var currentValue = parseCompanyNameValue(data);
+
+            if (type === 'display') {
+                return buildCompanyNameSelect(applicationId, currentValue, cssClass);
+            }
+
+            if (type === 'export' || type === 'filter' || type === 'sort') {
+                return companyNameLabels[currentValue] || 'Select';
+            }
+
+            return currentValue;
+        };
+    }
+
     function syncEnrolmentTypeSelects(container) {
         $(container).find('.enrolment-type-field, .enrolment-type-field1').each(function () {
             var value = $(this).attr('data-enrolment-type') || '';
+            $(this).val(value);
+        });
+    }
+
+    function syncCompanyNameSelects(container) {
+        $(container).find('.company-name-field, .company-name-field1').each(function () {
+            var value = $(this).attr('data-company-name') || '';
             $(this).val(value);
         });
     }
@@ -144,7 +210,7 @@ jQuery(document).ready(function($){
     /**
      * P-10: apply Student column visibility from checkbox state via DataTables API
      * so it survives serverSide redraw. Checkbox values stay 1-based (nth-child / legacy map):
-     * value N → column index N-1. SNo (0) + CRM Ref (1) always stay visible; app id (23) always hidden.
+     * value N → column index N-1. SNo (0) + CRM Ref (1) always stay visible; app id always hidden.
      */
     function applyStudentColumnVisibility(api, $colRoot) {
         if (!api || !$colRoot || !$colRoot.length) {
@@ -165,7 +231,7 @@ jQuery(document).ready(function($){
                 return;
             }
             // Never toggle the hidden application-id column via a mistaken index
-            if (idx === 23) {
+            if (idx === STUDENT_COL_APP_ID) {
                 return;
             }
             var on = $(this).is(':checked');
@@ -181,8 +247,8 @@ jQuery(document).ready(function($){
         if (colCount > 1) {
             api.column(1).visible(true, false);
         }
-        if (colCount > 23) {
-            api.column(23).visible(false, false);
+        if (colCount > STUDENT_COL_APP_ID) {
+            api.column(STUDENT_COL_APP_ID).visible(false, false);
         }
 
         if (!anyToggleableChecked) {
@@ -196,11 +262,11 @@ jQuery(document).ready(function($){
             }
         } else {
             // Note + Action are not in the toggle list — keep visible during normal use
-            if (colCount > 24) {
-                api.column(24).visible(true, false);
+            if (colCount > STUDENT_COL_NOTE) {
+                api.column(STUDENT_COL_NOTE).visible(true, false);
             }
-            if (colCount > 25) {
-                api.column(25).visible(true, false);
+            if (colCount > STUDENT_COL_ACTION) {
+                api.column(STUDENT_COL_ACTION).visible(true, false);
             }
         }
 
@@ -587,7 +653,8 @@ jQuery(document).ready(function($){
         { data: 5 }, { data: 6 }, { data: 7 }, { data: 8 }, { data: 9 },
         { data: 10 }, { data: 11 }, { data: 12 }, { data: 13 }, { data: 14 },
         { data: 15 }, { data: 16 }, { data: 17 }, { data: 18 }, { data: 19 },
-        { data: 20 }, { data: 21 }, { data: 22 }, { data: 23 }, { data: 24 }, { data: 25 }
+        { data: 20 }, { data: 21 }, { data: 22 }, { data: 23 }, { data: 24 },
+        { data: 25 }, { data: 26 }
     ];
 
     function buildStudentExportUrl(list, api, format) {
@@ -711,11 +778,15 @@ jQuery(document).ready(function($){
                     }
                 },
                 {
-                    targets: 22,
+                    targets: STUDENT_COL_ENROLMENT,
                     render: enrolmentTypeColumnRender(options.enrolmentClass)
                 },
-                { targets: 23, visible: false },
-                { targets: [24, 25], orderable: false, searchable: false }
+                {
+                    targets: STUDENT_COL_COMPANY,
+                    render: companyNameColumnRender(options.companyClass)
+                },
+                { targets: STUDENT_COL_APP_ID, visible: false },
+                { targets: [STUDENT_COL_NOTE, STUDENT_COL_ACTION], orderable: false, searchable: false }
             ],
             order: [],
             initComplete: function () {
@@ -737,7 +808,9 @@ jQuery(document).ready(function($){
                 });
             },
             drawCallback: function () {
-                syncEnrolmentTypeSelects(this.api().table().container());
+                var container = this.api().table().container();
+                syncEnrolmentTypeSelects(container);
+                syncCompanyNameSelects(container);
                 if (!initialTotalsScheduled) {
                     initialTotalsScheduled = true;
                     scheduleStudentTotalsRefresh(options.apiGetter(), options.list, initialTotalsDelayMs);
@@ -757,6 +830,7 @@ jQuery(document).ready(function($){
         list: 'active',
         tableSelector: '.table-3',
         enrolmentClass: 'form-control form-control-sm enrolment-type-field',
+        companyClass: 'form-control form-control-sm company-name-field',
         columnToggleSelector: '.student_drop_table_data',
         toolbarHostSelector: '.student_table_panel .student-dt-toolbar-host',
         statusFilterId: 'statusFilter',
@@ -775,6 +849,7 @@ jQuery(document).ready(function($){
             list: 'inactive',
             tableSelector: '.table-31',
             enrolmentClass: 'form-control form-control-sm enrolment-type-field1',
+            companyClass: 'form-control form-control-sm company-name-field1',
             columnToggleSelector: '.student_drop_table_data1',
             toolbarHostSelector: '.student_table_panel1 .student-dt-toolbar-host',
             apiGetter: function () { return table331; }
@@ -785,18 +860,38 @@ jQuery(document).ready(function($){
         initInactiveStudentTable();
     });
 
-    function updateEnrolmentTypeCell(table, studentId, enrolmentType) {
+    function findStudentRowByAppId(table, studentId) {
         if (!table) {
-            return;
+            return [];
         }
-        var rowIndex = table.rows().eq(0).filter(function (rowIdx) {
-            return table.cell(rowIdx, 23).data() == studentId;
+        return table.rows().eq(0).filter(function (rowIdx) {
+            return table.cell(rowIdx, STUDENT_COL_APP_ID).data() == studentId;
         });
+    }
+
+    function updateEnrolmentTypeCell(table, studentId, enrolmentType) {
+        var rowIndex = findStudentRowByAppId(table, studentId);
 
         if (rowIndex.length > 0) {
-            table.cell(rowIndex[0], 22).data(enrolmentType || '').draw(false);
+            table.cell(rowIndex[0], STUDENT_COL_ENROLMENT).data(enrolmentType || '').draw(false);
             syncEnrolmentTypeSelects(table.table().container());
         }
+    }
+
+    function updateCompanyNameCell(table, studentId, companyName) {
+        var rowIndex = findStudentRowByAppId(table, studentId);
+
+        if (rowIndex.length > 0) {
+            table.cell(rowIndex[0], STUDENT_COL_COMPANY).data(companyName || '').draw(false);
+            syncCompanyNameSelects(table.table().container());
+        }
+    }
+
+    function getUpdateCompanyNameUrl() {
+        if (typeof App !== 'undefined' && App.getUrl && App.getUrl('updateApplicationCompanyName')) {
+            return App.getUrl('updateApplicationCompanyName');
+        }
+        return '/application/update-company-name';
     }
 
     $(document).on('change', '.enrolment-type-field, .enrolment-type-field1', function () {
@@ -807,6 +902,7 @@ jQuery(document).ready(function($){
         var applicationId = $select.data('application-id');
         var newValue = $select.val();
         var tableType = $select.hasClass('enrolment-type-field1') ? 'inactive' : 'active';
+        var previousValue = $select.attr('data-enrolment-type') || '';
 
         if ($('.popuploader').length) {
             $('.popuploader').show();
@@ -829,12 +925,61 @@ jQuery(document).ready(function($){
                     }
                     $('.custom-error-msg').html('<span class="alert alert-success">' + response.message + '</span>');
                 } else {
+                    $select.val(previousValue);
                     $('.custom-error-msg').html('<span class="alert alert-danger">' + (response ? response.message : 'Failed to update enrolment type') + '</span>');
                 }
             },
             error: function (error) {
                 console.error('Error saving enrolment type:', error);
+                $select.val(previousValue);
                 $('.custom-error-msg').html('<span class="alert alert-danger">Failed to update enrolment type. Please try again.</span>');
+            },
+            complete: function () {
+                if ($('.popuploader').length) {
+                    $('.popuploader').hide();
+                }
+            }
+        });
+    });
+
+    $(document).on('change', '.company-name-field, .company-name-field1', function () {
+        var $select = $(this);
+        if ($select.prop('disabled')) {
+            return;
+        }
+        var applicationId = $select.data('application-id');
+        var newValue = $select.val();
+        var tableType = $select.hasClass('company-name-field1') ? 'inactive' : 'active';
+        var previousValue = $select.attr('data-company-name') || '';
+
+        if ($('.popuploader').length) {
+            $('.popuploader').show();
+        }
+
+        $.ajax({
+            url: getUpdateCompanyNameUrl(),
+            method: 'POST',
+            data: {
+                appid: applicationId,
+                company_name: newValue,
+                _token: App.getCsrf()
+            },
+            success: function (response) {
+                if (response && response.status) {
+                    var table = tableType === 'inactive' ? table331 : table33;
+                    if (table) {
+                        updateCompanyNameCell(table, applicationId, response.companyName);
+                    }
+                    $('.custom-error-msg').html('<span class="alert alert-success">' + response.message + '</span>');
+                } else {
+                    $select.val(previousValue);
+                    $('.custom-error-msg').html('<span class="alert alert-danger">' + (response ? response.message : 'Failed to update company name') + '</span>');
+                }
+            },
+            error: function (error) {
+                console.error('Error saving company name:', error);
+                $select.val(previousValue);
+                $('.custom-error-msg').html('<span class="alert alert-danger">Failed to update company name. Please try again.</span>');
             },
             complete: function () {
                 if ($('.popuploader').length) {
@@ -856,12 +1001,12 @@ jQuery(document).ready(function($){
                 if (response && response.status) {
                     const studentId = response.studentId;
                     const studentNote = response.studentNote;
-                    const rowIndex = table33.rows().eq(0).filter((rowIdx) => {
-                        return table33.cell(rowIdx, 23).data() == studentId;
-                    });
+                    const rowIndex = findStudentRowByAppId(table33, studentId);
 
                     if (rowIndex.length > 0) {
-                        table33.cell(rowIndex[0], 24).data(studentNote).draw(false);
+                        table33.cell(rowIndex[0], STUDENT_COL_NOTE).data(
+                            '<textarea class="note-field" data-studentid="' + studentId + '">' + $('<div>').text(studentNote || '').html() + '</textarea>'
+                        ).draw(false);
                     }
                     $('.custom-error-msg').html('<span class="alert alert-success">' + (response.message || 'Student note saved successfully.') + '</span>');
                 } else {
@@ -890,12 +1035,12 @@ jQuery(document).ready(function($){
                     if (!table331) {
                         return;
                     }
-                    const rowIndex = table331.rows().eq(0).filter((rowIdx) => {
-                        return table331.cell(rowIdx, 23).data() == studentId;
-                    });
+                    const rowIndex = findStudentRowByAppId(table331, studentId);
 
                     if (rowIndex.length > 0) {
-                        table331.cell(rowIndex[0], 24).data(studentNote).draw(false);
+                        table331.cell(rowIndex[0], STUDENT_COL_NOTE).data(
+                            '<textarea class="note-field1" data-studentid="' + studentId + '">' + $('<div>').text(studentNote || '').html() + '</textarea>'
+                        ).draw(false);
                     }
                     $('.custom-error-msg').html('<span class="alert alert-success">' + (response.message || 'Student note saved successfully.') + '</span>');
                 } else {

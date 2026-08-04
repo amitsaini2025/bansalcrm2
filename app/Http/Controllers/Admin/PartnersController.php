@@ -1914,6 +1914,12 @@ class PartnersController extends Controller
 				}
 
 				return $query->orderBy('applications.id', $dir)->select('applications.id');
+			case 23:
+				if (Schema::hasColumn('applications', 'company_name')) {
+					return $query->orderBy('applications.company_name', $dir)->select('applications.id');
+				}
+
+				return $query->orderBy('applications.id', $dir)->select('applications.id');
 			default:
 				return $query->orderBy('applications.id', $dir)->select('applications.id');
 		}
@@ -2005,6 +2011,7 @@ class PartnersController extends Controller
 			$data->commission_pending ?? '0.00',
 			$statusMap[$data->status] ?? '',
 			(string) Application::normalizeEnrolmentType($data->enrolment_type ?? null),
+			(string) Application::normalizeCompanyName($data->company_name ?? null),
 			(string) $data->id,
 			'<textarea class="'.($isActive ? 'note-field' : 'note-field1').'" data-studentid="'.$data->id.'">'.e($data->student_add_notes ?? '').'</textarea>',
 			$actionHtml,
@@ -2108,6 +2115,7 @@ class PartnersController extends Controller
 				applications.start_date,
 				applications.end_date,
 				applications.enrolment_type,
+				applications.company_name,
 				applications.student_add_notes,
 				admins.client_id          AS client_reference,
 				admins.first_name,
@@ -2516,6 +2524,7 @@ class PartnersController extends Controller
 			'Fee Reported by College', 'Total Bonus', 'Bonus Pending', 'Scholarship Fee',
 			'Commission as per Fee reported', 'Commission payable as per anticipated fee',
 			'Commission paid as per fee Reported', 'Commission Pending', 'Student Status', 'Enrolment Type',
+			'Company Name',
 			'Add Note',
 		];
 	}
@@ -2574,6 +2583,7 @@ class PartnersController extends Controller
 	private function formatPartnerStudentTabExportRow(object $row, bool $isActive, string $partnerName, int $sno): array
 	{
 		$formatted = $this->formatPartnerStudentTabRow($row, $isActive, $partnerName);
+		// Columns 1..23: CRM Ref through Company Name (enrolment type at 22, company name at 23)
 		$plain = array_map(function ($cell) {
 			if (!is_string($cell)) {
 				return $cell;
@@ -2582,7 +2592,15 @@ class PartnersController extends Controller
 			$text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
 			return trim($text);
-		}, array_slice($formatted, 1, 22));
+		}, array_slice($formatted, 1, 23));
+
+		// Prefer human-readable labels for enrolment type / company name in exports
+		if (isset($plain[21])) {
+			$plain[21] = Application::enrolmentTypeLabel($plain[21]) ?: $plain[21];
+		}
+		if (isset($plain[22])) {
+			$plain[22] = Application::companyNameLabel($plain[22]) ?: $plain[22];
+		}
 
 		$plain[] = trim((string) ($row->student_add_notes ?? ''));
 
