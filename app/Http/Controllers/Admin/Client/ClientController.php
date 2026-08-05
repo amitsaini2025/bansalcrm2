@@ -51,7 +51,6 @@ use Illuminate\Support\Facades\Log;
  * - getallclients
  * - getrecipients
  * - getonlyclientrecipients
- * - address_auto_populate
  * - updatesessioncompleted
  */
 class ClientController extends Controller
@@ -1046,34 +1045,44 @@ class ClientController extends Controller
 	}
 
 	public function getonlyclientrecipients(Request $request){
-		$squery = $request->q;
-		if($squery != ''){
-			$operator = DB::getDriverName() === 'pgsql' ? 'ilike' : 'like';
-			$clients = Admin::where('is_archived', '=', 0)
-				->where(function($query) use ($squery, $operator) {
-					return $query
-						->where('email', $operator, '%'.$squery.'%')
-						->orwhere('first_name', $operator, '%'.$squery.'%')
-						->orwhere('last_name', $operator, '%'.$squery.'%')
-						->orwhere('client_id', $operator, '%'.$squery.'%')
-						->orwhere('phone', $operator, '%'.$squery.'%')
-						->orWhere(DB::raw("COALESCE(first_name, '') || ' ' || COALESCE(last_name, '')"), $operator, "%".$squery."%");
-				});
-			$user = Auth::guard('admin')->user();
-			if ($user instanceof Staff) {
-				StaffClientVisibility::restrictAdminsQueryForStaff($clients, $user);
-			}
-			$clients = $clients->get();
-
-			$items = array();
-			foreach($clients as $clint){
-				$items[] = array('name' => $clint->first_name.' '.$clint->last_name,'email'=>$clint->email,'status'=>$clint->type,'id'=>$clint->id,'cid'=>base64_encode(convert_uuencode(@$clint->id)));
-			}
-
-			$litems = array();
-			$m = array_merge($items, $litems);
-			echo json_encode(array('items'=>$m));
+		$squery = trim($request->q ?? '');
+		if($squery === ''){
+			echo json_encode(array('items'=>array()));
+			return;
 		}
+
+		$operator = DB::getDriverName() === 'pgsql' ? 'ilike' : 'like';
+		$clients = Admin::where('is_archived', '=', 0)
+			->where('type', 'client')
+			->where(function($query) use ($squery, $operator) {
+				return $query
+					->where('email', $operator, '%'.$squery.'%')
+					->orwhere('first_name', $operator, '%'.$squery.'%')
+					->orwhere('last_name', $operator, '%'.$squery.'%')
+					->orwhere('client_id', $operator, '%'.$squery.'%')
+					->orwhere('phone', $operator, '%'.$squery.'%')
+					->orWhere(DB::raw("COALESCE(first_name, '') || ' ' || COALESCE(last_name, '')"), $operator, "%".$squery."%");
+			});
+		$user = Auth::guard('admin')->user();
+		if ($user instanceof Staff) {
+			StaffClientVisibility::restrictAdminsQueryForStaff($clients, $user);
+		}
+		$clients = $clients->get();
+
+		$items = array();
+		foreach($clients as $clint){
+			$fullName = trim(($clint->first_name ?? '') . ' ' . ($clint->last_name ?? ''));
+			$items[] = array(
+				'text' => $fullName,
+				'name' => $fullName,
+				'email' => $clint->email,
+				'status' => $clint->type,
+				'id' => $clint->id,
+				'cid' => base64_encode(convert_uuencode(@$clint->id)),
+			);
+		}
+
+		echo json_encode(array('items'=>$items));
 	}
 
 	public function save_tag(Request $request){
@@ -1103,21 +1112,39 @@ class ClientController extends Controller
 			echo json_encode(['status' => false, 'message' => 'Unauthorized']);
 			return;
 		}
-		$assigneeInput = $request->assignee ?? $request->assinee;
-		if ( is_array($assigneeInput) ) {
-			$assigneeCount = count($assigneeInput);
-			if( $assigneeCount < 1){
+
+		// Accept array, scalar id, empty clear, or comma-separated string; store format unchanged
+		$assigneeArr = [];
+		if ($request->exists('assignee') || $request->exists('assinee')) {
+			$assigneeInput = $request->input('assignee', $request->input('assinee'));
+			if (is_array($assigneeInput)) {
+				$assigneeArr = array_values(array_filter($assigneeInput, function ($v) {
+					return $v !== null && $v !== '';
+				}));
+			} elseif (is_string($assigneeInput)) {
+				$assigneeInput = trim($assigneeInput);
+				if ($assigneeInput !== '') {
+					$assigneeArr = str_contains($assigneeInput, ',')
+						? array_values(array_filter(array_map('trim', explode(',', $assigneeInput))))
+						: [$assigneeInput];
+				}
+			} elseif (is_numeric($assigneeInput)) {
+				$assigneeArr = [(string) $assigneeInput];
+			}
+
+			$assigneeCount = count($assigneeArr);
+			if ($assigneeCount < 1) {
 				$objs->assignee = "";
-			} else if( $assigneeCount == 1){
-				$objs->assignee = $assigneeInput[0];
-			} else if( $assigneeCount > 1){
-				$objs->assignee = implode(",",$assigneeInput);
+			} elseif ($assigneeCount === 1) {
+				$objs->assignee = $assigneeArr[0];
+			} else {
+				$objs->assignee = implode(",", $assigneeArr);
 			}
 		}
+
 		$saved = $objs->save();
 		if($saved){
-			if ( is_array($assigneeInput) && count($assigneeInput) >=1) {
-				$assigneeArr = $assigneeInput;
+			if (count($assigneeArr) >= 1) {
 				foreach($assigneeArr as $key=>$val) {
 					$o = new \App\Models\Notification;
 					$o->sender_id = Auth::user()->id;
@@ -1156,40 +1183,6 @@ class ClientController extends Controller
 	}
 
     /**
-     * Auto-populate address using geocoding (currently disabled)
-     */
-    public function address_auto_populate(Request $request){
-        $address = $request->address;
-        
-        // Geocoding disabled - returning empty response
-        $response['status'] 	= 	0;
-        $response['postal_code'] = 	"";
-        $response['locality']    = 	"";
-        $response['message']	=	"Geocoding feature disabled.";
-        echo json_encode($response);
-        
-        /*
-        if( isset($address) && $address != ""){
-            $result = app('geocoder')->geocode($address)->get(); //dd($result[0]);
-            $postalCode = $result[0]->getPostalCode();
-            $locality = $result[0]->getLocality();
-            if( !empty($result) ){
-                $response['status'] 	= 	1;
-                $response['postal_code'] = 	$postalCode;
-                $response['locality'] 	= 	$locality;
-                $response['message']	=	"address is success.";
-            } else {
-                $response['status'] 	= 	0;
-                $response['postal_code'] = 	"";
-                $response['locality']    = 	"";
-                $response['message']	=	"address is wrong.";
-            }
-            echo json_encode($response);
-        }
-        */
-    }
-
-    /**
      * Check if client exists (AJAX validation)
      * Used for form validation to prevent duplicate clients
      * 
@@ -1197,14 +1190,22 @@ class ClientController extends Controller
      * @return int Returns 1 if exists, 0 if not
      */
     public function checkclientexist(Request $request){
-        if($request->type == 'email'){
-            $clientexists = Admin::where('email', $request->vl)->exists();
+        $type = (string) $request->input('type', 'phone');
+        $vl = trim((string) $request->input('vl', ''));
+        if ($vl === '') {
+            echo 0;
+            return;
+        }
+
+        if ($type === 'email') {
+            $clientexists = Admin::where('email', $vl)->exists();
             echo $clientexists ? 1 : 0;
-        } elseif($request->type == 'clientid'){
-            $clientexists = Admin::where('client_id', $request->vl)->exists();
+        } elseif ($type === 'clientid') {
+            $clientexists = Admin::where('client_id', $vl)->exists();
             echo $clientexists ? 1 : 0;
         } else {
-            $clientexists = Admin::where('phone', $request->vl)->exists();
+            // phone (default) — keep 1/0 for create/edit form JS
+            $clientexists = Admin::where('phone', $vl)->exists();
             echo $clientexists ? 1 : 0;
         }
     }

@@ -11,7 +11,6 @@ use App\Http\Controllers\Admin\ApplicationsController;
 use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\BranchesController;
 use App\Http\Controllers\Admin\Client\ClientActivityController;
-use App\Http\Controllers\Admin\Client\ClientController;
 use App\Http\Controllers\Admin\Client\ClientMessagingController;
 use App\Http\Controllers\Admin\Client\ClientNoteController;
 use App\Http\Controllers\Admin\Client\ClientServiceController;
@@ -205,7 +204,8 @@ Route::get('/getassigneeajax', [StaffController::class, 'getassigneeajax']);
 Route::get('/getpartnerajax', [AdminController::class, 'getpartnerajax']);
 
 // Client validation (AJAX) - Moved to ClientController
-Route::get('/checkclientexist', [\App\Http\Controllers\Admin\Client\ClientController::class, 'checkclientexist']);
+Route::get('/checkclientexist', [\App\Http\Controllers\Admin\Client\ClientController::class, 'checkclientexist'])
+	->middleware('throttle:60,1');
 
 // Address Autocomplete Routes
 Route::post('/address/search', [AddressController::class, 'searchAddress'])->name('address.search');
@@ -542,8 +542,6 @@ Route::get('/reports/visaexpires', [ReportController::class, 'visaexpires']);
 Route::get('/action-calendar', [ReportController::class, 'actionCalendar']);
 Route::get('/reports/agreementexpires', [ReportController::class, 'agreementexpires']);
 Route::get('/report/noofpersonofficevisit', [ReportController::class, 'noofpersonofficevisit'])->name('reports.noofpersonofficevisit');
-
-Route::post('/save_tag', [ClientController::class, 'save_tag']);
 
 // NOTE: Email and CRM Email Template routes have been moved to routes/adminconsole.php
 // Those routes now use the AdminConsole namespace and are accessible at /adminconsole/* paths

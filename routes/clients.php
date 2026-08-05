@@ -149,9 +149,6 @@ Route::middleware(['auth:admin'])->group(function() {
     Route::post('/clients/google-review-reminder', [ClientController::class, 'updateGoogleReviewReminder'])->name('clients.google-review-reminder');
     Route::post('/clients/google-review-reminder/sms', [ClientController::class, 'sendGoogleReviewReminderSms'])->name('clients.google-review-reminder.sms');
     
-    // Address routes
-    Route::post('/address_auto_populate', [ClientController::class, 'address_auto_populate'])->name('clients.address_auto_populate');
-    
     // Service taken routes
     Route::post('/client/createservicetaken', [ClientServiceController::class, 'createservicetaken'])->name('clients.createservicetaken');
     Route::post('/client/removeservicetaken', [ClientServiceController::class, 'removeservicetaken'])->name('clients.removeservicetaken');

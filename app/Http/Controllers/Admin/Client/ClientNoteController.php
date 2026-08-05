@@ -148,10 +148,10 @@ class ClientNoteController extends Controller
 	public function deletenote(Request $request){
 		$note_id = $request->note_id;
 		if(\App\Models\Note::where('id',$note_id)->exists()){
-			$data = \App\Models\Note::select('client_id','title','description')->where('id',$note_id)->first();
+			$data = \App\Models\Note::select('client_id','title','description','type')->where('id',$note_id)->first();
 			$res = DB::table('notes')->where('id', @$note_id)->delete();
 			if($res){
-				if($data == 'client'){
+				if($data && $data->type == 'client'){
 				$subject = 'deleted a note';
 
 				$objs = new ActivitiesLog;

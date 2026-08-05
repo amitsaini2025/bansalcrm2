@@ -121,16 +121,16 @@
 								</li>
 								
 								<li class="nav-item is_checked_clientn">
-									<a class="nav-link active" id="clients-tab"  href="{{URL::to('/clients')}}" >Clients</a>
+									<a class="nav-link active" id="clients-tab"  href="{{ route('clients.index', [], false) }}" >Clients</a>
 								</li>
 								<li class="nav-item is_checked_clientn">
-									<a class="nav-link" id="archived-tab"  href="{{URL::to('/archived')}}" >Archived</a>
+									<a class="nav-link" id="archived-tab"  href="{{ route('clients.archived', [], false) }}" >Archived</a>
 								</li>
 							</ul> 
 							<div class="tab-content" id="clientContent">	
 							<div class="filter_panel">
 								<h4>Search By Details</h4>								
-								<form action="{{URL::to('/clients')}}" method="get">
+								<form action="{{ route('clients.index', [], false) }}" method="get">
 									<div class="row">
 										<div class="col-md-4">
 											<div class="form-group">
@@ -172,7 +172,7 @@
 										<div class="col-md-12 text-center">
 									
 											{!! Form::submit('Search', ['class'=>'btn btn-primary btn-theme-lg' ])  !!}
-											<a class="btn btn-info" href="{{URL::to('/clients')}}">Reset</a>
+											<a class="btn btn-info" href="{{ route('clients.index', [], false) }}">Reset</a>
 										</div>
 									</div>
 								</form>
@@ -212,11 +212,11 @@
 															<label for="checkbox-{{$i}}" class="custom-control-label">&nbsp;</label>
 														</div>
 													</td>
-													<td style="white-space: initial;"><a href="{{URL::to('/clients/detail/'.base64_encode(convert_uuencode(@$list->id)))}}">{{ @$list->first_name == "" ? config('constants.empty') : str_limit(@$list->first_name, '50', '...') }} {{ @$list->last_name == "" ? config('constants.empty') : str_limit(@$list->last_name, '50', '...') }} </a><span class="badge btn-warning"><?php echo $list->type; ?></span><br/>{{--<a data-id="{{@$list->id}}" data-email="{{@$list->email}}" data-name="{{@$list->first_name}} {{@$list->last_name}}" href="javascript:;" class="clientemail">{{ @$list->email == "" ? config('constants.empty') : str_limit(@$list->email, '50', '...') }}</a>--}}</td> 
+													<td style="white-space: initial;"><a href="{{ route('clients.detail', ['id' => base64_encode(convert_uuencode(@$list->id))], false) }}">{{ @$list->first_name == "" ? config('constants.empty') : str_limit(@$list->first_name, '50', '...') }} {{ @$list->last_name == "" ? config('constants.empty') : str_limit(@$list->last_name, '50', '...') }} </a><span class="badge btn-warning"><?php echo $list->type; ?></span><br/>{{--<a data-id="{{@$list->id}}" data-email="{{@$list->email}}" data-name="{{@$list->first_name}} {{@$list->last_name}}" href="javascript:;" class="clientemail">{{ @$list->email == "" ? config('constants.empty') : str_limit(@$list->email, '50', '...') }}</a>--}}</td> 
 													<?php
 													$agent = \App\Models\Agent::where('id', $list->agent_id)->first();
 													?>
-													<td style="white-space: initial;">@if($agent) <a target="_blank" href="{{URL::to('/agent/detail/'.base64_encode(convert_uuencode(@$agent->id)))}}">{{@$agent->full_name}}<a/>@else - @endif</td>
+													<td style="white-space: initial;">@if($agent) <a target="_blank" href="{{ route('agents.detail', ['id' => base64_encode(convert_uuencode(@$agent->id))], false) }}">{{@$agent->full_name}}<a/>@else - @endif</td>
 													<td style="white-space: initial;">{{ @$list->client_id == "" ? config('constants.empty') : str_limit(@$list->client_id, '50', '...') }}</td> 
 													{{--<td>{{ @$list->phone == "" ? config('constants.empty') : str_limit(@$list->phone, '50', '...') }}</td> --}}
 													
@@ -254,7 +254,7 @@
 															<div class="dropdown-menu">
 																<a class="dropdown-item has-icon clientemail" data-id="{{@$list->id}}" data-email="{{@$list->email}}" data-name="{{@$list->first_name}} {{@$list->last_name}}" href="javascript:;" >@icon('envelope', 'regular') Email</a>
 																<a class="dropdown-item has-icon" href="{{ route('clients.edit', ['id' => base64_encode(convert_uuencode($list->id))], false) }}">@icon('edit', 'regular') Edit</a>
-																<a class="dropdown-item has-icon" href="{{URL::to('/clients/export/'.$list->id)}}" title="Export Client Data">@icon('download') Export</a>
+																<a class="dropdown-item has-icon" href="{{ route('clients.export', ['id' => $list->id], false) }}" title="Export Client Data">@icon('download') Export</a>
 																<a class="dropdown-item has-icon" href="javascript:;" onclick="deleteAction({{$list->id}}, 'admins')">@icon('trash') Archived</a>
 															</div>
 														</div>								  
@@ -298,7 +298,7 @@
 				</button>
 			</div>
 			<div class="modal-body">
-				<form method="post" name="sendmail" action="{{URL::to('/sendmail')}}" autocomplete="off" enctype="multipart/form-data">
+				<form method="post" name="sendmail" action="{{ route('clients.sendmail', [], false) }}" autocomplete="off" enctype="multipart/form-data">
 				@csrf
 					<div class="row">
 						<div class="col-12 col-md-6 col-lg-6">
@@ -410,7 +410,7 @@ function exportClientList(filteredTotal) {
     var params = new URLSearchParams(window.location.search);
     params.delete('page');
     params.delete('per_page');
-    var baseUrl = '{{ route('clients.export-list') }}';
+    var baseUrl = '{{ route('clients.export-list', [], false) }}';
     window.location.href = baseUrl + (params.toString() ? '?' + params.toString() : '');
 }
 @endif
@@ -478,7 +478,7 @@ jQuery(document).ready(function($){
             var merge_record_ids = array.join(",");
             $.ajax({
                 type:'post',
-                url:"{{URL::to('/')}}/merge_records",
+                url:"{{ route('clients.merge_records', [], false) }}",
                 headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')},
                 data: {merge_record_ids:merge_record_ids},
                 success: function(response){
@@ -524,7 +524,7 @@ jQuery(document).ready(function($){
                 }
                 $.ajax({
                     type:'post',
-                    url:"{{URL::to('/')}}/merge_records",
+                    url:"{{ route('clients.merge_records', [], false) }}",
                     headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')},
                     data: {merge_from:clickedIds[0],merge_into:clickedIds[1]},
                     success: function(response){
@@ -574,7 +574,7 @@ $(document).delegate('.clientemail', 'click', function(){
 $(document).delegate('.selecttemplate', 'change', function(){
 	var v = $(this).val();
 	$.ajax({
-		url: '{{URL::to('/get-templates')}}',
+		url: '{{ route('clients.gettemplates', [], false) }}',
 		type:'GET',
 		datatype:'json',
 		data:{id:v},
@@ -587,7 +587,7 @@ $(document).delegate('.selecttemplate', 'change', function(){
 		}
 	});
 });
-	var recipientsUrl = '{{URL::to('/clients/get-recipients')}}';
+	var recipientsUrl = '{{ route('clients.getrecipients', [], false) }}';
 	RecipientSelect.init('#emailmodal .js-data-example-ajax', { url: recipientsUrl, dropdownParent: '#emailmodal' });
 	RecipientSelect.init('#emailmodal .js-data-example-ajaxcc', { url: recipientsUrl, dropdownParent: '#emailmodal' });
 });

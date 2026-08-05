@@ -3,7 +3,7 @@
 **Date:** 2026-07-26  
 **Last deep review:** 2026-07-26 (code-verified; false positives retracted; wording corrected)  
 **Scope:** Full CRM audit by area (Clients, Leads, Partners, Agents, Applications, Invoices/Receipts, Email/Messaging, Documents, Followups, Actions, Staff/Roles/Teams/Branches, Reports, Admin Console, Auth/CRM Access, Ongoing Sheet, Notifications, Shared Frontend/Config, SMS Webhooks).  
-**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4, L-2, L-3, L-4, L-5, L-7, L-8, L-9, L-11, L-13, OS-1, OS-2, OS-3, N-1, N-2, N-3, N-4, N-5, E-1–E-5, E-7, E-8, E-10–E-18, **APP-1–APP-12**).  
+**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4, L-2, L-3, L-4, L-5, L-7, L-8, L-9, L-11, L-13, OS-1, OS-2, OS-3, N-1, N-2, N-3, N-4, N-5, E-1–E-5, E-7, E-8, E-10–E-18, **APP-1–APP-12**, **C-15**, **C-16**, **C-17**, **C-22**, **C-23**, **C-24**, **C-25**, **C-26**, **C-27**).  
 **Stack note:** Laravel **13.x** (route parameters bind **by position** after DI, not by PHP parameter name).
 
 Severity: **Critical** (crash / data corruption / money wrong / security) · **High** (major feature broken or serious auth hole) · **Medium** (incorrect behavior) · **Low** (edge case / UX / maintenance risk)
@@ -15,6 +15,15 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 | **C-6** | **Retracted** — `$slug` still receives `{type}` via positional binding on Laravel 13 |
 | **C-1 / C-7+** | Clarified: login (`auth:admin`) exists; missing piece is **visibility / canEditClient** |
 | **C-12** | Corrected: merge `is_deleted=1` **is** excluded by `whereNull`; real mismatch is `is_deleted=0` handling |
+| **C-15** | **FIXED** — `deletenote` logs activity when `$data->type == 'client'` (was comparing Note object to string) |
+| **C-16** | **FIXED** — `getonlyclientrecipients`: `type=client` filter + Tom Select `text`; keep name/email/status/id/cid |
+| **C-17** | **FIXED** — `change_assignee` normalizes array/scalar/empty/comma-separated; same storage + notifications |
+| **C-22** | **FIXED** (Option A) — shared `/archived` kept for clients+leads; Type filter, typed detail links, restore labels |
+| **C-23** | **FIXED** — manual email verify reloads only on `status: true`; reverts checkbox on fail/error |
+| **C-24** | **FIXED** — removed duplicate `POST /save_tag` from `web.php`; kept `clients.php` + `clients.save_tag` |
+| **C-25** | **FIXED** — `GET /checkclientexist` throttled `60,1`; still returns plain `1`/`0` |
+| **C-26** | **FIXED** — removed dead `address_auto_populate` route + method; Places autocomplete unchanged |
+| **C-27** | **FIXED** — clients index uses relative `route(..., false)` instead of `URL::to` |
 | **INV-1** | Corrected: `else` overwrites **type 1 only**, not type 2 |
 | **APP-3** | **FIXED** — Split was correct; checklist counts now use bound `?` + `(int)` (`ApplicationsController`) |
 | **APP-1** | **FIXED** — Finalize title/heading “finalized” (not overdue copy) |
@@ -153,14 +162,20 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 
 ### Medium
 
-#### C-15. Note delete never writes activity log (type comparison bug)
-- **File:** `ClientNoteController.php` (~154): `if($data == 'client')` compares **object** to string — always false.
+#### ~~C-15. Note delete never writes activity log (type comparison bug)~~ — **FIXED**
+- **File:** `ClientNoteController.php` `deletenote`
+- **What happens:** `if($data == 'client')` compared Note **object** to string — always false; delete succeeded but no activity log.
+- **Fix:** Select includes `type`; condition is `$data && $data->type == 'client'` (same rule as `createnote`). Delete + success JSON unchanged for non-client notes.
 
-#### C-16. `getonlyclientrecipients` omits Tom Select `text` field & doesn’t filter clients-only
-- **File:** `ClientController.php` (~1048–1075) — returns `{name, email, …}` without `text`; includes leads.
+#### ~~C-16. `getonlyclientrecipients` omits Tom Select `text` field & doesn’t filter clients-only~~ — **FIXED**
+- **File:** `ClientController.php` `getonlyclientrecipients`
+- **What happens:** Returned `{name, email, …}` without Tom Select `text`; query had no `type=client` so leads appeared.
+- **Fix:** Filter `type = client`; add `text` while keeping `name`/`email`/`status`/`id`/`cid`; empty `q` returns `{"items":[]}`. Staff visibility + search fields unchanged.
 
-#### C-17. `change_assignee` silently no-ops when assignee not sent as array
-- **File:** `ClientController.php` (~1100–1116) — scalar assignee skipped; still returns success.
+#### ~~C-17. `change_assignee` silently no-ops when assignee not sent as array~~ — **FIXED**
+- **File:** `ClientController.php` `change_assignee`
+- **What happens:** Only applied assignee when value was an array; scalar/`''` left `assignee` unchanged but returned success.
+- **Fix:** Normalize to id list when `assignee`/`assinee` present (array, scalar, empty clear, comma-separated). Storage still one id / comma list / `""`; notify only when ≥1 assignee; missing keys leave field unchanged.
 
 #### C-18. Client import duplicate phone check inefficient / incomplete
 - **File:** `ClientImportService.php` (~72–135) — loads all phones per country; can miss `admins.phone` vs `client_phones` mismatch.
@@ -174,20 +189,37 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 #### C-21. `clientdetail` does not enforce `type=client`
 - **File:** `ClientController.php` (~734–776) — lead IDs open on `/clients/detail/{id}`.
 
-#### C-22. Archived list may include archived leads
-- **File:** `ClientQueries.php` `getArchivedClientQuery()` — no `type='client'` filter.
+#### ~~C-22. Archived list may include archived leads~~ — **FIXED** (Option A — intentional shared list)
+- **File:** `archived/index.blade.php` (query still shared via `getArchivedClientQuery`)
+- **What happens:** `/archived` listed archived clients **and** leads with no Type filter and no typed detail links.
+- **Fix (Option A, keeps L-5):** List stays shared for clients+leads. Added Type filter (All/Client/Lead); name links to `/clients/detail` vs `/leads/detail` by type; type badge; restore label “Move to clients” / “Restore to leads”. Did **not** force `type=client` on the query.
 
-#### C-23. Manual email verify reloads page on any AJAX success
-- **File:** `session-handlers.js` (~61–63) — weak error handling; reload even on non-success JSON.
+#### ~~C-23. Manual email verify reloads page on any AJAX success~~ — **FIXED**
+- **File:** `session-handlers.js` (manual email/phone verified checkbox)
+- **What happens:** AJAX `success` always `location.reload()` on HTTP 200, ignoring JSON `status: false` and with no `error` handler.
+- **Fix:** Parse response; reload only when `status` is true; on false/parse/HTTP error revert checkbox + toast/alert. Endpoint/payload unchanged; Vite assets rebuilt.
 
-#### C-24. Duplicate `save_tag` route registration
-- **Files:** `routes/web.php` (~541); `routes/clients.php` (~84)
+#### ~~C-24. Duplicate `save_tag` route registration~~ — **FIXED**
+- **Files:** `routes/web.php` (removed); `routes/clients.php` (kept)
+- **What happens:** `POST /save_tag` registered twice — unnamed in `web.php` (first match) and named `clients.save_tag` under `auth:admin` in `clients.php`.
+- **Fix:** Removed duplicate from `web.php`. Single route remains: `POST /save_tag` → `ClientController::save_tag`, name `clients.save_tag`, `auth:admin`. Form path `/save_tag` unchanged.
 
 ### Low
 
-#### C-25. `checkclientexist` no rate limiting / enumeration hardening
-#### C-26. `address_auto_populate` permanently disabled but still routed
-#### C-27. Client index hardcoded `URL::to` (APP_URL host mismatch risk)
+#### ~~C-25. `checkclientexist` no rate limiting / enumeration hardening~~ — **FIXED**
+- **Files:** `routes/web.php`; `ClientController.php` `checkclientexist`
+- **What happens:** Authenticated staff could hammer `GET /checkclientexist` (email/phone/client_id → `1`/`0`) with no throttle.
+- **Fix:** Route middleware `throttle:60,1` (same family as client search). Response still plain `1`/`0` for create/edit JS; empty `vl` returns `0`. Auth still on controller.
+
+#### ~~C-26. `address_auto_populate` permanently disabled but still routed~~ — **FIXED**
+- **Files:** `routes/clients.php` (removed); `ClientController.php` (method removed)
+- **What happens:** Stub always returned “Geocoding feature disabled”; no live callers (UI uses Places `/address/search` + details).
+- **Fix:** Removed route + dead method. Address autocomplete `/address/search` and `/address/details` unchanged.
+
+#### ~~C-27. Client index hardcoded `URL::to` (APP_URL host mismatch risk)~~ — **FIXED**
+- **File:** `resources/views/Admin/clients/index.blade.php`
+- **What happens:** Links/AJAX used `URL::to(...)` absolute URLs from `APP_URL`, which can miss when browser host differs.
+- **Fix:** Named routes with `$absolute = false` (root-relative path) for tabs, filter, detail/export/agent, sendmail, merge, templates, recipients, CSV export. Paths unchanged; host follows the open tab.
 
 ---
 

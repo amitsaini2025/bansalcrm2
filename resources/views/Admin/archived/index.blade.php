@@ -43,7 +43,7 @@
 						</div>
 						<div class="card-body">
 							<div class="filter_panel">
-								<h4>Search & Filter Archived Clients</h4>
+								<h4>Search & Filter Archived Records</h4>
 								<form action="{{URL::to('/archived')}}" method="get">
 									<div class="row">
 										<div class="col-md-3">
@@ -74,6 +74,16 @@
 									<div class="row">
 										<div class="col-md-3">
 											<div class="form-group">
+												<label for="type" class="col-form-label">Type</label>
+												<select class="form-control" name="type" id="type">
+													<option value="">All</option>
+													<option value="client" {{ Request::get('type') === 'client' ? 'selected' : '' }}>Client</option>
+													<option value="lead" {{ Request::get('type') === 'lead' ? 'selected' : '' }}>Lead</option>
+												</select>
+											</div>
+										</div>
+										<div class="col-md-3">
+											<div class="form-group">
 												<label for="archived_from" class="col-form-label">Archived From</label>
 												{!! Form::date('archived_from', Request::get('archived_from'), array('class' => 'form-control', 'id' => 'archived_from' ))  !!}
 											</div>
@@ -95,6 +105,8 @@
 												</select>
 											</div>
 										</div>
+									</div>
+									<div class="row">
 										<div class="col-md-3">
 											<div class="form-group">
 												<label for="assignee" class="col-form-label">Assignee</label>
@@ -154,8 +166,17 @@
 															<label for="checkbox-1" class="custom-control-label">&nbsp;</label>
 														</div>
 													</td>
-													<td style="white-space: initial;">{{ @$list->first_name == "" ? config('constants.empty') : str_limit(@$list->first_name, '50', '...') }} {{ @$list->last_name == "" ? config('constants.empty') : str_limit(@$list->last_name, '50', '...') }} @if(!empty($list->type))<span class="badge btn-warning">{{ $list->type }}</span>@endif</td>
 													<?php
+													$archivedEncodedId = base64_encode(convert_uuencode($list->id));
+													$isLeadType = strtolower((string) ($list->type ?? '')) === 'lead';
+													$detailUrl = $isLeadType
+														? URL::to('/leads/detail/' . $archivedEncodedId)
+														: URL::to('/clients/detail/' . $archivedEncodedId);
+													$displayName = trim(
+														(@$list->first_name == "" ? config('constants.empty') : str_limit(@$list->first_name, '50', '...'))
+														. ' '
+														. (@$list->last_name == "" ? config('constants.empty') : str_limit(@$list->last_name, '50', '...'))
+													);
 													$assignee = \App\Support\StaffAssigneeResolver::firstStaffFromAssigneeValue(@$list->assignee);
 													$archivedBy = null;
 													if(!empty(@$list->archived_by) && @$list->archived_by !== '') {
@@ -170,6 +191,12 @@
 														$canDelete = $archivedDate->lte($sixMonthsAgo);
 													}
 													?>
+													<td style="white-space: initial;">
+														<a href="{{ $detailUrl }}">{{ $displayName }}</a>
+														@if(!empty($list->type))
+															<span class="badge btn-warning">{{ $list->type }}</span>
+														@endif
+													</td>
 													<td style="white-space: initial;">{{ $assignee ? (@$assignee->first_name == "" ? config('constants.empty') : str_limit(@$assignee->first_name, '50', '...')) : '-' }}</td>
 													<td style="white-space: initial;">{{ $archivedBy ? (str_limit(trim(($archivedBy->first_name ?? '') . ' ' . ($archivedBy->last_name ?? '')), 50, '...') ?: '-') : '-' }}</td>
 													<td style="white-space: initial;">{{ $list->archived_on ? date('d/m/Y', strtotime($list->archived_on)) : '-' }}</td>
@@ -177,7 +204,7 @@
 														<div class="dropdown d-inline">
 															<button class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Action</button>
 															<div class="dropdown-menu">
-																<a class="dropdown-item has-icon" href="javascript:;" onclick="movetoclientAction({{$list->id}}, 'admins','is_archived')">@icon('undo') Move to clients</a>
+																<a class="dropdown-item has-icon" href="javascript:;" onclick="movetoclientAction({{$list->id}}, 'admins','is_archived')">@icon('undo') {{ $isLeadType ? 'Restore to leads' : 'Move to clients' }}</a>
 																
 																@if($canDelete)
 																	<a class="dropdown-item has-icon text-danger" href="javascript:;" onclick="permanentDeleteAction({{$list->id}}, 'admins')">@icon('trash') Permanently Delete</a>
@@ -201,7 +228,7 @@
 											<tfoot>
 												<tr>
 													<td colspan="6" style="text-align:center; padding: 10px;">
-														<strong>Total: {{$totalData}} archived client(s)</strong>
+														<strong>Total: {{$totalData}} archived record(s)</strong>
 													</td>
 												</tr>
 											</tfoot>

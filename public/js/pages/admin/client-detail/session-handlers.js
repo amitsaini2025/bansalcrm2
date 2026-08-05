@@ -43,7 +43,9 @@
 jQuery(document).ready(function($){
     
     $('.manual_email_phone_verified').on('change', function(){
-        if( $(this).is(":checked") ) {
+        var $checkbox = $(this);
+        var previousChecked = !$checkbox.is(':checked');
+        if( $checkbox.is(":checked") ) {
             $('.manual_email_phone_verified').val(1);
             var manual_email_phone_verified = 1;
         } else {
@@ -53,13 +55,47 @@ jQuery(document).ready(function($){
 
         var client_id = App.getPageConfig('clientId');
         var url = App.getUrl('clientUpdateEmailVerified') || App.getUrl('siteUrl') + '/clients/update-email-verified';
+
+        function revertCheckbox() {
+            // prop does not re-fire change; keep UI aligned with server on failure
+            $checkbox.prop('checked', previousChecked);
+            $('.manual_email_phone_verified').val(previousChecked ? 1 : 0);
+        }
+
+        function showFail(msg) {
+            if (typeof window.toastMsg === 'function') {
+                window.toastMsg(msg || 'Please try again', 'error');
+            } else {
+                alert(msg || 'Please try again');
+            }
+        }
+
         $.ajax({
             url: url,
             headers: { 'X-CSRF-TOKEN': App.getCsrf()},
             type:'POST',
             data:{manual_email_phone_verified:manual_email_phone_verified,client_id:client_id},
             success: function(responses){
-                location.reload();
+                var res = responses;
+                if (typeof responses === 'string') {
+                    try {
+                        res = $.parseJSON(responses);
+                    } catch (e) {
+                        revertCheckbox();
+                        showFail('Invalid server response');
+                        return;
+                    }
+                }
+                if (res && res.status) {
+                    location.reload();
+                } else {
+                    revertCheckbox();
+                    showFail(res && res.message ? res.message : 'Please try again');
+                }
+            },
+            error: function(){
+                revertCheckbox();
+                showFail('Could not update verification. Please try again.');
             }
         });
     });
