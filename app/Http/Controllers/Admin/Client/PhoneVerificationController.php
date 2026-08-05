@@ -3,9 +3,13 @@
 namespace App\Http\Controllers\Admin\Client;
 
 use App\Http\Controllers\Controller;
+use App\Models\Admin;
 use App\Models\ClientPhone;
 use App\Services\Sms\PhoneVerificationService;
+use App\Support\StaffClientVisibility;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class PhoneVerificationController extends Controller
 {
@@ -15,6 +19,25 @@ class PhoneVerificationController extends Controller
     {
         $this->middleware('auth:admin');
         $this->verificationService = $verificationService;
+    }
+
+    /**
+     * Resolve lead admin and ensure caller may access it (same rules as lead list/detail).
+     *
+     * @return Admin|JsonResponse
+     */
+    protected function resolveAccessibleLeadAdmin($leadId)
+    {
+        $admin = Admin::where('id', $leadId)->where('type', 'lead')->first()
+            ?? Admin::where('lead_id', $leadId)->where('type', 'lead')->first();
+        if (! $admin) {
+            return response()->json(['success' => false, 'message' => 'Lead not found'], 404);
+        }
+        if (! StaffClientVisibility::canAccessAdminRecord((int) $admin->id, Auth::user())) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        return $admin;
     }
 
     /**
@@ -120,6 +143,10 @@ class PhoneVerificationController extends Controller
     public function sendOTPForLead(Request $request)
     {
         $request->validate(['lead_id' => 'required|integer']);
+        $admin = $this->resolveAccessibleLeadAdmin($request->lead_id);
+        if ($admin instanceof JsonResponse) {
+            return $admin;
+        }
         $result = $this->verificationService->sendOTPForLead($request->lead_id);
         if (isset($result['success']) && !$result['success'] && isset($result['message']) && $result['message'] === 'Lead not found') {
             return response()->json($result, 404);
@@ -133,12 +160,20 @@ class PhoneVerificationController extends Controller
             'lead_id' => 'required|integer',
             'otp_code' => 'required|string|size:6',
         ]);
+        $admin = $this->resolveAccessibleLeadAdmin($request->lead_id);
+        if ($admin instanceof JsonResponse) {
+            return $admin;
+        }
         return response()->json($this->verificationService->verifyOTPForLead($request->lead_id, $request->otp_code));
     }
 
     public function resendOTPForLead(Request $request)
     {
         $request->validate(['lead_id' => 'required|integer']);
+        $admin = $this->resolveAccessibleLeadAdmin($request->lead_id);
+        if ($admin instanceof JsonResponse) {
+            return $admin;
+        }
         if (!$this->verificationService->canResendOTPForLead($request->lead_id)) {
             return response()->json(['success' => false, 'message' => 'Please wait 30 seconds before resending.']);
         }
@@ -151,10 +186,9 @@ class PhoneVerificationController extends Controller
 
     public function getStatusForLead($leadId)
     {
-        $admin = \App\Models\Admin::where('id', $leadId)->where('type', 'lead')->first()
-            ?? \App\Models\Admin::where('lead_id', $leadId)->where('type', 'lead')->first();
-        if (!$admin) {
-            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        $admin = $this->resolveAccessibleLeadAdmin($leadId);
+        if ($admin instanceof JsonResponse) {
+            return $admin;
         }
         return response()->json([
             'success' => true,

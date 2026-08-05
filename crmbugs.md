@@ -3,7 +3,7 @@
 **Date:** 2026-07-26  
 **Last deep review:** 2026-07-26 (code-verified; false positives retracted; wording corrected)  
 **Scope:** Full CRM audit by area (Clients, Leads, Partners, Agents, Applications, Invoices/Receipts, Email/Messaging, Documents, Followups, Actions, Staff/Roles/Teams/Branches, Reports, Admin Console, Auth/CRM Access, Ongoing Sheet, Notifications, Shared Frontend/Config, SMS Webhooks).  
-**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4, L-5, L-7, L-8, L-9, L-11, OS-1, OS-2, OS-3, N-1, N-2, N-3, N-4, N-5, E-1–E-5, E-7, E-8, E-10–E-18, **APP-1–APP-12**).  
+**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4, L-2, L-3, L-4, L-5, L-7, L-8, L-9, L-11, L-13, OS-1, OS-2, OS-3, N-1, N-2, N-3, N-4, N-5, E-1–E-5, E-7, E-8, E-10–E-18, **APP-1–APP-12**).  
 **Stack note:** Laravel **13.x** (route parameters bind **by position** after DI, not by PHP parameter name).
 
 Severity: **Critical** (crash / data corruption / money wrong / security) · **High** (major feature broken or serious auth hole) · **Medium** (incorrect behavior) · **Low** (edge case / UX / maintenance risk)
@@ -203,14 +203,20 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 
 ### High
 
-#### L-2. Lead assign without visibility check (IDOR)
-- **File:** `LeadController.php` `assign` (~165–192)
+#### ~~L-2. Lead assign without visibility check (IDOR)~~ — **FIXED**
+- **File:** `LeadController.php` `assign`
+- **What happens:** Any authenticated admin who posted a lead id could reassign it without allocation check (list/detail were scoped; assign was not).
+- **Fix:** After resolving the lead, require `StaffClientVisibility::canAccessAdminRecord` (same rules as list/detail: strict off = allow all; exempt roles; active grants; assignee/creator allocation). Denied → unauthorized flash; assign payload logic unchanged.
 
-#### L-3. Lead phone OTP without allocation checks
-- **Files:** `PhoneVerificationController.php` (~120–164); `PhoneVerificationService.php`
+#### ~~L-3. Lead phone OTP without allocation checks~~ — **FIXED**
+- **Files:** `PhoneVerificationController.php` (lead OTP methods)
+- **What happens:** Any authenticated admin with a numeric `lead_id` could send/verify OTP or read status without allocation.
+- **Fix:** Shared `resolveAccessibleLeadAdmin` on send/verify/resend/status — resolve lead then `StaffClientVisibility::canAccessAdminRecord` (same as list/detail). Denied → 403 JSON; missing → 404. OTP service / AU / cooldowns unchanged. Client OTP (C-14) unchanged.
 
-#### L-4. Lead phone “Verify” button hidden for new admin-only leads (`lead_id` null)
-- **File:** `clients/detail.blade.php` (~351–357) — Verify only when `$conVal->lead_id` non-empty; new leads from `LeadController::store` have `lead_id = null`.
+#### ~~L-4. Lead phone “Verify” button hidden for new admin-only leads (`lead_id` null)~~ — **FIXED**
+- **File:** `clients/detail.blade.php` (phone Verify link)
+- **What happens:** Verify only when `$conVal->lead_id` non-empty; new leads from `LeadController::store` have `lead_id = null` so button never rendered.
+- **Fix:** For primary lead contact, resolve `Admin` by `admin_id` (`admins.id`) first, then fall back to migrated `lead_id`. Still requires `needsVerification()`; `data-lead-id` remains `admins.id`. Client phone UI unchanged.
 
 #### ~~L-5. Lead list does not filter `is_archived`~~ — **FIXED**
 - **File:** `LeadController.php` (`index` / `exportList` base query)
@@ -244,7 +250,10 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 - **What happens:** same `GET /leads/detail/{id}/{tab?}` + name `leads.detail` registered twice (`web.php` outside `auth:admin` group; `clients.php` inside).
 - **Fix:** Removed duplicate from `web.php`. Kept `leads.detail` (+ `leads.detail.application`) only in `clients.php` under `auth:admin`.
 #### L-12. Lead import inherits client import duplicate-check gaps
-#### L-13. `convertoClient` route outside auth group (relies on controller middleware only)
+#### ~~L-13. `convertoClient` route outside auth group (relies on controller middleware only)~~ — **FIXED**
+- **File:** `routes/web.php` (leads block)
+- **What happens:** `/leads/convert/{id?}` (and sibling lead routes in `web.php`) sat outside the `auth:admin` group; auth only on `LeadController` constructor.
+- **Fix:** Wrapped all web.php lead routes (index, export, create, store, assign, import, convert) in `middleware(['auth:admin'])` with unchanged paths/names. Named convert `leads.convert`. Controller middleware kept. Guests get login redirect at route level.
 
 ---
 

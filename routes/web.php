@@ -249,13 +249,16 @@ Route::post('/staffrole/edit', [StaffroleController::class, 'edit'])->name('staf
 
 // Leads Start - Updated to modern syntax
 // Note: leads.detail (+ application) live in routes/clients.php under auth:admin (avoid duplicate registration).
-Route::get('/leads', [LeadController::class, 'index'])->name('leads.index');
-Route::get('/leads/export-list', [LeadController::class, 'exportList'])->name('leads.export-list');
-Route::get('/leads/create', [LeadController::class, 'create'])->name('leads.create');
-Route::post('/leads/store', [LeadController::class, 'store'])->name('leads.store');
-Route::post('/leads/assign', [LeadController::class, 'assign'])->name('leads.assign');
-Route::post('/leads/import', [LeadController::class, 'import'])->name('leads.import');
-Route::get('/leads/convert/{id?}', [LeadController::class, 'convertoClient']);
+// Route-level auth:admin + LeadController constructor middleware (defense in depth; same paths/names).
+Route::middleware(['auth:admin'])->group(function () {
+	Route::get('/leads', [LeadController::class, 'index'])->name('leads.index');
+	Route::get('/leads/export-list', [LeadController::class, 'exportList'])->name('leads.export-list');
+	Route::get('/leads/create', [LeadController::class, 'create'])->name('leads.create');
+	Route::post('/leads/store', [LeadController::class, 'store'])->name('leads.store');
+	Route::post('/leads/assign', [LeadController::class, 'assign'])->name('leads.assign');
+	Route::post('/leads/import', [LeadController::class, 'import'])->name('leads.import');
+	Route::get('/leads/convert/{id?}', [LeadController::class, 'convertoClient'])->name('leads.convert');
+});
 // Invoices Start
 
 // Removed routes for deleted views: lists, email, invoicebyid, history, reminder

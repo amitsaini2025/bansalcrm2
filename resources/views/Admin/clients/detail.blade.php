@@ -348,9 +348,16 @@ use App\Http\Controllers\Controller;
 														$phonenoStr .= $client_country_code."".$conVal->client_phone.'('.$conVal->contact_type .') '.\App\Helpers\IconHelper::render('check-circle', 'solid', ['class' => 'verified-icon']);
 													} else {
 														$phonenoStr .= $client_country_code."".$conVal->client_phone.'('.$conVal->contact_type .') '.\App\Helpers\IconHelper::render('circle', 'regular', ['class' => 'unverified-icon']);
-														if ( !empty($conVal->lead_id) && !empty($conVal->is_lead_primary) ) {
-															$leadRow = \App\Models\Admin::where('lead_id', $conVal->lead_id)->where('type','lead')->first()
-																?? \App\Models\Admin::where('id', $conVal->lead_id)->where('type','lead')->first();
+														// Lead primary phone: resolve admins.id first (admin-only leads have lead_id null), then migrated lead_id
+														if ( !empty($conVal->is_lead_primary) ) {
+															$leadRow = null;
+															if ( !empty($conVal->admin_id) ) {
+																$leadRow = \App\Models\Admin::where('id', $conVal->admin_id)->where('type', 'lead')->first();
+															}
+															if ( ! $leadRow && !empty($conVal->lead_id) ) {
+																$leadRow = \App\Models\Admin::where('lead_id', $conVal->lead_id)->where('type', 'lead')->first()
+																	?? \App\Models\Admin::where('id', $conVal->lead_id)->where('type', 'lead')->first();
+															}
 															if ( $leadRow && $leadRow->needsVerification() ) {
 																$phonenoStr .= ' <a href="javascript:;" class="btn-lead-verify-phone" data-lead-id="'.(int)$leadRow->id.'" title="Verify">Verify</a>';
 															}

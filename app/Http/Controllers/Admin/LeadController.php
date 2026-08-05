@@ -194,6 +194,10 @@ class LeadController extends Controller
 			?? Admin::where('id', '=', $id)->where('type', 'lead')->first();
 		if ($admin) 
 		{
+			// Same allocation rules as leads index / client-lead detail (blocks cross-allocation assign)
+			if (! StaffClientVisibility::canAccessAdminRecord((int) $admin->id, Auth::user())) {
+				return redirect()->back()->with('error', Config::get('constants.unauthorized'));
+			}
 			$currentAssignee = $admin->assignee;
 			if($currentAssignee != '' && $currentAssignee != null){
 				if($currentAssignee == $requestData['assignto']){
