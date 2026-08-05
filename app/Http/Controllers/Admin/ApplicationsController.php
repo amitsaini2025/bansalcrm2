@@ -51,7 +51,6 @@ class ApplicationsController extends Controller
 
 		$query 		= Application::query()->where('status', '!=', 2)->with(['application_assignee']);
 
-		$totalData 	= $query->count();	//for all data
         if ($request->has('partner'))
 		{
 			$partner 		= 	$request->input('partner');
@@ -85,6 +84,7 @@ class ApplicationsController extends Controller
 				$query->where('status', '=', $status);
 			}
 		}
+		$totalData 	= $query->count();
 		$lists		= $query->sortable(['id' => 'desc'])->paginate(10);
 
 		return view('Admin.applications.index', compact(['lists', 'totalData','allstages','allpartners']));
@@ -103,6 +103,9 @@ class ApplicationsController extends Controller
 	 
 	public function getapplicationdetail(Request $request){
 		$fetchData = Application::find($request->id);
+		if(!$fetchData){
+			return response('<div class="alert alert-danger mb-0">Application not found.</div>');
+		}
 		$fetchedData = ($fetchData && $fetchData->client_id) ? Admin::find($fetchData->client_id) : null;
 		$assignees = \App\Models\Staff::where('status', 1)->orderBy('first_name')->orderBy('last_name')->get(['id', 'first_name', 'last_name']);
 		return view('Admin.clients.applicationdetail', compact(['fetchData', 'fetchedData', 'assignees']));
@@ -110,6 +113,13 @@ class ApplicationsController extends Controller
 	
 	public function completestage(Request $request){
 		$fetchData = Application::find($request->id);
+		if(!$fetchData){
+			echo json_encode([
+				'status' => false,
+				'message' => 'Application not found.',
+			]);
+			return;
+		}
 		$fetchData->status = 1;
 		
 		$saved = $fetchData->save();
@@ -127,6 +137,14 @@ class ApplicationsController extends Controller
 	}
 	public function updatestage(Request $request){
 		$fetchData = Application::find($request->id);
+		if(!$fetchData){
+			echo json_encode([
+				'status' => false,
+				'message' => 'Application not found.',
+			]);
+			return;
+		}
+
 		$workflowstagecount = \App\Models\WorkflowStage::where('w_id', $fetchData->workflow)->count();
 		$widthcount = 0;
 		if($workflowstagecount !== 0){
@@ -134,7 +152,23 @@ class ApplicationsController extends Controller
 			$widthcount = round($s);
 		}
 		$workflowstage = \App\Models\WorkflowStage::where('name', 'like', '%'.$fetchData->stage.'%')->where('w_id', $fetchData->workflow)->first();
-		$nextid = \App\Models\WorkflowStage::where('id', '>', @$workflowstage->id)->where('w_id', $fetchData->workflow)->orderBy('id','asc')->first();//dd($nextid);
+		if(!$workflowstage){
+			echo json_encode([
+				'status' => false,
+				'message' => 'Current workflow stage not found.',
+			]);
+			return;
+		}
+
+		// No next stage when already on the last workflow step (same pattern as updatebackstage).
+		$nextid = \App\Models\WorkflowStage::where('id', '>', $workflowstage->id)->where('w_id', $fetchData->workflow)->orderBy('id','asc')->first();
+		if(!$nextid){
+			echo json_encode([
+				'status' => false,
+				'message' => 'Application is already at the last stage.',
+			]);
+			return;
+		}
 		
 		$fetchData->stage = $nextid->name;
 		$comments = 'moved the stage from  <b>'.$workflowstage->name.'</b> to <b>'.$nextid->name.'</b>';
@@ -153,7 +187,7 @@ class ApplicationsController extends Controller
 			$displayback = false;
 			$workflowstage = \App\Models\WorkflowStage::where('w_id', $fetchData->workflow)->orderBy('id','desc')->first();
 		
-			if($workflowstage->name == $fetchData->stage){
+			if($workflowstage && $workflowstage->name == $fetchData->stage){
 				$displayback = true;
 			}
 			$response['status'] 	= 	true;
@@ -193,7 +227,7 @@ class ApplicationsController extends Controller
 				
 				
 				$obj = new \App\Models\ApplicationActivitiesLog;
-				$obj->stage = $workflowstage->stage;
+				$obj->stage = $workflowstage->name;
 				$obj->type = 'stage';
 				$obj->comment = $comments;
 				$obj->app_id = $request->id;
@@ -228,6 +262,12 @@ class ApplicationsController extends Controller
 		//$clientid = @$request->clientid;
 		$id = $request->id;
 		$fetchData = Application::find($id);
+		if(!$fetchData){
+			echo '<div class="alert alert-danger mb-0">Application not found.</div>';
+			return;
+		}
+		// Client record for compose-email attrs (data-email / data-name) — same pattern as getapplicationdetail.
+		$fetchedData = $fetchData->client_id ? Admin::find($fetchData->client_id) : null;
       
         if(isset($fetchData->product_id) && $fetchData->product_id !=""){
             $productdetail = \App\Models\Product::where('id', $fetchData->product_id)->first();
@@ -487,6 +527,13 @@ class ApplicationsController extends Controller
 		//echo '<pre>'; print_r($requestData); die;
 		$user_id = @Auth::user()->id;
 		$obj = Application::find($request->appid);
+		if(!$obj){
+			echo json_encode([
+				'status' => false,
+				'message' => 'Application not found.',
+			]);
+			return;
+		}
 		$obj->intakedate = $request->from;
 		$saved = $obj->save();
 			if($saved){
@@ -494,7 +541,7 @@ class ApplicationsController extends Controller
 				$response['status'] 	= 	true;
 				$response['message']	=	'Applied date successfully updated.';
 			}else{
-				$response['status'] 	= 	true;
+				$response['status'] 	= 	false;
 				$response['message']	=	'Please try again';
 			}
 		
@@ -666,6 +713,15 @@ class ApplicationsController extends Controller
 		//echo '<pre>'; print_r($requestData); die;
 		$user_id = @Auth::user()->id;
 		$obj = Application::find($request->diapp_id);
+		if(!$obj){
+			echo json_encode([
+				'status' => false,
+				'message' => 'Application not found.',
+				'discontinue_reason' => '',
+				'discontinue_note' => '',
+			]);
+			return;
+		}
 		$obj->status = 2;
         $obj->discontinue_reason = $request->workflow;
         $obj->discontinue_note = $request->note;
@@ -676,7 +732,7 @@ class ApplicationsController extends Controller
             $response['discontinue_reason'] 	= 	$request->workflow;
             $response['discontinue_note'] 	= 	$request->note;
         }else{
-            $response['status'] 	= 	true;
+            $response['status'] 	= 	false;
             $response['message']	=	'Please try again';
             $response['discontinue_reason'] = 	"";
             $response['discontinue_note'] 	= 	"";
@@ -739,6 +795,13 @@ class ApplicationsController extends Controller
 		//echo '<pre>'; print_r($requestData); die;
 		$user_id = @Auth::user()->id;
 		$obj = Application::find($request->revapp_id);
+		if(!$obj){
+			echo json_encode([
+				'status' => false,
+				'message' => 'Application not found.',
+			]);
+			return;
+		}
 		$obj->status = 0;
 		$workflowstagecount = \App\Models\WorkflowStage::where('w_id', $obj->workflow)->count();
 			$widthcount = 0;
@@ -753,7 +816,7 @@ class ApplicationsController extends Controller
 			$displayback = false;
 				$workflowstage = \App\Models\WorkflowStage::where('w_id', $obj->workflow)->orderBy('id','desc')->first();
 			
-				if($workflowstage->name == $obj->stage){
+				if($workflowstage && $workflowstage->name == $obj->stage){
 					$displayback = true;
 				}	
 				$response['status'] 	= 	true;
@@ -761,7 +824,7 @@ class ApplicationsController extends Controller
 				$response['displaycomplete'] 	= 	$displayback;
 				$response['message']	=	'Application successfully reverted.';
 			}else{
-				$response['status'] 	= 	true;
+				$response['status'] 	= 	false;
 				$response['message']	=	'Please try again';
 			}
 		
@@ -1329,6 +1392,9 @@ class ApplicationsController extends Controller
     
 	public function exportapplicationpdf(Request $request, $id){
 		$applications = \App\Models\Application::where('id', $id)->first();
+		if(!$applications){
+			return Redirect::back()->with('error', 'Application not found.');
+		}
 		$partnerdetail = \App\Models\Partner::where('id', @$applications->partner_id)->first();
 		$productdetail = \App\Models\Product::where('id', @$applications->product_id)->first();
 		$cleintname = \App\Models\Admin::where('id',@$applications->client_id)->first();
@@ -1527,8 +1593,11 @@ class ApplicationsController extends Controller
 			$doclistdata .= '</tr>';
 		} //end foreach
 
-		$application_id = $request->application_id;
-		$applicationuploadcount = DB::select("SELECT COUNT(DISTINCT list_id) AS cnt FROM application_documents where application_id = '$application_id'");
+		$application_id = (int) $request->application_id;
+		$applicationuploadcount = DB::select(
+			'SELECT COUNT(DISTINCT list_id) AS cnt FROM application_documents WHERE application_id = ?',
+			[$application_id]
+		);
 		$response['status'] 	= 	true;
 		$response['imagedata']	=	$imageData;
 		$response['doclistdata']	=	$doclistdata;
@@ -1632,8 +1701,11 @@ class ApplicationsController extends Controller
 			</td>';
 			$doclistdata .= '</tr>';
 		}
-		$application_id = $appdoc->application_id;
-		$applicationuploadcount = DB::select("SELECT COUNT(DISTINCT list_id) AS cnt FROM application_documents where application_id = '$application_id'");
+		$application_id = (int) $appdoc->application_id;
+		$applicationuploadcount = DB::select(
+			'SELECT COUNT(DISTINCT list_id) AS cnt FROM application_documents WHERE application_id = ?',
+			[$application_id]
+		);
 		$response['status'] 	= 	true;
 
 		$response['doclistdata']	=	$doclistdata;
@@ -2446,7 +2518,6 @@ class ApplicationsController extends Controller
         $allpartners = Partner::select('partner_name','id')->where('status', '=', 0)->get();
 
 		$query 	   = Application::query()->where('stage', '=', 'Coe processing')->where('updated_at', '<=', Carbon::now()->subDays(15)->toDateTimeString() )->where('status', '!=', 2)->with(['application_assignee']);
-        $totalData 	= $query->count();	//for all data
         if ($request->has('partner'))
 		{
 			$partner 		= 	$request->input('partner');
@@ -2480,22 +2551,32 @@ class ApplicationsController extends Controller
 				$query->where('status', '=', $status);
 			}
 		}
+		$totalData 	= $query->count();
 		$lists	= $query->sortable(['id' => 'desc'])->paginate(10);
         return view('Admin.applications.overdue', compact(['lists', 'totalData','allstages','allpartners']));
     }
   
     public function finalizeApplicationList(Request $request)
 	{
-		$allstages = Application::select('stage')->where('status', '=', 2)->groupBy('stage')->get();
+		// Finalized tab: COE end-of-pipeline stages. Default status remains Discontinued (2)
+		// to preserve existing list behaviour; status filter replaces that default (no AND stack).
+		$finalizeStages = ['Coe processing', 'Coe issued', 'Refund', 'Coe Cancelled'];
+		$allstages = collect($finalizeStages)->map(function ($stage) {
+			return (object) ['stage' => $stage];
+		});
         $allpartners = Partner::select('partner_name','id')->where('status', '=', 0)->get();
 
-        //status = discountined and status = coe issued, refund  coe cancelled in finalized  tab
 		$query = Application::query()
-        ->whereIn('stage', ['Coe processing', 'Coe issued', 'Refund', 'Coe Cancelled'])
-        ->where('status', '=', 2)
-        ->with(['application_assignee']);
+			->whereIn('stage', $finalizeStages)
+			->with(['application_assignee']);
 
-        $totalData 	= $query->count();	//for all data
+		$statusFilter = $request->input('status');
+		if ($request->has('status') && trim((string) $statusFilter) !== '') {
+			$query->where('status', '=', $statusFilter);
+		} else {
+			$query->where('status', '=', 2);
+		}
+
         if ($request->has('partner'))
 		{
 			$partner 		= 	$request->input('partner');
@@ -2517,18 +2598,14 @@ class ApplicationsController extends Controller
 			$stage 		= 	$request->input('stage');
 			if(trim($stage) != '')
 			{
-				$query->where('stage', '=', $stage);
+				// Only allow a stage within the finalized set (ignores arbitrary values).
+				if (in_array($stage, $finalizeStages, true)) {
+					$query->where('stage', '=', $stage);
+				}
 			}
 		}
 
-        if ($request->has('status'))
-		{
-			$status 		= 	$request->input('status');
-			if(trim($status) != '')
-			{
-				$query->where('status', '=', $status);
-			}
-		}
+		$totalData 	= $query->count();
 		$lists	= $query->sortable(['id' => 'desc'])->paginate(10);
         return view('Admin.applications.finalize', compact(['lists', 'totalData','allstages','allpartners']));
     }

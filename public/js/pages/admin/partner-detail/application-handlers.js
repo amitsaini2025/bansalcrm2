@@ -29,7 +29,6 @@
     }
 
 jQuery(document).ready(function($){
-    const partnerId = PageConfig.partnerId;
 
     $(document).delegate('.openapplicationdetail', 'click', function(){
         var appliid = $(this).attr('data-id');
@@ -120,7 +119,7 @@ jQuery(document).ready(function($){
             url: App.getUrl('updateStage'),
             type:'GET',
             datatype:'json',
-            data:{id:appliid, client_id: partnerId},
+            data:{id:appliid},
             success:function(response){
                 $('.popuploader').hide();
                 var obj = $.parseJSON(response);
@@ -130,7 +129,7 @@ jQuery(document).ready(function($){
                     $.ajax({
                         url: App.getUrl('getApplicationsLogs') || (App.getUrl('siteUrl') + '/get-applications-logs'),
                         type:'GET',
-                        data:{clientid: partnerId, id: appliid},
+                        data:{id: appliid},
                         success: function(responses){
                             $('#accordion').html(responses);
                         }
@@ -150,7 +149,7 @@ jQuery(document).ready(function($){
             url: App.getUrl('updateBackStage'),
             type:'GET',
             datatype:'json',
-            data:{id:appliid, client_id: partnerId},
+            data:{id:appliid},
             success:function(response){
                 var obj = $.parseJSON(response);
                 $('.popuploader').hide();
@@ -160,7 +159,7 @@ jQuery(document).ready(function($){
                     $.ajax({
                         url: App.getUrl('getApplicationsLogs') || (App.getUrl('siteUrl') + '/get-applications-logs'),
                         type:'GET',
-                        data:{clientid: partnerId, id: appliid},
+                        data:{id: appliid},
                         success: function(responses){
                             $('#accordion').html(responses);
                         }

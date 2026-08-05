@@ -66,6 +66,9 @@ class InvoiceController extends Controller
 			return view('Admin.invoice.general-invoice',compact(['clientid','applicationid','type','clientdata','workflowdaa'])); 
 		}else{ 
 			$applicationdata = \App\Models\Application::where('id', $applicationid)->first();
+			if(!$applicationdata){
+				return redirect()->back()->with('error', 'Application not found for this invoice.');
+			}
     		$partnerdata = \App\Models\Partner::where('id', @$applicationdata->partner_id)->first();
     		$productdata = \App\Models\Product::where('id', @$applicationdata->product_id)->first();
     		$branchdata = \App\Models\PartnerBranch::where('id', @$applicationdata->branch)->first();

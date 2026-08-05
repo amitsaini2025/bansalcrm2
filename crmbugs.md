@@ -3,7 +3,7 @@
 **Date:** 2026-07-26  
 **Last deep review:** 2026-07-26 (code-verified; false positives retracted; wording corrected)  
 **Scope:** Full CRM audit by area (Clients, Leads, Partners, Agents, Applications, Invoices/Receipts, Email/Messaging, Documents, Followups, Actions, Staff/Roles/Teams/Branches, Reports, Admin Console, Auth/CRM Access, Ongoing Sheet, Notifications, Shared Frontend/Config, SMS Webhooks).  
-**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4, L-5, L-7, L-8, L-9, L-11, OS-1, OS-2, OS-3, N-1, N-2, N-3, N-4, N-5, E-1–E-5, E-7, E-8, E-10–E-18).  
+**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4, L-5, L-7, L-8, L-9, L-11, OS-1, OS-2, OS-3, N-1, N-2, N-3, N-4, N-5, E-1–E-5, E-7, E-8, E-10–E-18, **APP-1–APP-12**).  
 **Stack note:** Laravel **13.x** (route parameters bind **by position** after DI, not by PHP parameter name).
 
 Severity: **Critical** (crash / data corruption / money wrong / security) · **High** (major feature broken or serious auth hole) · **Medium** (incorrect behavior) · **Low** (edge case / UX / maintenance risk)
@@ -16,7 +16,18 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 | **C-1 / C-7+** | Clarified: login (`auth:admin`) exists; missing piece is **visibility / canEditClient** |
 | **C-12** | Corrected: merge `is_deleted=1` **is** excluded by `whereNull`; real mismatch is `is_deleted=0` handling |
 | **INV-1** | Corrected: `else` overwrites **type 1 only**, not type 2 |
-| **APP-3** | Split: ~1470 request-controlled SQLi; ~1575 same antipattern but ID from DB |
+| **APP-3** | **FIXED** — Split was correct; checklist counts now use bound `?` + `(int)` (`ApplicationsController`) |
+| **APP-1** | **FIXED** — Finalize title/heading “finalized” (not overdue copy) |
+| **APP-2** | **FIXED** — `updatestage` guards missing app / stage / next stage |
+| **APP-4** | **FIXED** — Finalize status filter replaces hard-coded default (default still Discontinued); stage list = COE set |
+| **APP-5** | **FIXED** — Null app guards on complete/discontinue/revert/intake/logs/detail/PDF |
+| **APP-6** | **FIXED** — discontinue/revert failure returns `status: false` |
+| **APP-7** | **FIXED** — `getapplicationslogs` loads client as `$fetchedData` for email attrs |
+| **APP-8** | **FIXED** — `getInvoice` redirects when application missing |
+| **APP-9** | **FIXED** — `updatebackstage` activity log uses `$workflowstage->name` |
+| **APP-10** | **FIXED** — All/Overdue `$totalData` counted after filters (Finalized already) |
+| **APP-11** | **FIXED** — `updateintake` failure returns `status: false` |
+| **APP-12** | **FIXED** — Partner stage AJAX sends application `id` only (dropped `client_id: partnerId`) |
 | **P-3 / P-11** | Removed false “ungrouped OR” on partner Invoice tab (OR **is** grouped); fee-join inflation remains |
 | **FE-4** | Narrowed residual: default Tom Select templates already emit HTML; risk is custom plain-text `render` |
 | **N-1** | **FIXED** — `fetchnotification` counts `receiver_status = 0` only; `legacy-init.js` always syncs badge (clears at 0) |
@@ -315,42 +326,64 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 
 ### Critical
 
-#### APP-1. Finalize page is a copy of Overdue page
-- **File:** `resources/views/Admin/applications/finalize.blade.php` — `@section('title', 'Applications overdue')` and `<h4>All Overdue Applications</h4>`.
+#### ~~APP-1. Finalize page is a copy of Overdue page~~ — **FIXED**
+- **File:** `resources/views/Admin/applications/finalize.blade.php`
+- **Was:** `@section('title', 'Applications overdue')` and `<h4>All Overdue Applications</h4>`.
+- **Fix:** Title `Applications finalized`; heading `All Finalized Applications`.
 
-#### APP-2. `updatestage` crashes at last workflow stage
-- **File:** `ApplicationsController.php` (~128–169) — no guard when `$workflowstage` / `$nextid` null → `$nextid->name` throws.
+#### ~~APP-2. `updatestage` crashes at last workflow stage~~ — **FIXED**
+- **File:** `ApplicationsController.php` `updatestage`
+- **Was:** no guard when `$workflowstage` / `$nextid` null → `$nextid->name` throws.
+- **Fix:** Early JSON failure for missing application, current stage not found, or already at last stage; happy path unchanged.
 
-#### APP-3. Application checklist upload SQL injection / raw SQL antipattern
+#### ~~APP-3. Application checklist upload SQL injection / raw SQL antipattern~~ — **FIXED**
 - **File:** `ApplicationsController.php`
-  - **~1470 (Critical):** `$application_id = $request->application_id` interpolated raw into `DB::select("… application_id = '$application_id'")` — attacker-controlled.
-  - **~1575 (Medium):** Same string interpolation, but `$application_id` comes from `$appdoc->application_id` (DB integer after `note_id` lookup) — unsafe pattern, not classic request SQLi.
-- **Fix direction (not applied):** cast `(int)` or use parameter bindings.
+  - **Was (Critical):** `$request->application_id` interpolated raw into `DB::select("… application_id = '$application_id'")`.
+  - **Was (Medium):** Same pattern with `$appdoc->application_id`.
+- **Fix:** `(int)` cast + bound parameter `WHERE application_id = ?` on upload and delete count paths. Response shape unchanged.
 
 ### High
 
-#### APP-4. Finalize list logic contradicts filters / business intent
-- **Files:** `ApplicationsController.php` (~2426–2472); `finalize.blade.php` (~86–95)
-- **What happens:** Base query requires `status = 2` (Discontinued) AND specific COE stages. Status filter other than 2 → impossible AND → empty results. Completed (status=1) apps never appear.
+#### ~~APP-4. Finalize list logic contradicts filters / business intent~~ — **FIXED**
+- **Files:** `ApplicationsController.php` `finalizeApplicationList`; `finalize.blade.php`
+- **Was:** Base query always `status = 2` AND status filter stacked (empty set for other statuses).
+- **Fix:** Default remains Discontinued (`status = 2`) when no status filter; selected status **replaces** default (no AND stack). Stage dropdown fixed to COE finalize stages. Status selected attrs use strict string checks. `$totalData` after filters.
 
-#### APP-5. Multiple handlers null-deref on missing application
+#### ~~APP-5. Multiple handlers null-deref on missing application~~ — **FIXED**
 - **Methods:** `completestage`, `discontinue_application`, `revert_application`, `updateintake`, `getapplicationslogs`, `exportapplicationpdf`, `getapplicationdetail`
+- **Fix:** Not-found guards — JSON `status: false` for AJAX; HTML message for logs/detail panels; redirect flash for PDF export.
 
-#### APP-6. `discontinue_application` / `revert_application` report success on failure
-- **Files:** (~617–621, 702–704) — `$saved === false` still `'status' => true` with “Please try again”.
+#### ~~APP-6. `discontinue_application` / `revert_application` report success on failure~~ — **FIXED**
+- **Was:** `$saved === false` still `'status' => true` with “Please try again”.
+- **Fix:** Failure branches return `'status' => false` (same as `refund_application`).
 
-#### APP-7. Application activity log email button uses undefined `$fetchedData`
-- **File:** `getapplicationslogs` (~286) — `data-email="{{@$fetchedData->email}}"` but `$fetchedData` never loaded.
+#### ~~APP-7. Application activity log email button uses undefined `$fetchedData`~~ — **FIXED**
+- **File:** `getapplicationslogs`
+- **Was:** `data-email` / `data-name` used `$fetchedData` never loaded.
+- **Fix:** `$fetchedData = Admin::find($fetchData->client_id)` after app load (same as `getapplicationdetail`).
 
-#### APP-8. `getInvoice` null application dereference
-- **File:** `InvoiceController.php` (~68–72)
+#### ~~APP-8. `getInvoice` null application dereference~~ — **FIXED**
+- **File:** `InvoiceController.php` `getInvoice`
+- **Fix:** After loading application (type ≠ 3), redirect back with “Application not found for this invoice.” if null (mirrors client guard).
 
 ### Medium
 
-#### APP-9. `updatebackstage` logs wrong stage field (`$workflowstage->stage` vs `name`)
-#### APP-10. List pages show wrong total counts (count before filters)
-#### APP-11. `updateintake` reports success on failed save
-#### APP-12. Partner detail stage AJAX sends `client_id: partnerId` (dead/misleading param)
+#### ~~APP-9. `updatebackstage` logs wrong stage field~~ — **FIXED**
+- **Was:** `$obj->stage = $workflowstage->stage` (column does not exist on `WorkflowStage`).
+- **Fix:** `$obj->stage = $workflowstage->name` (matches `updatestage`).
+
+#### ~~APP-10. List pages show wrong total counts (count before filters)~~ — **FIXED**
+- **Was:** `$totalData` counted before partner/assignee/stage/status filters on All / Overdue.
+- **Fix:** Count after filters on `index` and `overdueApplicationList` (Finalized already counted after filters).
+
+#### ~~APP-11. `updateintake` reports success on failed save~~ — **FIXED**
+- **Was:** `$saved === false` still `'status' => true`.
+- **Fix:** Failure branch `'status' => false`.
+
+#### ~~APP-12. Partner detail stage AJAX sends `client_id: partnerId`~~ — **FIXED**
+- **File:** `public/js/pages/admin/partner-detail/application-handlers.js`
+- **Was:** Next/back stage and log reload sent partner id as `client_id` / `clientid` (ignored by server; wrong type).
+- **Fix:** Request data is application `id` only.
 
 ---
 
@@ -805,10 +838,10 @@ if ($invoicelist->type == 2) {
 
 1. **Authorization / IDOR** — Many Client/* AJAX controllers, documents, notes, actions, ongoing sheet mutations, reports, audit logs, teams/branches, Admin Console destructive ops lack visibility/module checks.
 2. **Money math** — Invoice due formulas diverge between list UI (`getinvoices`, partner Accounts tab) and payment store; fee joins inflate partner/commission totals.
-3. **Broken/missing endpoints** — Convert lead, convert/delete application routes, finalize view copy. (Agent Excel import **A-1/A-2** fixed; SMS sendmsg legacy path **E-5 FIXED** — rewired to `#sendSmsModal`.)
+3. **Broken/missing endpoints** — Convert lead, convert/delete application routes. (Agent Excel import **A-1/A-2** fixed; SMS sendmsg legacy path **E-5 FIXED** — rewired to `#sendSmsModal`; finalize view copy **APP-1 FIXED**.)
 4. **Email send loop** — *(E-1 college crash, E-2 multi-recipient early return, E-3 placeholders, E-7 checklist dup — **FIXED**)*
 5. **APP_URL / URL::to** — Absolute URLs break when browser host ≠ `APP_URL`.
-6. **SQL injection** — Raw string interpolation in application checklist upload count (request path).
+6. **SQL injection** — *(APP-3 application checklist upload count — **FIXED** via parameter binding.)*
 7. **Document integrity** — Signing fallback copies unsigned PDF; download accepts arbitrary S3 links.
 8. **Unauthenticated ingress** — Elite inbound when secret empty; SMS webhooks without signature checks.
 
@@ -816,12 +849,12 @@ if ($invoicelist->type == 2) {
 
 ## Suggested fix priority (do not implement in this pass)
 
-1. APP-3 (~1470) SQL injection; INV-1 + P-1 invoice due math  *(E-1 college / E-2 multi-To email send — **FIXED**)*  
+1. INV-1 + P-1 invoice due math  *(APP-3 SQLi, E-1 college / E-2 multi-To email send — **FIXED**)*  
 
 2. C-1/C-2/C-7–C-11 IDOR; D-3 document download auth; AC-1 Admin Console gates; S-1 role auth mismatch  
-3. L-1 convert-to-client; C-3 missing application routes; APP-1/APP-2 finalize + stage crash  *(A-1 agent import — **FIXED**)*  
+3. L-1 convert-to-client; C-3 missing application routes  *(A-1 agent import, APP-1/APP-2 finalize + stage crash — **FIXED**)*  
 4. D-4 signing unsigned PDF; E-6 Elite webhook auth; SMS-1 webhook signatures; FE-1 APP_DEBUG default  
-5. F-1 followup consultant hardcoding; FE-5 recipient XSS; N-1 notification poll badge *(N-1 — **FIXED**)*  
+5. FE-5 recipient XSS *(F-1 followup consultants, N-1 notification poll badge — **FIXED**)*  
 
 ---
 

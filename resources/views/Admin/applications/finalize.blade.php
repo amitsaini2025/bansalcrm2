@@ -1,5 +1,5 @@
 @extends('layouts.admin')
-@section('title', 'Applications overdue')
+@section('title', 'Applications finalized')
 
 @section('content')
 <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
@@ -20,7 +20,7 @@
 				<div class="col-12 col-md-12 col-lg-12">
 					<div class="card">
 						<div class="card-header">
-							<h4>All Overdue Applications</h4>
+							<h4>All Finalized Applications</h4>
 							<div class="card-header-action is_checked_clientn">
 								<a href="#" class="btn btn-primary importmodal"> Import csv</a>
 							</div>
@@ -88,10 +88,10 @@
 												<label for="" class="col-form-label">Status</label>
 												<select class="form-control" name="status">
 												    <option value="">Select Status</option>
-                                                    <option value="0" @if(Request::get('status') == 0) selected @endif>In Progress</option>
-                                                    <option value="1" @if(Request::get('status') == 1) selected @endif>Completed</option>
-                                                    <option value="2" @if(Request::get('status') == 2) selected @endif>Discontinued</option>
-                                                    <option value="3" @if(Request::get('status') == 3) selected @endif>Cancelled</option>
+                                                    <option value="0" @if(Request::filled('status') && (string) Request::get('status') === '0') selected @endif>In Progress</option>
+                                                    <option value="1" @if(Request::filled('status') && (string) Request::get('status') === '1') selected @endif>Completed</option>
+                                                    <option value="2" @if(Request::filled('status') && (string) Request::get('status') === '2') selected @endif>Discontinued</option>
+                                                    <option value="3" @if(Request::filled('status') && (string) Request::get('status') === '3') selected @endif>Cancelled</option>
                                                 </select>
 											</div>
 										</div>
