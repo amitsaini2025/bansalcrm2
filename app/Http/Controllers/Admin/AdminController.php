@@ -122,7 +122,10 @@ class AdminController extends Controller
 
     public function fetchnotification(Request $request){
          //$notificalists = \App\Models\Notification::where('receiver_id', Auth::user()->id)->where('receiver_status', 0)->orderby('created_at','DESC')->paginate(5);
-         $notificalistscount = \App\Models\Notification::where('receiver_id', Auth::user()->id)->count(); //->where('receiver_status', 0)
+         // Match header badge: only unseen (receiver_status = 0)
+         $notificalistscount = \App\Models\Notification::where('receiver_id', Auth::user()->id)
+             ->where('receiver_status', 0)
+             ->count();
          /*$output = '';
 	    foreach($notificalists as $listnoti){
 	        $output .= '<a href="'.$listnoti->url.'?t='.$listnoti->id.'" class="dropdown-item dropdown-item-unread">
@@ -141,23 +144,49 @@ class AdminController extends Controller
     }
     
     public function fetchmessages(Request $request){
-        $notificalists = \App\Models\Notification::where('receiver_id', Auth::user()->id)->where('seen', 0)->first();
-        if($notificalists){
-            $obj = \App\Models\Notification::find($notificalists->id);
-            $obj->seen = 1;
-            $obj->save();
-            return $notificalists->message;
-        }else{
-            return 0;
+        // N-2: return payload only — do not mark seen here (toast may fail client-side)
+        $notification = \App\Models\Notification::where('receiver_id', Auth::user()->id)
+            ->where('seen', 0)
+            ->orderBy('id')
+            ->first();
+
+        if (!$notification) {
+            return response()->json(['id' => null, 'message' => null]);
         }
+
+        return response()->json([
+            'id' => $notification->id,
+            'message' => $notification->message,
+        ]);
+    }
+
+    /**
+     * Mark toast delivery flag (seen=1) after client successfully shows the toast.
+     * Does not change receiver_status (bell unread).
+     */
+    public function markToastMessageSeen(Request $request)
+    {
+        $id = (int) $request->input('id');
+        if ($id <= 0) {
+            return response()->json(['success' => false, 'message' => 'Invalid id'], 422);
+        }
+
+        $notification = \App\Models\Notification::where('id', $id)
+            ->where('receiver_id', Auth::user()->id)
+            ->first();
+
+        if (!$notification) {
+            return response()->json(['success' => false, 'message' => 'Notification not found'], 404);
+        }
+
+        $notification->seen = 1;
+        $notification->save();
+
+        return response()->json(['success' => true]);
     }
     
     public function fetchInPersonWaitingCount(Request $request){
-        //if(\Auth::user()->role == 1){
-            $InPersonwaitingCount = \App\Models\CheckinLog::where('status',0)->count();
-        /*}else{
-            $InPersonwaitingCount = \App\Models\CheckinLog::where('user_id',Auth::user()->id)->where('status',0)->count();
-        }*/
+        $InPersonwaitingCount = \App\Models\CheckinLog::waitingCountForUser(Auth::user());
         $data = array('InPersonwaitingCount'  => $InPersonwaitingCount);
         echo json_encode($data);
    }
@@ -1018,6 +1047,26 @@ class AdminController extends Controller
 								}
 
 
+							}else if($requestData['table'] == 'upload_checklists'){
+								// Delete DB row; remove local file if present (missing file must not block delete)
+								$row = DB::table('upload_checklists')->where('id', $requestData['id'])->first();
+								if ($row) {
+									if (! empty($row->file)) {
+										$filePath = public_path('checklists/' . $row->file);
+										if (is_file($filePath)) {
+											@unlink($filePath);
+										}
+									}
+									$response = DB::table('upload_checklists')->where('id', $requestData['id'])->delete();
+									if ($response) {
+										$status = 1;
+										$message = 'Record has been deleted successfully.';
+									} else {
+										$message = Config::get('constants.server_error');
+									}
+								} else {
+									$message = 'ID does not exist, please check it once again.';
+								}
 							}else{
                               
                                 //save and send to activity log
@@ -1430,13 +1479,21 @@ class AdminController extends Controller
                 $attachments = array();
                 foreach($checklistfiles as $checklistfile){
                     $filechecklist =  \App\Models\UploadChecklist::where('id', $checklistfile)->first();
-                    if($filechecklist){
+                    if($filechecklist && !empty($filechecklist->file)){
                         $checkPath = public_path('checklists/' . $filechecklist->file);
-                        $checkSize = (is_file($checkPath)) ? (int) filesize($checkPath) : 0;
+                        // Skip missing disk files so metadata/compose never ship broken attachments
+                        if (! is_file($checkPath)) {
+                            Log::warning('Compose skipped missing upload checklist file', [
+                                'upload_checklist_id' => $filechecklist->id,
+                                'file' => $filechecklist->file,
+                                'path' => $checkPath,
+                            ]);
+                            continue;
+                        }
                         $attachments[] = array(
                             'file_name' => $filechecklist->name,
                             'file_url' => $filechecklist->file,
-                            'file_size' => $checkSize,
+                            'file_size' => (int) filesize($checkPath),
                         );
                     }
                 }
@@ -1452,10 +1509,24 @@ class AdminController extends Controller
                 foreach($checklistfiles_documents as $checklistfile1){
                     $filechecklist_doc = \App\Models\Document::with('category')->where('id', $checklistfile1)->first();
                     if($filechecklist_doc){
-                        $useLocalPath = in_array($filechecklist_doc->doc_type, ['education', 'migration'])
-                            || ($filechecklist_doc->doc_type === 'documents' && $filechecklist_doc->category && in_array($filechecklist_doc->category->name, ['Education', 'Migration']));
-                        if ($useLocalPath) {
-                            $docLocal = public_path('img/documents/' . $filechecklist_doc->myfile);
+                        // Dual-read by storage shape first, then legacy doc_type path rules
+                        $myfileVal = trim((string) ($filechecklist_doc->myfile ?? ''));
+                        $isRemoteDoc = (! empty($filechecklist_doc->myfile_key))
+                            || preg_match('#^https?://#i', $myfileVal);
+                        $useLocalPath = in_array($filechecklist_doc->doc_type, ['education', 'migration'], true)
+                            || ($filechecklist_doc->doc_type === 'documents' && $filechecklist_doc->category && in_array($filechecklist_doc->category->name, ['Education', 'Migration'], true));
+
+                        if ($isRemoteDoc) {
+                            $docSize = (isset($filechecklist_doc->file_size) && (int) $filechecklist_doc->file_size > 0)
+                                ? (int) $filechecklist_doc->file_size
+                                : 0;
+                            $attachments2[] = array(
+                                'file_name' => $filechecklist_doc->file_name,
+                                'file_url' => $filechecklist_doc->myfile,
+                                'file_size' => $docSize,
+                            );
+                        } elseif ($useLocalPath) {
+                            $docLocal = public_path('img/documents/' . ltrim($myfileVal, '/'));
                             $docSize = (is_file($docLocal)) ? (int) filesize($docLocal) : 0;
                             $attachments2[] = array(
                                 'file_name' => $filechecklist_doc->file_name,
@@ -1463,6 +1534,7 @@ class AdminController extends Controller
                                 'file_size' => $docSize,
                             );
                         } else {
+                            // Pre-existing documents checklist rows (often S3 basename or full URL in myfile)
                             $docSize = (isset($filechecklist_doc->file_size) && (int) $filechecklist_doc->file_size > 0)
                                 ? (int) $filechecklist_doc->file_size
                                 : 0;
@@ -1742,8 +1814,17 @@ class AdminController extends Controller
     		       $checklistfiles = $requestData['checklistfile'];
     		        foreach($checklistfiles as $checklistfile){
     		           $filechecklist =  \App\Models\UploadChecklist::where('id', $checklistfile)->first();
-    		           if($filechecklist){
-    		            $array['files'][] =  public_path() . '/' .'checklists/'.$filechecklist->file;
+    		           if($filechecklist && !empty($filechecklist->file)){
+                            $checkPath = public_path('checklists/' . $filechecklist->file);
+                            if (is_file($checkPath)) {
+                                $array['files'][] = $checkPath;
+                            } else {
+                                Log::warning('Compose skipped missing upload checklist file on send', [
+                                    'upload_checklist_id' => $filechecklist->id,
+                                    'file' => $filechecklist->file,
+                                    'path' => $checkPath,
+                                ]);
+                            }
     		           }
     		        }
     		    }
@@ -1755,12 +1836,43 @@ class AdminController extends Controller
                     foreach($checklistfiles_documents as $checklistfile1){
                         $filechecklist_doc = \App\Models\Document::with('category')->where('id', $checklistfile1)->first();
                         if($filechecklist_doc){
-                            $useLocalPath = in_array($filechecklist_doc->doc_type, ['education', 'migration'])
-                                || ($filechecklist_doc->doc_type === 'documents' && $filechecklist_doc->category && in_array($filechecklist_doc->category->name, ['Education', 'Migration']));
-                            if ($useLocalPath) {
-                                $array['files'][] = public_path() . '/' . 'img/documents/' . $filechecklist_doc->myfile;
+                            // Dual-read: storage shape first, then legacy doc_type rules
+                            $myfileVal = trim((string) ($filechecklist_doc->myfile ?? ''));
+                            $isRemoteDoc = (! empty($filechecklist_doc->myfile_key))
+                                || preg_match('#^https?://#i', $myfileVal);
+                            $useLocalPath = in_array($filechecklist_doc->doc_type, ['education', 'migration'], true)
+                                || ($filechecklist_doc->doc_type === 'documents' && $filechecklist_doc->category && in_array($filechecklist_doc->category->name, ['Education', 'Migration'], true));
+
+                            if ($isRemoteDoc) {
+                                $fileUrl = $filechecklist_doc->myfile;
+                                if (filter_var($fileUrl, FILTER_VALIDATE_URL)) {
+                                    $pathPart = parse_url($fileUrl, PHP_URL_PATH);
+                                    $tempPath = sys_get_temp_dir() . '/' . basename(is_string($pathPart) && $pathPart !== '' ? $pathPart : $fileUrl);
+                                    $contents = @file_get_contents($fileUrl);
+                                    if ($contents !== false && $contents !== '') {
+                                        file_put_contents($tempPath, $contents);
+                                        $array['files'][] = $tempPath;
+                                    } else {
+                                        Log::warning('Compose skipped unreachable client document on send', [
+                                            'document_id' => $filechecklist_doc->id,
+                                            'file_url' => $fileUrl,
+                                        ]);
+                                    }
+                                } elseif ($fileUrl !== '') {
+                                    $array['files'][] = $fileUrl;
+                                }
+                            } elseif ($useLocalPath && $myfileVal !== '') {
+                                $localPath = public_path('img/documents/' . ltrim($myfileVal, '/'));
+                                if (is_file($localPath)) {
+                                    $array['files'][] = $localPath;
+                                } else {
+                                    Log::warning('Compose skipped missing local client document on send', [
+                                        'document_id' => $filechecklist_doc->id,
+                                        'path' => $localPath,
+                                    ]);
+                                }
                             } elseif ($filechecklist_doc->doc_type == 'documents') {
-                                $fileUrl = $filechecklist_doc->myfile; // AWS S3 link
+                                $fileUrl = $filechecklist_doc->myfile; // AWS S3 link (legacy rows)
                                 if (filter_var($fileUrl, FILTER_VALIDATE_URL)) {
                                     $tempPath = sys_get_temp_dir() . '/' . basename($fileUrl);
                                     file_put_contents($tempPath, file_get_contents($fileUrl));

@@ -1326,10 +1326,10 @@ use App\Http\Controllers\Controller;
                                                                     <div data-id="{{$fetch->id}}" data-name="<?php echo $fetch->file_name; ?>" class="doc-row">
                                                                         <?php
                                                                         if (isset($fetch->myfile_key) && $fetch->myfile_key != '') {
-                                                                            $inlinePreviewUrl = asset($fetch->myfile);
+                                                                            $inlinePreviewUrl = \App\Helpers\Helper::documentFileUrl($fetch->myfile);
                                                                         } else {
                                                                             $url = 'https://'.env('AWS_BUCKET').'.s3.'. env('AWS_DEFAULT_REGION') . '.amazonaws.com/';
-                                                                            $inlinePreviewUrl = asset($url.$fetchedData->client_id.'/'.$fetch->doc_type.'/'.$fetch->myfile);
+                                                                            $inlinePreviewUrl = \App\Helpers\Helper::documentFileUrl($url.$fetchedData->client_id.'/'.$fetch->doc_type.'/'.$fetch->myfile);
                                                                         }
                                                                         ?>
                                                                             <a href="javascript:void(0);"
@@ -1542,10 +1542,10 @@ use App\Http\Controllers\Controller;
                                                                     <div data-id="{{$fetch->id}}" data-name="<?php echo $fetch->file_name; ?>" class="doc-row">
                                                                         <?php
                                                                         if (isset($fetch->myfile_key) && $fetch->myfile_key != '') {
-                                                                            $inlinePreviewUrl = asset($fetch->myfile);
+                                                                            $inlinePreviewUrl = \App\Helpers\Helper::documentFileUrl($fetch->myfile);
                                                                         } else {
                                                                             $url = 'https://'.env('AWS_BUCKET').'.s3.'. env('AWS_DEFAULT_REGION') . '.amazonaws.com/';
-                                                                            $inlinePreviewUrl = asset($url.$fetchedData->client_id.'/'.$fetch->doc_type.'/'.$fetch->myfile);
+                                                                            $inlinePreviewUrl = \App\Helpers\Helper::documentFileUrl($url.$fetchedData->client_id.'/'.$fetch->doc_type.'/'.$fetch->myfile);
                                                                         }
                                                                         ?>
                                                                             <a href="javascript:void(0);"
@@ -2032,31 +2032,36 @@ use App\Http\Controllers\Controller;
 
                                                     <td style="white-space: initial;">
                                                         <?php
-                                                        $useLocalPath = ($composedoclist->doc_type == 'education' || $composedoclist->doc_type == 'migration')
-                                                            || ($composedoclist->doc_type == 'documents' && $composedoclist->category && in_array($composedoclist->category->name, ['Education', 'Migration']));
-                                                        if (isset($composedoclist->doc_type) && $composedoclist->doc_type != '') {
-                                                            if ($useLocalPath) { ?>
-                                                                <a target="_blank" class="dropdown-item" href="{{ asset('img/documents') }}/{{ $composedoclist->myfile }}">{{ $composedoclist->file_name }}</a>
+                                                        // Dual-read: prefer storage reality (URL/key) over doc_type labels
+                                                        $composeMyfile = trim((string) ($composedoclist->myfile ?? ''));
+                                                        $composeIsRemote = (! empty($composedoclist->myfile_key))
+                                                            || preg_match('#^https?://#i', $composeMyfile);
+                                                        if ($composeMyfile === '') {
+                                                            // no file
+                                                        } elseif ($composeIsRemote) {
+                                                            $composeHref = \App\Helpers\Helper::documentFileUrl($composeMyfile);
+                                                            ?>
+                                                            <a target="_blank" href="<?php echo e($composeHref); ?>">{{ $composedoclist->file_name }}</a>
                                                             <?php
-                                                            } elseif ($composedoclist->doc_type == 'documents') {
-                                                                if (isset($composedoclist->myfile_key) && $composedoclist->myfile_key != '') { ?>
-                                                                    <a target="_blank" href="<?php echo e($composedoclist->myfile); ?>">{{ $composedoclist->file_name }}</a>
-                                                                <?php
-                                                                } else {
-                                                                    $clientInfo = \App\Models\Admin::where('id',$fetchedData->id)->select('client_id')->first();
-                                                                    if($clientInfo){
-                                                                        $client_unique_id = $clientInfo->client_id;
-                                                                    } else {
-                                                                        $client_unique_id = 'N/A';
-                                                                    }
-                                                                    $doc_type = $composedoclist->doc_type;
-                                                                    $myfile = $composedoclist->myfile;
-                                                                    $url = 'https://'.env('AWS_BUCKET').'.s3.'. env('AWS_DEFAULT_REGION') . '.amazonaws.com/';
-                                                                    $composedoclistUrl = $url.$client_unique_id.'/'.$doc_type.'/'.$myfile;
-                                                                    ?>
-                                                                    <a target="_blank" href="<?php echo e($composedoclistUrl); ?>"><?php echo e($composedoclist->file_name); ?></a>
-                                                                <?php
-                                                                }
+                                                        } else {
+                                                            // Bare filename: keep pre-S3 education/migration local paths,
+                                                            // and legacy documents basename → reconstructed public S3 URL
+                                                            $useLocalPath = ($composedoclist->doc_type == 'education' || $composedoclist->doc_type == 'migration')
+                                                                || ($composedoclist->doc_type == 'documents' && $composedoclist->category && in_array($composedoclist->category->name, ['Education', 'Migration']));
+                                                            if ($useLocalPath) { ?>
+                                                                <a target="_blank" class="dropdown-item" href="{{ asset('img/documents') }}/{{ $composeMyfile }}">{{ $composedoclist->file_name }}</a>
+                                                            <?php
+                                                            } elseif (($composedoclist->doc_type ?? '') === 'documents') {
+                                                                $clientInfo = \App\Models\Admin::where('id', $fetchedData->id)->select('client_id')->first();
+                                                                $client_unique_id = $clientInfo && ! empty($clientInfo->client_id) ? $clientInfo->client_id : 'N/A';
+                                                                $url = 'https://'.env('AWS_BUCKET').'.s3.'. env('AWS_DEFAULT_REGION') . '.amazonaws.com/';
+                                                                $composedoclistUrl = $url.$client_unique_id.'/'.$composedoclist->doc_type.'/'.$composeMyfile;
+                                                                ?>
+                                                                <a target="_blank" href="<?php echo e($composedoclistUrl); ?>"><?php echo e($composedoclist->file_name); ?></a>
+                                                            <?php
+                                                            } else { ?>
+                                                                <a target="_blank" class="dropdown-item" href="{{ asset('img/documents') }}/{{ $composeMyfile }}">{{ $composedoclist->file_name }}</a>
+                                                            <?php
                                                             }
                                                         } ?>
                                                     </td>

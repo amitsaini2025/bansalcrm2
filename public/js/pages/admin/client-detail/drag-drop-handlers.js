@@ -52,7 +52,11 @@ jQuery(document).ready(function($){
         return false;
     });
 
+    // Click to browse — only empty drop area (not interactive children)
     $(document).on("click", "#ddArea", function(e) {
+        if ($(e.target).closest('input, button, a, select, textarea, label, .dropdown, .dropdown-menu').length) {
+            return;
+        }
         applicationFileExplorer();
     });
 

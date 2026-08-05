@@ -488,6 +488,45 @@ i[style*="color:rgba"] {
 		var updateStatusUrl = '{{ url("/update-checkin-status") }}';
 		var csrfToken = document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '';
 		var pollIntervalMs = 4000;
+		var defaultDetailsUrl = (baseUrl || '') + '/office-visits/waiting';
+
+		// N-4: escape untrusted text before innerHTML (XSS-safe display)
+		function escapeHtml(value) {
+			return String(value == null ? '' : value)
+				.replace(/&/g, '&amp;')
+				.replace(/</g, '&lt;')
+				.replace(/>/g, '&gt;')
+				.replace(/"/g, '&quot;')
+				.replace(/'/g, '&#39;');
+		}
+
+		// Allow only same-app http(s) paths; reject javascript: / data: / open redirects
+		function safeNotificationUrl(rawUrl) {
+			var fallback = defaultDetailsUrl;
+			if (!rawUrl || typeof rawUrl !== 'string') {
+				return fallback;
+			}
+			var url = rawUrl.trim();
+			if (!url) {
+				return fallback;
+			}
+			// Absolute path on this host (subdirectory-safe relative paths)
+			if (url.charAt(0) === '/' && url.charAt(1) !== '/') {
+				return url;
+			}
+			try {
+				var parsed = new URL(url, window.location.origin);
+				if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+					return fallback;
+				}
+				if (parsed.origin !== window.location.origin) {
+					return fallback;
+				}
+				return parsed.pathname + parsed.search + parsed.hash;
+			} catch (e) {
+				return fallback;
+			}
+		}
 
 		function showTeamsNotification(notification) {
 			if (!notification || !notification.id) return;
@@ -499,13 +538,14 @@ i[style*="color:rgba"] {
 			card.id = id;
 			card.setAttribute('data-notification-id', notification.id);
 			card.setAttribute('data-checkin-id', notification.checkin_id || '');
-			var headerTitle = notification.popup_title || 'Office Visit Assignment';
+			var headerTitle = escapeHtml(notification.popup_title || 'Office Visit Assignment');
 			var primaryBtn = '';
 			if (isReception) {
 				primaryBtn = '<button type="button" class="btn btn-success teams-notification-primary" data-waitingtype="1">Client Sent</button>';
 			} else if (notification.show_pls_send_button !== false) {
 				primaryBtn = '<button type="button" class="btn btn-success teams-notification-primary" data-waitingtype="0">Pls Send The Client</button>';
 			}
+			var detailsHref = escapeHtml(safeNotificationUrl(notification.url));
 			card.innerHTML =
 				'<div class="teams-notification-header">' +
 					'<h6>' + headerTitle + '</h6>' +
@@ -515,14 +555,14 @@ i[style*="color:rgba"] {
 					'</div>' +
 				'</div>' +
 				'<div class="teams-notification-body">' +
-					'<p><strong>' + (notification.sender_name || '') + '</strong></p>' +
-					'<p>' + (notification.message || '') + '</p>' +
-					'<p>Client: ' + (notification.client_name || '') + '</p>' +
-					'<p>Purpose: ' + (notification.visit_purpose || '') + '</p>' +
-					'<p>Time: ' + (notification.created_at || '') + '</p>' +
+					'<p><strong>' + escapeHtml(notification.sender_name) + '</strong></p>' +
+					'<p>' + escapeHtml(notification.message) + '</p>' +
+					'<p>Client: ' + escapeHtml(notification.client_name) + '</p>' +
+					'<p>Purpose: ' + escapeHtml(notification.visit_purpose) + '</p>' +
+					'<p>Time: ' + escapeHtml(notification.created_at) + '</p>' +
 					'<div class="btn-group">' +
 						primaryBtn +
-						'<a href="' + (notification.url || baseUrl + '/office-visits/waiting') + '" class="btn btn-outline-primary">View Details</a>' +
+						'<a href="' + detailsHref + '" class="btn btn-outline-primary">View Details</a>' +
 					'</div>' +
 				'</div>';
 			container.appendChild(card);

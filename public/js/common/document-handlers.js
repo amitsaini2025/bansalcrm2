@@ -263,13 +263,22 @@ function normalizeDocumentPreviewUrl(rawUrl) {
     if (!rawUrl) {
         return '';
     }
-    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
-        return rawUrl;
+    var url = String(rawUrl).trim();
+    // Unwrap double-wrapped URLs from asset(fullRemoteUrl): https://app/https://bucket.s3.../key
+    var doubleWrap = url.match(/^(https?:\/\/[^/]+)\/(https?:\/\/.+)$/i);
+    if (doubleWrap) {
+        url = doubleWrap[2];
     }
-    if (rawUrl.startsWith('/')) {
-        return window.location.origin + rawUrl;
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+        return url;
     }
-    return window.location.origin + '/' + rawUrl.replace(/^\/+/, '');
+    if (url.startsWith('//')) {
+        return url;
+    }
+    if (url.startsWith('/')) {
+        return window.location.origin + url;
+    }
+    return window.location.origin + '/' + url.replace(/^\/+/, '');
 }
 
 function findDocumentPreviewContainerClass(row, anchor) {
@@ -379,6 +388,9 @@ function previewFile(fileType, fileUrl, containerClass) {
         console.error('Preview container not found');
         return;
     }
+
+    // Normalize before routing (fixes asset() double-wrap; keeps absolute S3 as-is)
+    fileUrl = normalizeDocumentPreviewUrl(fileUrl);
 
     container.innerHTML = '';
     showPreviewLoader(container);

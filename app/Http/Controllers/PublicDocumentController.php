@@ -401,42 +401,96 @@ class PublicDocumentController extends Controller
                     }, $signaturesForPython)
                 ]);
 
+                // Apply signatures via Python only — never mark "signed" from an unsigned fallback copy
+                $pythonSignError = null;
                 try {
+                    // Remove any stale/partial output from a previous failed attempt
+                    if (file_exists($outputPath)) {
+                        @unlink($outputPath);
+                    }
+
                     $response = Http::timeout(60)->post($this->pythonServiceUrl . '/add_signatures', [
                         'input_path' => $pdfPath,
                         'output_path' => $outputPath,
                         'signatures' => $signaturesForPython
                     ]);
 
-                    if (!$response->successful()) {
+                    if (! $response->successful()) {
+                        $pythonSignError = 'Signature service returned HTTP ' . $response->status();
                         Log::error('Python service failed to add signatures', [
                             'document_id' => $document->id,
                             'status' => $response->status(),
-                            'body' => $response->body()
+                            'body' => $response->body(),
                         ]);
-                        // Fallback: copy original PDF
-                        copy($pdfPath, $outputPath);
                     } else {
                         $result = $response->json();
-                        if (!($result['success'] ?? false)) {
+                        if (! is_array($result) || ! ($result['success'] ?? false)) {
+                            $pythonSignError = is_array($result)
+                                ? (string) ($result['error'] ?? 'Signature service returned unsuccessful result')
+                                : 'Signature service returned invalid response';
                             Log::warning('Python service returned unsuccessful result for add_signatures', [
                                 'document_id' => $document->id,
-                                'error' => $result['error'] ?? 'Unknown error'
+                                'error' => $pythonSignError,
+                                'body' => $response->body(),
                             ]);
-                            // Fallback: copy original PDF
-                            copy($pdfPath, $outputPath);
                         }
                     }
                 } catch (\Exception $e) {
+                    $pythonSignError = 'Could not reach signature service: ' . $e->getMessage();
                     Log::error('Python service connection error for add_signatures', [
                         'document_id' => $document->id,
-                        'error' => $e->getMessage()
+                        'error' => $e->getMessage(),
                     ]);
-                    // Fallback: copy original PDF
-                    copy($pdfPath, $outputPath);
                 }
 
-                // Generate SHA-256 hash for tamper detection
+                // Require a real stamped PDF before any status / hash / signed-doc updates
+                $outputValid = is_string($outputPath)
+                    && is_file($outputPath)
+                    && filesize($outputPath) > 0;
+
+                if ($pythonSignError === null && $outputValid) {
+                    $originalHash = @hash_file('sha256', $pdfPath);
+                    $outputHash = @hash_file('sha256', $outputPath);
+                    // Same bytes as source almost always means signatures were not applied
+                    if ($originalHash && $outputHash && hash_equals($originalHash, $outputHash)) {
+                        $pythonSignError = 'Signature service did not modify the PDF';
+                        Log::error('Python service output matches unsigned source PDF', [
+                            'document_id' => $document->id,
+                            'hash' => $outputHash,
+                        ]);
+                        $outputValid = false;
+                    }
+                }
+
+                if ($pythonSignError !== null || ! $outputValid) {
+                    if (is_string($outputPath) && is_file($outputPath)) {
+                        @unlink($outputPath);
+                    }
+                    if ($tempFile && file_exists($tempFile)) {
+                        @unlink($tempFile);
+                    }
+
+                    $userMessage = 'Could not apply signatures to the document. Please try again. If the problem continues, contact support.';
+                    Log::error('Public signing aborted — document left pending', [
+                        'document_id' => $document->id,
+                        'signer_id' => $signer->id,
+                        'python_error' => $pythonSignError,
+                        'output_valid' => $outputValid,
+                    ]);
+
+                    if ($isAjax) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => $userMessage,
+                        ], 503);
+                    }
+
+                    return redirect()->back()
+                        ->with('error', $userMessage)
+                        ->withInput();
+                }
+
+                // Generate SHA-256 hash for tamper detection (signed output only)
                 $signedHash = hash_file('sha256', $outputPath);
 
                 // Prefer S3 for signed PDF when configured and document has a client (same path pattern as other client docs)
@@ -715,73 +769,186 @@ class PublicDocumentController extends Controller
     }
     
     /**
-     * Download a file from S3 URL to a temporary local file
+     * Download a file from S3 (or S3-compatible URL) to a temporary local file.
+     * Prefer authenticated S3 disk access; HTTP uses SSL verification. Never disables TLS
+     * outside local + ALLOW_INSECURE_S3_DOWNLOAD=true.
      */
     protected function downloadS3FileToTemp($s3Url, $documentId)
     {
         try {
-            // Create temp directory if it doesn't exist
             $tempDir = storage_path('app/temp');
-            if (!file_exists($tempDir)) {
+            if (! file_exists($tempDir)) {
                 mkdir($tempDir, 0755, true);
             }
-            
+
             $tempPath = $tempDir . '/doc_' . $documentId . '_' . time() . '.pdf';
-            
-            // Try to download using file_get_contents with context
-            $context = stream_context_create([
-                'http' => [
-                    'timeout' => 30,
-                    'user_agent' => 'BansalCRM/1.0'
-                ],
-                'ssl' => [
-                    'verify_peer' => false,
-                    'verify_peer_name' => false
-                ]
-            ]);
-            
-            $content = @file_get_contents($s3Url, false, $context);
-            
-            if ($content === false) {
-                // Fallback: try using Laravel's HTTP client
-                $response = Http::timeout(30)->get($s3Url);
-                if ($response->successful()) {
-                    $content = $response->body();
-                } else {
-                    Log::error('Failed to download S3 file', [
-                        'url' => $s3Url,
-                        'status' => $response->status()
+            $content = null;
+            $method = null;
+            $s3Key = $this->resolveS3ObjectKeyFromUrl((string) $s3Url);
+
+            // 1) AWS SDK / Laravel S3 disk (no TLS-disable, works with private buckets)
+            if ($s3Key !== null) {
+                try {
+                    $disk = Storage::disk('s3');
+                    if ($disk->exists($s3Key)) {
+                        $body = $disk->get($s3Key);
+                        if (is_string($body) && $body !== '') {
+                            $content = $body;
+                            $method = 's3_disk_get';
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('S3 disk get failed for public signing download', [
+                        'document_id' => $documentId,
+                        's3_key' => $s3Key,
+                        'error' => $e->getMessage(),
                     ]);
-                    return null;
                 }
             }
-            
-            if ($content && strlen($content) > 0) {
+
+            // 2) Presigned URL + verified HTTP (if disk get failed but object may still be readable via URL)
+            if (($content === null || $content === '') && $s3Key !== null) {
+                try {
+                    $disk = Storage::disk('s3');
+                    if ($disk->exists($s3Key)) {
+                        $presigned = $disk->temporaryUrl($s3Key, now()->addMinutes(5));
+                        $response = Http::timeout(30)->get($presigned);
+                        if ($response->successful() && $response->body() !== '') {
+                            $content = $response->body();
+                            $method = 's3_presigned_http';
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('S3 presigned download failed for public signing', [
+                        'document_id' => $documentId,
+                        's3_key' => $s3Key,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            // 3) Direct URL with SSL verification enabled (public objects)
+            if (($content === null || $content === '') && filter_var((string) $s3Url, FILTER_VALIDATE_URL)) {
+                try {
+                    $response = Http::timeout(30)->get((string) $s3Url);
+                    if ($response->successful() && $response->body() !== '') {
+                        $content = $response->body();
+                        $method = 'https_verified';
+                    } else {
+                        Log::warning('Verified HTTP download of S3 URL unsuccessful', [
+                            'document_id' => $documentId,
+                            'url' => $s3Url,
+                            'status' => method_exists($response, 'status') ? $response->status() : null,
+                        ]);
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('Verified HTTP download of S3 URL failed', [
+                        'document_id' => $documentId,
+                        'url' => $s3Url,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            // 4) Local-only emergency fallback (opt-in) — never used in production
+            if (($content === null || $content === '') && $this->allowsInsecureS3Download()) {
+                Log::warning('Using insecure SSL S3 download (local + ALLOW_INSECURE_S3_DOWNLOAD only)', [
+                    'document_id' => $documentId,
+                ]);
+                $context = stream_context_create([
+                    'http' => [
+                        'timeout' => 30,
+                        'user_agent' => 'BansalCRM/1.0',
+                    ],
+                    'ssl' => [
+                        'verify_peer' => false,
+                        'verify_peer_name' => false,
+                    ],
+                ]);
+                $raw = @file_get_contents((string) $s3Url, false, $context);
+                if ($raw !== false && $raw !== '') {
+                    $content = $raw;
+                    $method = 'insecure_local_fallback';
+                }
+            }
+
+            if (is_string($content) && strlen($content) > 0) {
                 file_put_contents($tempPath, $content);
-                
+
                 if (file_exists($tempPath) && filesize($tempPath) > 0) {
                     Log::info('Downloaded S3 file to temp', [
                         'document_id' => $documentId,
                         'temp_path' => $tempPath,
-                        'size' => filesize($tempPath)
+                        'size' => filesize($tempPath),
+                        'method' => $method,
+                        's3_key' => $s3Key,
                     ]);
+
                     return $tempPath;
                 }
             }
-            
+
             Log::error('Downloaded S3 file is empty or failed', [
                 'url' => $s3Url,
-                'document_id' => $documentId
+                'document_id' => $documentId,
+                's3_key' => $s3Key,
             ]);
+
             return null;
-            
         } catch (\Exception $e) {
             Log::error('Exception downloading S3 file', [
                 'url' => $s3Url,
-                'error' => $e->getMessage()
+                'document_id' => $documentId,
+                'error' => $e->getMessage(),
             ]);
+
             return null;
         }
+    }
+
+    /**
+     * Resolve S3 object key from a stored S3 URL (virtual-hosted or path-style).
+     */
+    protected function resolveS3ObjectKeyFromUrl(string $fileUrl): ?string
+    {
+        if ($fileUrl === '' || (! str_starts_with($fileUrl, 'http://') && ! str_starts_with($fileUrl, 'https://'))) {
+            // May already be a relative key
+            if ($fileUrl !== '' && ! str_contains($fileUrl, '..')) {
+                return ltrim($fileUrl, '/');
+            }
+
+            return null;
+        }
+
+        $parsed = parse_url($fileUrl);
+        if (! isset($parsed['path']) || $parsed['path'] === '' || $parsed['path'] === '/') {
+            return null;
+        }
+
+        $s3Key = ltrim(urldecode($parsed['path']), '/');
+        if ($s3Key === '') {
+            return null;
+        }
+
+        $bucket = (string) (config('filesystems.disks.s3.bucket') ?: env('AWS_BUCKET', ''));
+        if ($bucket !== '' && str_starts_with($s3Key, $bucket . '/')) {
+            $s3Key = substr($s3Key, strlen($bucket) + 1);
+        }
+
+        return $s3Key !== '' ? $s3Key : null;
+    }
+
+    /**
+     * Insecure TLS download is blocked outside local development, and only when
+     * ALLOW_INSECURE_S3_DOWNLOAD=true is set in .env (for broken CA chains on dev only).
+     */
+    protected function allowsInsecureS3Download(): bool
+    {
+        if (! app()->environment('local')) {
+            return false;
+        }
+
+        return filter_var(env('ALLOW_INSECURE_S3_DOWNLOAD', false), FILTER_VALIDATE_BOOLEAN);
     }
 
     /**
@@ -1082,47 +1249,58 @@ class PublicDocumentController extends Controller
         try {
             $signerName = $signer->name ?? 'Unknown Signer';
             $signedAt = now()->format('d/m/Y h:i A');
-            
-            // Check if document is associated with a client
-            if ($document->documentable_id && $document->documentable_type === 'App\\Models\\Admin') {
+
+            // Prefer documentable morph (existing path); fall back to client_id used by client docs
+            $client = null;
+            $documentableType = (string) ($document->documentable_type ?? '');
+            if ($document->documentable_id && (
+                $documentableType === 'App\\Models\\Admin'
+                || $documentableType === \App\Models\Admin::class
+            )) {
                 $client = \App\Models\Admin::find($document->documentable_id);
-                
-                if ($client) {
-                    $documentTitle = $document->title ?? $document->file_name ?? 'Document #' . $document->id;
-                    $subject = "{$signerName} signed document '{$documentTitle}' for client {$client->first_name} {$client->last_name}";
-                    $description = "Document signed by {$signerName} at {$signedAt}";
-                    
-                    // Create Activity Log
-                    ActivitiesLog::create([
-                        'client_id' => $client->id,
-                        'created_by' => $document->created_by ?? 1,
-                        'subject' => $subject,
-                        'description' => $description,
-                        'activity_type' => 'document',
-                        'task_status' => 0,
-                        'pin' => 0,
+            }
+            if (! $client && ! empty($document->client_id)) {
+                $client = \App\Models\Admin::find($document->client_id);
+            }
+
+            if ($client) {
+                $documentTitle = $document->title ?? $document->file_name ?? 'Document #' . $document->id;
+                $subject = "{$signerName} signed document '{$documentTitle}' for client {$client->first_name} {$client->last_name}";
+                $description = "Document signed by {$signerName} at {$signedAt}";
+
+                // Create Activity Log
+                ActivitiesLog::create([
+                    'client_id' => $client->id,
+                    'created_by' => $document->created_by ?? $document->user_id ?? 1,
+                    'subject' => $subject,
+                    'description' => $description,
+                    'activity_type' => 'document',
+                    'task_status' => 0,
+                    'pin' => 0,
+                ]);
+
+                // Create Notification for the staff member who initiated the document when known
+                $receiverId = $document->created_by ?? $document->user_id ?? null;
+                if ($receiverId) {
+                    Notification::create([
+                        'sender_id' => $client->id,
+                        'receiver_id' => $receiverId,
+                        'module_id' => $document->id,
+                        'url' => url("/clients/detail/{$client->id}"),
+                        'notification_type' => 'document',
+                        'message' => $subject,
+                        'receiver_status' => 0,
+                        'seen' => 0,
                     ]);
-                    
-                    // Create Notification
-                    if ($document->created_by) {
-                        Notification::create([
-                            'sender_id' => $client->id,
-                            'receiver_id' => $document->created_by,
-                            'module_id' => $document->id,
-                            'url' => url("/clients/detail/{$client->id}"),
-                            'notification_type' => 'document',
-                            'message' => $subject,
-                            'receiver_status' => 0,
-                            'seen' => 0,
-                        ]);
-                    }
                 }
             }
-            
+
             Log::info('Document signature notifications processed', [
                 'document_id' => $document->id,
+                'client_resolved' => (bool) $client,
+                'client_id' => $client->id ?? null,
             ]);
-            
+
         } catch (\Exception $e) {
             Log::error('Error creating signature notifications', [
                 'document_id' => $document->id,

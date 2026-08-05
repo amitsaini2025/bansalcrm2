@@ -60,14 +60,23 @@ class OngoingSheetController extends Controller
         $config = self::getSheetConfig($sheetType);
         $this->currentFilterSessionKey = $config['session_key'];
 
-        // Clear stored filters when user explicitly requests it
+        // Clear stored filters when user explicitly requests it (Reset / Clear Filters)
         if ($request->has('clear_filters')) {
             session()->forget($this->currentFilterSessionKey);
             return redirect()->route($config['route']);
         }
 
-        // Merge request with session-stored filters (session as fallback when no query params)
-        $request->merge($this->getFiltersFromSession($request));
+        // Restore filters from session when the URL has no explicit filter params.
+        // Redirect so the address bar matches applied filters (clear/edit without surprise).
+        if (! $this->requestHasExplicitSheetFilters($request)) {
+            $stored = session($this->currentFilterSessionKey, []);
+            if ($this->sessionHasRestorableSheetFilters($stored)) {
+                return redirect()->route(
+                    $config['route'],
+                    $this->buildSheetFilterRedirectQuery($request, $stored)
+                );
+            }
+        }
 
         // Restrict assignee filter to configured staff; default to self when allowed, else "all"
         $this->normalizeSheetAssigneeFilter($request);
@@ -79,7 +88,7 @@ class OngoingSheetController extends Controller
             $perPage = 50;
         }
 
-        // Persist current filters to session when filters are applied (has query params)
+        // Remember filters for the next bare visit (return/back still preserves selection)
         $this->persistFiltersToSession($request);
 
         // Build base query (depends on sheet type)
@@ -126,23 +135,113 @@ class OngoingSheetController extends Controller
     }
 
     /**
-     * Get filters from session when request has no filter params (so back/return preserves filters).
+     * True when the request includes an intentional filter selection (not just page size/sort).
+     * Used to decide whether session filters should be restored.
      */
-    protected function getFiltersFromSession(Request $request): array
+    protected function requestHasExplicitSheetFilters(Request $request): bool
     {
-        $filterParams = ['branch', 'assignee', 'current_stage', 'visa_expiry_from', 'visa_expiry_to', 'stage_entry_from', 'stage_entry_to', 'search', 'per_page'];
-        $hasAnyParam = false;
+        $filterParams = [
+            'branch',
+            'assignee',
+            'current_stage',
+            'visa_expiry_from',
+            'visa_expiry_to',
+            'stage_entry_from',
+            'stage_entry_to',
+            'search',
+        ];
+
         foreach ($filterParams as $key) {
-            if ($request->has($key) && $request->input($key) !== null && $request->input($key) !== '') {
-                $hasAnyParam = true;
-                break;
+            if (! $request->has($key)) {
+                continue;
+            }
+            $value = $request->input($key);
+            if (is_array($value)) {
+                if ($this->nonEmptyFilterValues($value) !== []) {
+                    return true;
+                }
+                continue;
+            }
+            if ($value !== null && $value !== '') {
+                return true;
             }
         }
-        if ($hasAnyParam) {
-            return [];
+
+        return false;
+    }
+
+    /**
+     * Whether stored session data should be reapplied on a bare sheet visit.
+     */
+    protected function sessionHasRestorableSheetFilters(array $stored): bool
+    {
+        if ($stored === []) {
+            return false;
         }
-        $key = $this->currentFilterSessionKey ?? self::FILTER_SESSION_KEY;
-        return session($key, []);
+
+        foreach (['branch', 'assignee', 'current_stage', 'visa_expiry_from', 'visa_expiry_to', 'stage_entry_from', 'stage_entry_to', 'search'] as $key) {
+            if (! array_key_exists($key, $stored)) {
+                continue;
+            }
+            $value = $stored[$key];
+            if (is_array($value)) {
+                if ($this->nonEmptyFilterValues($value) !== []) {
+                    return true;
+                }
+                continue;
+            }
+            if ($value !== null && $value !== '') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Build query params for session restore redirect (filters + current page/sort/per_page).
+     */
+    protected function buildSheetFilterRedirectQuery(Request $request, array $stored): array
+    {
+        $query = [];
+
+        foreach (['assignee', 'current_stage', 'visa_expiry_from', 'visa_expiry_to', 'stage_entry_from', 'stage_entry_to', 'search', 'per_page', 'sort', 'direction'] as $key) {
+            if (! array_key_exists($key, $stored)) {
+                continue;
+            }
+            $value = $stored[$key];
+            if ($value === null || $value === '' || (is_array($value) && $value === [])) {
+                continue;
+            }
+            $query[$key] = $value;
+        }
+
+        if (array_key_exists('branch', $stored)) {
+            $branch = $this->nonEmptyFilterValues((array) $stored['branch']);
+            if ($branch !== []) {
+                $query['branch'] = $branch;
+            }
+        }
+
+        // Prefer live request presentation params when present (e.g. page=2 on bare URL + session filters)
+        foreach (['page', 'per_page', 'sort', 'direction'] as $key) {
+            if ($request->filled($key)) {
+                $query[$key] = $request->input($key);
+            }
+        }
+
+        return $query;
+    }
+
+    /**
+     * @param  array<int|string|null>  $values
+     * @return list<int|string>
+     */
+    protected function nonEmptyFilterValues(array $values): array
+    {
+        return array_values(array_filter($values, static function ($v) {
+            return $v !== null && $v !== '';
+        }));
     }
 
     /**
@@ -165,7 +264,7 @@ class OngoingSheetController extends Controller
         ];
         $payload = array_filter($payload, function ($v) {
             if (is_array($v)) {
-                return !empty($v);
+                return $this->nonEmptyFilterValues($v) !== [];
             }
             return $v !== null && $v !== '';
         });
@@ -767,11 +866,24 @@ class OngoingSheetController extends Controller
         }
         $totalDiscontinued = $discontinueQuery->count();
 
-        // Clients seen (from checkin_logs) - distinct clients per assignee
+        // Clients seen (from checkin_logs) - distinct clients per assignee (visibility-scoped)
         $seenQuery = CheckinLog::query()
             ->select('user_id', DB::raw('COUNT(DISTINCT client_id) as seen_count'))
             ->where('contact_type', 'Client')
             ->groupBy('user_id');
+        if ($insightsStaff instanceof Staff) {
+            // Same client visibility as sheet list / $appBase (no-op for allocation-exempt staff)
+            if (
+                StaffClientVisibility::strictAllocationEnabled()
+                && ! StaffClientVisibility::isExemptFromAllocation($insightsStaff)
+            ) {
+                $visibleClients = Admin::query();
+                StaffClientVisibility::restrictAdminsQueryForStaff($visibleClients, $insightsStaff);
+                $seenQuery->whereIn('client_id', $visibleClients->select('id'));
+            }
+        } else {
+            $seenQuery->whereRaw('1 = 0');
+        }
         if ($dateFrom) {
             $seenQuery->where(function ($q) use ($dateFrom) {
                 $q->whereDate('date', '>=', $dateFrom)->orWhere('created_at', '>=', $dateFrom->startOfDay());
@@ -820,10 +932,16 @@ class OngoingSheetController extends Controller
             $conv = $convQ->count();
             $disc = $discQ->count();
             $seen = (int) ($seenByAssignee[$aid] ?? 0);
-            $load = Application::where('user_id', $aid)
+            $loadQuery = Application::query()
+                ->where('user_id', $aid)
                 ->whereNotIn('status', [2, 8])
-                ->whereRaw('LOWER(TRIM(stage)) NOT IN (?, ?)', ['coe issued', 'enrolled'])
-                ->count();
+                ->whereRaw('LOWER(TRIM(stage)) NOT IN (?, ?)', ['coe issued', 'enrolled']);
+            if ($insightsStaff instanceof Staff) {
+                StaffClientVisibility::restrictApplicationsToVisibleClients($loadQuery, $insightsStaff);
+            } else {
+                $loadQuery->whereRaw('1 = 0');
+            }
+            $load = $loadQuery->count();
             $total = $conv + $disc;
             $rate = $total > 0 ? round(($conv / $total) * 100, 1) : 0;
 
@@ -928,10 +1046,30 @@ class OngoingSheetController extends Controller
     }
 
     /**
+     * Block sheet mutations for clients the staff cannot see (same rules as list).
+     * Returns a 403 JSON response when denied; null when allowed.
+     */
+    protected function denyUnlessVisibleClient(?int $clientId)
+    {
+        if (! $clientId || ! StaffClientVisibility::canAccessAdminRecord((int) $clientId)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You do not have access to this client.',
+            ], 403);
+        }
+
+        return null;
+    }
+
+    /**
      * Update ongoing reference for a client (optional - for future use)
      */
     public function updateReference(Request $request, $clientId)
     {
+        if ($denied = $this->denyUnlessVisibleClient((int) $clientId)) {
+            return $denied;
+        }
+
         $request->validate([
             'current_status' => 'nullable|string',
             'payment_display_note' => 'nullable|string|max:100',
@@ -968,6 +1106,10 @@ class OngoingSheetController extends Controller
         ]);
 
         $app = Application::with(['product', 'partner'])->findOrFail($request->application_id);
+        if ($denied = $this->denyUnlessVisibleClient($app->client_id ? (int) $app->client_id : null)) {
+            return $denied;
+        }
+
         $courseName = $app->product ? $app->product->name : '—';
         $collegeName = $app->partner ? $app->partner->partner_name : '—';
         $title = "Course: {$courseName}, College: {$collegeName}";
@@ -1019,6 +1161,10 @@ class OngoingSheetController extends Controller
         ]);
 
         $app = Application::findOrFail($request->application_id);
+        if ($denied = $this->denyUnlessVisibleClient($app->client_id ? (int) $app->client_id : null)) {
+            return $denied;
+        }
+
         $status = $request->input('status');
 
         $app->checklist_sheet_status = $status;
@@ -1057,6 +1203,9 @@ class OngoingSheetController extends Controller
         ]);
 
         $app = Application::findOrFail($request->application_id);
+        if ($denied = $this->denyUnlessVisibleClient($app->client_id ? (int) $app->client_id : null)) {
+            return $denied;
+        }
 
         ApplicationReminder::create([
             'application_id' => $app->id,

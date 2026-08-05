@@ -449,17 +449,19 @@ class ClientDocumentController extends Controller
                         'original_filename' => $fileName,
                         'user_id' => Auth::id(),
                     ]);
-                    $disk = $this->s3Disk();
-                    $fileUrl = $s3Result['file_url'] ?? $disk->url($filePath);
                     if (! $s3Result['success']) {
-                        $this->s3UploadLog('warning', '[S3DocumentUpload] bulk_upload_continued_after_failure', [
+                        $this->s3UploadLog('error', '[S3DocumentUpload] bulk_upload_s3_failed_aborted', [
                             'operation' => 'bulkUploadDocuments',
                             'client_id' => $clientid,
+                            'document_id' => $document->id ?? null,
                             's3_key' => $filePath,
-                            'error' => $s3Result['error'],
-                            'file_url_saved' => $fileUrl,
+                            'error' => $s3Result['error'] ?? 'unknown',
                         ]);
+                        $errors[] = "Failed to upload '{$fileName}' to storage. Please try again.";
+                        continue;
                     }
+                    $disk = $this->s3Disk();
+                    $fileUrl = $s3Result['file_url'] ?? $disk->url($filePath);
                     
                     // Update document with file info
                     $document->file_name = $nameWithoutExtension;
@@ -696,16 +698,12 @@ class ClientDocumentController extends Controller
      */
     public function download_document(Request $request)
     {
-        $fileUrl = $request->input('filelink');
+        $fileUrl = $this->authorizeDocumentFileAccess($request);
         $filename = $this->sanitizeDownloadFilename((string) $request->input('filename', 'downloaded.pdf'));
-
-        if (!$fileUrl) {
-            return abort(400, 'Missing file URL');
-        }
 
         try {
             $tempUrl = $this->buildS3TemporaryAccessUrl(
-                (string) $fileUrl,
+                $fileUrl,
                 'attachment; filename="' . $filename . '"'
             );
 
@@ -726,16 +724,8 @@ class ClientDocumentController extends Controller
      */
     public function preview_document(Request $request)
     {
-        $fileUrl = $request->input('filelink');
+        $fileUrl = $this->authorizeDocumentFileAccess($request);
         $filename = $this->sanitizeDownloadFilename((string) $request->input('filename', 'preview.pdf'));
-
-        if (!$fileUrl) {
-            $this->s3UploadLog('warning', '[S3DocumentUpload] preview_missing_filelink', [
-                'operation' => 'preview_document',
-            ]);
-
-            return abort(400, 'Missing file URL');
-        }
 
         try {
             $contentType = $this->resolvePreviewContentType($filename);
@@ -747,7 +737,7 @@ class ClientDocumentController extends Controller
             }
 
             $tempUrl = $this->buildS3TemporaryAccessUrl(
-                (string) $fileUrl,
+                $fileUrl,
                 'inline; filename="' . $filename . '"',
                 $presignOptions
             );
@@ -792,19 +782,23 @@ class ClientDocumentController extends Controller
      */
     public function preview_document_view(Request $request)
     {
-        $filelink = (string) $request->query('filelink', '');
+        try {
+            $filelink = $this->authorizeDocumentFileAccess($request);
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            return abort($e->getStatusCode(), $e->getMessage());
+        }
+
         $filename = $this->sanitizeDownloadFilename((string) $request->query('filename', 'preview.pdf'));
         $filetype = strtolower((string) $request->query('filetype', ''));
-
-        if ($filelink === '' || ! $this->isAllowedPreviewFilelink($filelink)) {
-            return abort(400, 'Invalid or missing file URL');
-        }
 
         if ($this->isS3FileUrl($filelink)) {
             $contentSrc = url('/preview-document') . '?' . http_build_query([
                 'filelink' => $filelink,
                 'filename' => $filename,
             ]);
+            if ($request->filled('document_id')) {
+                $contentSrc .= '&document_id=' . urlencode((string) $request->input('document_id'));
+            }
         } else {
             $contentSrc = $filelink;
             if (! str_starts_with($contentSrc, 'http://') && ! str_starts_with($contentSrc, 'https://')) {
@@ -822,21 +816,407 @@ class ClientDocumentController extends Controller
     }
 
     /**
+     * Authorize download/preview of a file URL for an authenticated admin.
+     * filelink must belong to a documents row (myfile / signed_doc_link / derived S3 key).
+     * Optional document_id pins the row. Existing clients keep sending only filelink.
+     *
+     * @return string Canonical file URL to presign/serve
+     */
+    private function authorizeDocumentFileAccess(Request $request): string
+    {
+        $fileUrl = trim((string) $request->input('filelink', ''));
+        $documentIdRaw = $request->input('document_id', $request->input('doc_id'));
+        $documentId = is_numeric($documentIdRaw) ? (int) $documentIdRaw : null;
+
+        if ($fileUrl === '' && ! $documentId) {
+            $this->s3UploadLog('warning', '[S3DocumentUpload] authorize_missing_filelink', [
+                'operation' => 'authorizeDocumentFileAccess',
+                'user_id' => Auth::id(),
+            ]);
+            abort(400, 'Missing file URL');
+        }
+
+        if ($fileUrl !== '') {
+            if (! $this->isAllowedPreviewFilelink($fileUrl)) {
+                abort(400, 'Invalid file URL');
+            }
+        }
+
+        if ($documentId) {
+            $doc = Document::find($documentId);
+            if (! $doc) {
+                abort(404, 'Document not found');
+            }
+            if ($fileUrl !== '' && ! $this->documentOwnsFileUrl($doc, $fileUrl)) {
+                $this->s3UploadLog('warning', '[S3DocumentUpload] authorize_document_mismatch', [
+                    'operation' => 'authorizeDocumentFileAccess',
+                    'user_id' => Auth::id(),
+                    'document_id' => $documentId,
+                ]);
+                abort(403, 'File access denied');
+            }
+            if ($fileUrl !== '') {
+                return $this->canonicalDocumentFileUrl($doc, $fileUrl);
+            }
+            $preferred = (string) ($doc->myfile ?: $doc->signed_doc_link ?: '');
+            if ($preferred === '') {
+                abort(404, 'Document has no file');
+            }
+
+            return $preferred;
+        }
+
+        $doc = $this->findDocumentByFileUrl($fileUrl);
+        if (! $doc) {
+            // No CRM ownership: still block open proxying of third-party / random S3 hosts
+            if ((str_starts_with($fileUrl, 'http://') || str_starts_with($fileUrl, 'https://'))
+                && ! $this->isAllowedStorageHost($fileUrl)) {
+                $this->s3UploadLog('warning', '[S3DocumentUpload] authorize_host_denied', [
+                    'operation' => 'authorizeDocumentFileAccess',
+                    'user_id' => Auth::id(),
+                    'host' => parse_url($fileUrl, PHP_URL_HOST),
+                ]);
+            }
+            $this->s3UploadLog('warning', '[S3DocumentUpload] authorize_file_not_in_documents', [
+                'operation' => 'authorizeDocumentFileAccess',
+                'user_id' => Auth::id(),
+                'file_url' => $fileUrl,
+            ]);
+            abort(403, 'File access denied');
+        }
+
+        return $this->canonicalDocumentFileUrl($doc, $fileUrl);
+    }
+
+    /**
+     * Prefer the stored DB URL that maps to the same object (best for S3 exists/presign).
+     */
+    private function canonicalDocumentFileUrl(Document $doc, string $requestedUrl): string
+    {
+        foreach ([(string) ($doc->myfile ?? ''), (string) ($doc->signed_doc_link ?? '')] as $stored) {
+            if ($stored !== '' && $this->urlsReferToSameObject($requestedUrl, $stored)) {
+                return $stored;
+            }
+        }
+
+        return $requestedUrl;
+    }
+
+    private function normalizeDocumentFileUrl(string $url): string
+    {
+        $url = trim(html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        if (preg_match('#^https?://[^/]+/(https?://.+)$#i', $url, $matches)) {
+            $url = $matches[1];
+        }
+
+        return rtrim($url, '/');
+    }
+
+    private function urlsReferToSameObject(string $a, string $b): bool
+    {
+        $na = $this->normalizeDocumentFileUrl($a);
+        $nb = $this->normalizeDocumentFileUrl($b);
+        if ($na !== '' && $na === $nb) {
+            return true;
+        }
+        $ka = $this->resolveS3KeyFromFileUrl($na);
+        $kb = $this->resolveS3KeyFromFileUrl($nb);
+
+        return $ka !== null && $kb !== null && $ka === $kb;
+    }
+
+    private function documentOwnsFileUrl(Document $doc, string $fileUrl): bool
+    {
+        $fileUrl = $this->normalizeDocumentFileUrl($fileUrl);
+        foreach ([(string) ($doc->myfile ?? ''), (string) ($doc->signed_doc_link ?? '')] as $stored) {
+            if ($stored !== '' && $this->urlsReferToSameObject($fileUrl, $stored)) {
+                return true;
+            }
+        }
+
+        $reqKey = $this->resolveS3KeyFromFileUrl($fileUrl);
+        if ($reqKey === null) {
+            return false;
+        }
+        foreach ($this->buildS3DeleteKeyCandidates($doc) as $candidate) {
+            if ($candidate === $reqKey) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function findDocumentByFileUrl(string $fileUrl): ?Document
+    {
+        $norm = $this->normalizeDocumentFileUrl($fileUrl);
+        $raw = trim($fileUrl);
+
+        $exact = Document::query()
+            ->where(function ($q) use ($norm, $raw) {
+                $q->where('myfile', $norm)
+                    ->orWhere('myfile', $raw)
+                    ->orWhere('signed_doc_link', $norm)
+                    ->orWhere('signed_doc_link', $raw);
+            })
+            ->first();
+        if ($exact) {
+            return $exact;
+        }
+
+        $key = $this->resolveS3KeyFromFileUrl($norm);
+        if ($key === null) {
+            return null;
+        }
+
+        $base = basename($key);
+        if ($base === '' || $base === '/' || $base === '.') {
+            return null;
+        }
+
+        $likeBase = $this->escapeLikeWildcards($base);
+        $candidates = Document::query()
+            ->where(function ($q) use ($base, $likeBase) {
+                $q->where('myfile_key', $base)
+                    ->orWhere('myfile', 'like', '%' . $likeBase . '%')
+                    ->orWhere('signed_doc_link', 'like', '%' . $likeBase . '%')
+                    ->orWhere('myfile_key', 'like', '%' . $likeBase);
+            })
+            ->orderByDesc('id')
+            ->limit(80)
+            ->get();
+
+        foreach ($candidates as $row) {
+            if ($this->documentOwnsFileUrl($row, $norm)) {
+                return $row;
+            }
+        }
+
+        return null;
+    }
+
+    private function escapeLikeWildcards(string $value): string
+    {
+        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $value);
+    }
+
+    /**
+     * Allow only app host or configured AWS/S3 hosts (blocks arbitrary third-party URLs).
+     */
+    private function isAllowedStorageHost(string $url): bool
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        if ($host === '') {
+            return false;
+        }
+
+        $appHost = strtolower((string) parse_url((string) config('app.url'), PHP_URL_HOST));
+        if ($appHost !== '' && ($host === $appHost || str_ends_with($host, '.' . $appHost))) {
+            return true;
+        }
+
+        $bucket = strtolower((string) (config('filesystems.disks.s3.bucket') ?: env('AWS_BUCKET', '')));
+        if ($bucket !== '') {
+            if ($host === $bucket . '.s3.amazonaws.com' || str_starts_with($host, $bucket . '.s3.')) {
+                return true;
+            }
+            // Path-style s3.<region>.amazonaws.com / s3.amazonaws.com with bucket in path
+            if (preg_match('/^s3([.\-]|$)/i', $host) || str_contains($host, '.s3.') || str_contains($host, 'amazonaws.com')) {
+                $path = ltrim((string) parse_url($url, PHP_URL_PATH), '/');
+                if (str_starts_with(strtolower($path), $bucket . '/')) {
+                    return true;
+                }
+            }
+        }
+
+        $awsUrl = (string) (config('filesystems.disks.s3.url') ?: env('AWS_URL', ''));
+        if ($awsUrl !== '') {
+            $awsHost = strtolower((string) parse_url($awsUrl, PHP_URL_HOST));
+            if ($awsHost !== '' && $host === $awsHost) {
+                return true;
+            }
+        }
+
+        // Generic *.amazonaws.com only when path/key can be resolved for our bucket rules above failed
+        // but host looks like virtual-hosted-style including bucket name
+        if ($bucket !== '' && str_contains($host, 'amazonaws.com') && str_contains($host, $bucket)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Resolve an S3 object key from a stored file URL (virtual-hosted or path-style).
+     * Matches key resolution used by preview/download (bucket prefix stripped when present).
+     */
+    private function resolveS3KeyFromFileUrl(?string $fileUrl): ?string
+    {
+        if ($fileUrl === null || trim($fileUrl) === '') {
+            return null;
+        }
+
+        // Relative local filename (legacy non-S3) — not an S3 key
+        if (! str_starts_with($fileUrl, 'http://') && ! str_starts_with($fileUrl, 'https://')) {
+            return null;
+        }
+
+        $parsed = parse_url($fileUrl);
+        if (! isset($parsed['path']) || $parsed['path'] === '' || $parsed['path'] === '/') {
+            return null;
+        }
+
+        $s3Key = ltrim(urldecode($parsed['path']), '/');
+        if ($s3Key === '') {
+            return null;
+        }
+
+        $bucket = (string) (config('filesystems.disks.s3.bucket') ?: env('AWS_BUCKET', ''));
+        if ($bucket !== '' && str_starts_with($s3Key, $bucket . '/')) {
+            $s3Key = substr($s3Key, strlen($bucket) + 1);
+        }
+
+        return $s3Key !== '' ? $s3Key : null;
+    }
+
+    /**
+     * Candidate S3 keys for a document row (best-effort, for delete/cleanup).
+     *
+     * @param  object  $data  documents table row
+     * @return list<string>
+     */
+    private function buildS3DeleteKeyCandidates(object $data): array
+    {
+        $candidates = [];
+
+        // 1) Full key from stored myfile URL (same parse as preview/download)
+        if (! empty($data->myfile)) {
+            $fromUrl = $this->resolveS3KeyFromFileUrl((string) $data->myfile);
+            if ($fromUrl !== null) {
+                $candidates[] = $fromUrl;
+            }
+        }
+
+        // 2) client_unique_id / doc_type / myfile_key (current upload path shape)
+        $myfileKey = isset($data->myfile_key) ? trim((string) $data->myfile_key) : '';
+        if ($myfileKey !== '' && ! empty($data->client_id)) {
+            $adminInfo = Admin::select('client_id')->where('id', $data->client_id)->first();
+            $clientUniqueId = $adminInfo && ! empty($adminInfo->client_id)
+                ? (string) $adminInfo->client_id
+                : '';
+            $docType = ! empty($data->doc_type) ? (string) $data->doc_type : 'documents';
+            if ($clientUniqueId !== '') {
+                $candidates[] = $clientUniqueId . '/' . $docType . '/' . $myfileKey;
+            }
+        }
+
+        // 3) Legacy: path segments[0]/segments[1]/myfile_key
+        if ($myfileKey !== '' && ! empty($data->myfile) && is_string($data->myfile)) {
+            $parsedUrl = parse_url((string) $data->myfile);
+            if (isset($parsedUrl['path']) && strpos((string) $parsedUrl['path'], '/') !== false) {
+                $filePath = ltrim(urldecode((string) $parsedUrl['path']), '/');
+                $filePathArr = array_values(array_filter(explode('/', $filePath), static function ($seg) {
+                    return $seg !== '';
+                }));
+                $bucket = (string) (config('filesystems.disks.s3.bucket') ?: env('AWS_BUCKET', ''));
+                // Drop leading bucket segment if path-style URL
+                if ($bucket !== '' && isset($filePathArr[0]) && $filePathArr[0] === $bucket) {
+                    array_shift($filePathArr);
+                }
+                if (count($filePathArr) >= 2) {
+                    $candidates[] = $filePathArr[0] . '/' . $filePathArr[1] . '/' . $myfileKey;
+                }
+            }
+        }
+
+        // Unique, preserve order
+        $seen = [];
+        $unique = [];
+        foreach ($candidates as $key) {
+            if ($key === '' || isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $unique[] = $key;
+        }
+
+        return $unique;
+    }
+
+    /**
+     * Best-effort S3 object delete for a document row. Never throws; logs outcomes.
+     * Returns true if an object was deleted, false if none found/deleted.
+     */
+    private function tryDeleteDocumentS3Object(object $data): bool
+    {
+        $candidates = $this->buildS3DeleteKeyCandidates($data);
+        if ($candidates === []) {
+            $this->s3UploadLog('info', '[S3DocumentUpload] deletealldocs_no_s3_candidates', [
+                'operation' => 'deletealldocs',
+                'document_id' => $data->id ?? null,
+                'myfile' => $data->myfile ?? null,
+                'myfile_key' => $data->myfile_key ?? null,
+            ]);
+
+            return false;
+        }
+
+        try {
+            $disk = $this->s3Disk();
+        } catch (\Throwable $e) {
+            $this->s3UploadLog('warning', '[S3DocumentUpload] deletealldocs_s3_disk_unavailable', [
+                'operation' => 'deletealldocs',
+                'document_id' => $data->id ?? null,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+
+        foreach ($candidates as $s3Key) {
+            try {
+                if ($disk->exists($s3Key)) {
+                    $disk->delete($s3Key);
+                    $this->s3UploadLog('info', '[S3DocumentUpload] deletealldocs_s3_deleted', [
+                        'operation' => 'deletealldocs',
+                        'document_id' => $data->id ?? null,
+                        's3_key' => $s3Key,
+                        'candidates_tried' => $candidates,
+                    ]);
+
+                    return true;
+                }
+            } catch (\Throwable $e) {
+                $this->s3UploadLog('warning', '[S3DocumentUpload] deletealldocs_s3_delete_attempt_failed', [
+                    'operation' => 'deletealldocs',
+                    'document_id' => $data->id ?? null,
+                    's3_key' => $s3Key,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        $this->s3UploadLog('warning', '[S3DocumentUpload] deletealldocs_s3_object_not_found', [
+            'operation' => 'deletealldocs',
+            'document_id' => $data->id ?? null,
+            'candidates' => $candidates,
+            'myfile' => $data->myfile ?? null,
+            'myfile_key' => $data->myfile_key ?? null,
+        ]);
+
+        return false;
+    }
+
+    /**
      * Build a short-lived presigned S3 URL from a stored file URL.
      *
      * @param  array<string, string>|null  $presignOptions  Extra S3 presign params (e.g. ResponseContentType)
      */
     private function buildS3TemporaryAccessUrl(string $fileUrl, string $contentDisposition, ?array $presignOptions = null): string
     {
-        $parsed = parse_url($fileUrl);
-        if (!isset($parsed['path'])) {
+        $s3Key = $this->resolveS3KeyFromFileUrl($fileUrl);
+        if ($s3Key === null) {
             throw new \InvalidArgumentException('Invalid S3 URL format');
-        }
-
-        $s3Key = ltrim(urldecode($parsed['path']), '/');
-        $bucket = (string) env('AWS_BUCKET', '');
-        if ($bucket !== '' && str_starts_with($s3Key, $bucket . '/')) {
-            $s3Key = substr($s3Key, strlen($bucket) + 1);
         }
 
         $disk = $this->s3Disk();
@@ -979,29 +1359,12 @@ class ClientDocumentController extends Controller
 		$note_id = $request->note_id;
         if(\App\Models\Document::where('id',$note_id)->exists()){
             $data = DB::table('documents')->where('id', @$note_id)->first();
-            /*if(
-                ( isset($data->myfile) && $data->myfile != '' )
-                &&
-                ( isset($data->myfile_key) && $data->myfile_key != '' )
-            ){*/
-            if( isset($data->myfile_key) && $data->myfile_key != '' ){
-                // Extract the file path from the URL
-                $parsedUrl = parse_url($data->myfile);
-                $filePath = ltrim($parsedUrl['path'], '/'); //dd($filePath);
 
-                // Find the position of the keyword
-                $position = strpos($filePath, '/');
-                if ($position !== false) {
-                    $filePathArr = explode('/',$filePath);//dd($filePathArr);
-                    if(!empty($filePathArr)){
-                        $fileExistPath = $filePathArr[0]."/".$filePathArr[1]."/".$data->myfile_key;
-                        $disk = $this->s3Disk();
-                        if ($disk->exists($fileExistPath)) {
-                            // To delete the uploaded file, use the delete method
-                            $disk->delete($fileExistPath);
-                        }
-                    }
-                }
+            // Best-effort S3 cleanup before DB delete. Failures never block row removal.
+            if ($data && (
+                (! empty($data->myfile_key)) || (! empty($data->myfile) && is_string($data->myfile) && str_starts_with((string) $data->myfile, 'http'))
+            )) {
+                $this->tryDeleteDocumentS3Object($data);
             }
 
             $res = DB::table('documents')->where('id', @$note_id)->delete();
@@ -1260,14 +1623,14 @@ class ClientDocumentController extends Controller
                                 if( isset($fetch->file_name) && $fetch->file_name !=""){ ?>
                                     <div data-id="<?php echo $fetch->id; ?>" data-name="<?php echo $fetch->file_name; ?>" class="doc-row">
                                         <?php if( isset($fetch->myfile_key) && $fetch->myfile_key != ""){ //For new file upload ?>
-                                            <a href="javascript:void(0);" onclick="previewFile('<?php echo $fetch->filetype;?>','<?php echo asset($fetch->myfile); ?>','preview-container-alldocumentlist')">
+                                            <a href="javascript:void(0);" onclick="previewFile('<?php echo $fetch->filetype;?>','<?php echo \App\Helpers\Helper::documentFileUrlAttr($fetch->myfile); ?>','preview-container-alldocumentlist')">
                                                 <?php echo \App\Helpers\IconHelper::render('file-image'); ?> <span><?php echo $fetch->file_name . '.' . $fetch->filetype; ?></span>
                                             </a>
                                         <?php } else {  //For old file upload
                                             $url = 'https://'.env('AWS_BUCKET').'.s3.'. env('AWS_DEFAULT_REGION') . '.amazonaws.com/';
                                             $myawsfile = $url.$client_unique_id.'/'.$fetch->doc_type.'/'.$fetch->myfile;
                                             ?>
-                                            <a href="javascript:void(0);" onclick="previewFile('<?php echo $fetch->filetype;?>','<?php echo asset($myawsfile); ?>','preview-container-alldocumentlist')">
+                                            <a href="javascript:void(0);" onclick="previewFile('<?php echo $fetch->filetype;?>','<?php echo \App\Helpers\Helper::documentFileUrlAttr($myawsfile); ?>','preview-container-alldocumentlist')">
                                                 <?php echo \App\Helpers\IconHelper::render('file-image'); ?> <span><?php echo $fetch->file_name . '.' . $fetch->filetype; ?></span>
                                             </a>
                                         <?php } ?>
@@ -1326,7 +1689,7 @@ class ClientDocumentController extends Controller
                                             <!--<a class="dropdown-item" href="<?php //echo $fetch->myfile; ?>">Preview</a>
                                             <a download class="dropdown-item" href="<?php //echo $fetch->myfile; ?>">Download</a>-->
                                           
-                                            <a class="dropdown-item" href="javascript:void(0);" onclick="previewFile('<?php echo $fetch->filetype;?>','<?php echo asset($fetch->myfile); ?>','preview-container-alldocumentlist')">Preview</a>
+                                            <a class="dropdown-item" href="javascript:void(0);" onclick="previewFile('<?php echo $fetch->filetype;?>','<?php echo \App\Helpers\Helper::documentFileUrlAttr($fetch->myfile); ?>','preview-container-alldocumentlist')">Preview</a>
                                             <?php
                                                 $suggestedDlName = self::buildClientDocumentDownloadFilename(
                                                     (string) ($fetch->file_name ?? 'document'),
@@ -1432,27 +1795,65 @@ class ClientDocumentController extends Controller
                 'original_filename' => $fileName,
                 'user_id' => Auth::id(),
             ]);
+
+            // Do not update DB / pretend success when S3 put failed (avoids UI links that 404)
+            if (! $s3Result['success']) {
+                $this->s3UploadLog('error', '[S3DocumentUpload] uploadalldocument_s3_failed_aborted', [
+                    'operation' => 'uploadalldocument',
+                    'client_id' => $clientid,
+                    'document_id' => $request->fileid,
+                    's3_key' => $filePath,
+                    'error' => $s3Result['error'] ?? 'unknown',
+                    'user_id' => Auth::id(),
+                ]);
+                $response = [
+                    'status' => false,
+                    'message' => 'File upload to storage failed. Please try again.',
+                ];
+                echo json_encode($response);
+
+                return;
+            }
+
             $disk = $this->s3Disk();
             $exploadename = explode('.', $name);
 
             $req_file_id = $request->fileid;
             $obj = \App\Models\Document::find($req_file_id);
+            if (! $obj) {
+                $this->s3UploadLog('error', '[S3DocumentUpload] uploadalldocument_missing_document_row', [
+                    'operation' => 'uploadalldocument',
+                    'client_id' => $clientid,
+                    'document_id' => $req_file_id,
+                    's3_key' => $filePath,
+                ]);
+                // Best-effort cleanup of the S3 object we just wrote (orphan if find failed)
+                try {
+                    if ($disk->exists($filePath)) {
+                        $disk->delete($filePath);
+                    }
+                } catch (\Throwable $e) {
+                    $this->s3UploadLog('warning', '[S3DocumentUpload] uploadalldocument_orphan_cleanup_failed', [
+                        'operation' => 'uploadalldocument',
+                        's3_key' => $filePath,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+                $response = [
+                    'status' => false,
+                    'message' => 'Document record not found. Please refresh and try again.',
+                ];
+                echo json_encode($response);
+
+                return;
+            }
+
             $obj->file_name = $nameWithoutExtension; //$explodeFileName[0];
             $obj->filetype = $fileExtension;//$exploadename[1];
             $obj->user_id = Auth::user()->id;
             //$obj->myfile = $name;
             // Get the full URL of the uploaded file
             $fileUrl = $s3Result['file_url'] ?? $disk->url($filePath);
-            if (! $s3Result['success']) {
-                $this->s3UploadLog('warning', '[S3DocumentUpload] uploadalldocument_continued_after_failure', [
-                    'operation' => 'uploadalldocument',
-                    'client_id' => $clientid,
-                    'document_id' => $req_file_id,
-                    's3_key' => $filePath,
-                    'error' => $s3Result['error'],
-                    'file_url_saved' => $fileUrl,
-                ]);
-            }
             $obj->myfile = $fileUrl;
             $obj->myfile_key = $name;
 
@@ -1477,7 +1878,7 @@ class ClientDocumentController extends Controller
                 'client_id' => $clientid,
                 'document_id' => $req_file_id,
                 'saved' => (bool) $saved,
-                's3_upload_success' => $s3Result['success'],
+                's3_upload_success' => true,
                 'file_url_saved' => $fileUrl,
                 's3_key' => $filePath,
             ]);
@@ -1523,14 +1924,14 @@ class ClientDocumentController extends Controller
 							if( isset($fetch->file_name) && $fetch->file_name !=""){ ?>
 								<div data-id="<?php echo $fetch->id; ?>" data-name="<?php echo $fetch->file_name; ?>" class="doc-row">
 									<?php if( isset($fetch->myfile_key) && $fetch->myfile_key != ""){ //For new file upload ?>
-										<a href="javascript:void(0);" onclick="previewFile('<?php echo $fetch->filetype;?>','<?php echo asset($fetch->myfile); ?>','preview-container-alldocumentlist')">
+										<a href="javascript:void(0);" onclick="previewFile('<?php echo $fetch->filetype;?>','<?php echo \App\Helpers\Helper::documentFileUrlAttr($fetch->myfile); ?>','preview-container-alldocumentlist')">
 											<?php echo \App\Helpers\IconHelper::render('file-image'); ?> <span><?php echo $fetch->file_name . '.' . $fetch->filetype; ?></span>
 										</a>
 									<?php } else {  //For old file upload
 										$url = 'https://'.env('AWS_BUCKET').'.s3.'. env('AWS_DEFAULT_REGION') . '.amazonaws.com/';
 										$myawsfile = $url.$client_unique_id.'/'.$fetch->doc_type.'/'.$fetch->myfile;
 										?>
-										<a href="javascript:void(0);" onclick="previewFile('<?php echo $fetch->filetype;?>','<?php echo asset($myawsfile); ?>','preview-container-alldocumentlist')">
+										<a href="javascript:void(0);" onclick="previewFile('<?php echo $fetch->filetype;?>','<?php echo \App\Helpers\Helper::documentFileUrlAttr($myawsfile); ?>','preview-container-alldocumentlist')">
 											<?php echo \App\Helpers\IconHelper::render('file-image'); ?> <span><?php echo $fetch->file_name . '.' . $fetch->filetype; ?></span>
 										</a>
 									<?php } ?>
@@ -1580,7 +1981,7 @@ class ClientDocumentController extends Controller
                                         <!--<a class="dropdown-item" href="<?php //echo $fetch->myfile; ?>">Preview</a>
 										<a download class="dropdown-item" href="<?php //echo $fetch->myfile; ?>">Download</a>-->
                                       
-                                        <a class="dropdown-item" href="javascript:void(0);" onclick="previewFile('<?php echo $fetch->filetype;?>','<?php echo asset($fetch->myfile); ?>','preview-container-alldocumentlist')">Preview</a>
+                                        <a class="dropdown-item" href="javascript:void(0);" onclick="previewFile('<?php echo $fetch->filetype;?>','<?php echo \App\Helpers\Helper::documentFileUrlAttr($fetch->myfile); ?>','preview-container-alldocumentlist')">Preview</a>
                                         <?php
                                             $suggestedDlNameUpload = self::buildClientDocumentDownloadFilename(
                                                 (string) ($fetch->file_name ?? 'document'),
@@ -1668,11 +2069,50 @@ class ClientDocumentController extends Controller
 	} 
 
     /**
-     * Upload document for client
+     * Public browser URL for a document row (S3 full URL or legacy local filename).
+     */
+    private function documentAccessUrlForDisplay(object $doc): string
+    {
+        $myfile = trim((string) ($doc->myfile ?? ''));
+        if ($myfile === '') {
+            return '';
+        }
+        if (! empty($doc->myfile_key) || preg_match('#^https?://#i', $myfile)) {
+            return \App\Helpers\Helper::documentFileUrl($myfile);
+        }
+
+        return asset('img/documents/' . ltrim($myfile, '/'));
+    }
+
+    private function documentAccessUrlAttr(object $doc): string
+    {
+        return htmlspecialchars($this->documentAccessUrlForDisplay($doc), ENT_QUOTES, 'UTF-8');
+    }
+
+    private function documentIsLegacyLocalFile(object $doc): bool
+    {
+        $myfile = trim((string) ($doc->myfile ?? ''));
+        if ($myfile === '') {
+            return false;
+        }
+        if (! empty($doc->myfile_key)) {
+            return false;
+        }
+        if (preg_match('#^https?://#i', $myfile)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Upload document for client (education/migration and similar).
+     * New uploads go to S3 like uploadalldocument; legacy rows on disk remain readable.
      */
     public function uploaddocument(Request $request){
 		$id = $request->clientid;
         $doctype = isset($request->doctype)? $request->doctype : '';
+        $response = ['status' => false, 'message' => 'Please try again'];
 
 		if ($request->hasfile('document_upload')) {
 
@@ -1681,20 +2121,65 @@ class ClientDocumentController extends Controller
 			}else{
 				$files = $request->file('document_upload');
 			}
+
+            $adminInfo = Admin::select('client_id')->where('id', $id)->first();
+            $clientUniqueId = $adminInfo && ! empty($adminInfo->client_id)
+                ? (string) $adminInfo->client_id
+                : '';
+            if ($clientUniqueId === '') {
+                $this->s3UploadLog('warning', '[S3DocumentUpload] uploaddocument_empty_client_unique_id', [
+                    'operation' => 'uploaddocument',
+                    'client_id' => $id,
+                    'doctype' => $doctype,
+                    'user_id' => Auth::id(),
+                ]);
+                $response['message'] = 'Client storage ID is missing. Cannot upload document.';
+                echo json_encode($response);
+
+                return;
+            }
+
+            $saved = false;
+            $uploadFailMessage = null;
+
 			foreach ($files as $file) {
 
 				$size = $file->getSize();
 				$fileName = $file->getClientOriginalName();
 				$nameWithoutExtension = pathinfo($fileName, PATHINFO_FILENAME);
 				$fileExtension = $file->getClientOriginalExtension();
-				$explodeFileName = explode('.', $fileName);
-				$document_upload = $this->uploadrenameFile($file, Config::get('constants.documents'));
-				$exploadename = explode('.', $document_upload);
+				$storageName = time() . $file->getClientOriginalName();
+                $s3Key = $clientUniqueId . '/' . ($doctype !== '' ? $doctype : 'documents') . '/' . $storageName;
+
+                $s3Result = $this->putFileToS3WithLogging($file->getPathname(), $s3Key, [
+                    'operation' => 'uploaddocument',
+                    'client_id' => $id,
+                    'client_unique_id' => $clientUniqueId,
+                    'doctype' => $doctype,
+                    'original_filename' => $fileName,
+                    'user_id' => Auth::id(),
+                ]);
+
+                if (! $s3Result['success']) {
+                    $this->s3UploadLog('error', '[S3DocumentUpload] uploaddocument_s3_failed_aborted', [
+                        'operation' => 'uploaddocument',
+                        'client_id' => $id,
+                        's3_key' => $s3Key,
+                        'error' => $s3Result['error'] ?? 'unknown',
+                    ]);
+                    $uploadFailMessage = 'File upload to storage failed. Please try again.';
+                    continue;
+                }
+
+                $disk = $this->s3Disk();
+                $fileUrl = $s3Result['file_url'] ?? $disk->url($s3Key);
+
 				$obj = new Document;
 				$obj->file_name = $nameWithoutExtension;
 				$obj->filetype = $fileExtension;
 				$obj->user_id = Auth::user()->id;
-				$obj->myfile = $document_upload;
+				$obj->myfile = $fileUrl;
+                $obj->myfile_key = $storageName;
 				$obj->client_id = $id;
 				$obj->type = $request->type;
 				$obj->file_size = $size;
@@ -1713,7 +2198,15 @@ class ClientDocumentController extends Controller
 					$obj->category_id = $request->category_id;
 				}
 				
-				$saved = $obj->save();
+				$saved = $obj->save() || $saved;
+
+                $this->s3UploadLog($obj->exists ? 'info' : 'error', '[S3DocumentUpload] uploaddocument_db_save', [
+                    'operation' => 'uploaddocument',
+                    'client_id' => $id,
+                    'document_id' => $obj->id ?? null,
+                    's3_key' => $s3Key,
+                    'file_url' => $fileUrl,
+                ]);
 
 			}
 
@@ -1736,22 +2229,36 @@ class ClientDocumentController extends Controller
 				ob_start();
 				foreach($fetchd as $fetch){
 					$admin = ClientDocumentStaffResolver::staffRowById($fetch->user_id);
+                    $previewUrl = $this->documentAccessUrlAttr($fetch);
+                    $previewHref = $this->documentAccessUrlForDisplay($fetch);
+                    $isLegacyLocal = $this->documentIsLegacyLocalFile($fetch);
+                    $downloadHref = $isLegacyLocal
+                        ? $previewHref
+                        : (url('/download-document') . '?filelink=' . urlencode($previewHref) . '&filename=' . urlencode(
+                            self::buildClientDocumentDownloadFilename(
+                                (string) ($fetch->file_name ?? 'document'),
+                                (string) ($fetch->filetype ?? '')
+                            )
+                        ));
                   
+                    $preview_container_type = 'preview-container-documentlist';
                     if( isset($doctype) && $doctype == 'migration'){
                         $preview_container_type = 'preview-container-migrationdocumentlist';
                     } else if( isset($doctype) && $doctype == 'education'){
                         $preview_container_type = 'preview-container-documentlist';
                     }
+                    $fileExt = strtolower((string) ($fetch->filetype ?? ''));
+                    $isImageExt = in_array($fileExt, ['jpg', 'jpeg', 'png'], true);
 					?>
 					<tr class="drow" id="id_<?php echo $fetch->id; ?>">
 						<td style="white-space: initial;">
-                            <div data-id="<?php echo $fetch->id; ?>" data-name="<?php echo $fetch->file_name; ?>" class="doc-row">
-								<a style="white-space: initial;" href="javascript:void(0);" onclick="previewFile('<?php echo $fetch->filetype;?>','<?php echo asset('img/documents/'.$fetch->myfile); ?>','<?php echo $preview_container_type;?>')">
-                                    <?php echo \App\Helpers\IconHelper::render('file-image'); ?> <span><?php echo $fetch->file_name . '.' . $fetch->filetype; ?></span>
+                            <div data-id="<?php echo $fetch->id; ?>" data-name="<?php echo htmlspecialchars((string) $fetch->file_name, ENT_QUOTES, 'UTF-8'); ?>" class="doc-row">
+								<a style="white-space: initial;" href="javascript:void(0);" onclick="previewFile('<?php echo htmlspecialchars($fileExt, ENT_QUOTES, 'UTF-8');?>','<?php echo $previewUrl; ?>','<?php echo $preview_container_type;?>')">
+                                    <?php echo \App\Helpers\IconHelper::render('file-image'); ?> <span><?php echo htmlspecialchars($fetch->file_name . '.' . $fetch->filetype, ENT_QUOTES, 'UTF-8'); ?></span>
                                 </a>
 							</div>
                         </td>
-						<td style="white-space: initial;"><?php echo $admin->first_name; ?></td>
+						<td style="white-space: initial;"><?php echo htmlspecialchars((string) ($admin->first_name ?? ''), ENT_QUOTES, 'UTF-8'); ?></td>
 
 						<td style="white-space: initial;"><?php echo date('d/m/Y', strtotime($fetch->created_at)); ?></td>
 						<td>
@@ -1759,14 +2266,22 @@ class ClientDocumentController extends Controller
 								<button class="btn btn-primary dropdown-toggle" type="button" id="" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Action</button>
 								<div class="dropdown-menu">
 									<a class="dropdown-item renamedoc" href="javascript:;">Rename</a>
-									<a target="_blank" class="dropdown-item" href="<?php echo asset('img/documents'); ?>/<?php echo $fetch->myfile; ?>">Preview</a>
+									<?php if ($isLegacyLocal) { ?>
+									<a target="_blank" class="dropdown-item" href="<?php echo htmlspecialchars($previewHref, ENT_QUOTES, 'UTF-8'); ?>">Preview</a>
+									<?php } else { ?>
+									<a class="dropdown-item" href="javascript:void(0);" onclick="previewFile('<?php echo htmlspecialchars($fileExt, ENT_QUOTES, 'UTF-8');?>','<?php echo $previewUrl; ?>','<?php echo $preview_container_type;?>')">Preview</a>
+									<?php } ?>
 									<?php
-														$explodeimg = explode('.',$fetch->myfile);
-										if($explodeimg[1] == 'jpg'|| $explodeimg[1] == 'png'|| $explodeimg[1] == 'jpeg'){
+                                        // PDF conversion helper only works for legacy local images
+										if ($isLegacyLocal && $isImageExt) {
 														?>
 															<a target="_blank" class="dropdown-item" href="<?php echo URL::to('/document/download/pdf'); ?>/<?php echo $fetch->id; ?>">PDF</a>
 															<?php } ?>
-									<a download class="dropdown-item" href="<?php echo asset('img/documents'); ?>/<?php echo $fetch->myfile; ?>">Download</a>
+									<?php if ($isLegacyLocal) { ?>
+									<a download class="dropdown-item" href="<?php echo htmlspecialchars($previewHref, ENT_QUOTES, 'UTF-8'); ?>">Download</a>
+									<?php } else { ?>
+									<a class="dropdown-item download-file" href="<?php echo htmlspecialchars($downloadHref, ENT_QUOTES, 'UTF-8'); ?>" target="_blank" rel="noopener">Download</a>
+									<?php } ?>
 
 									<a data-id="<?php echo $fetch->id; ?>" class="dropdown-item deletenote" data-href="deletedocs" href="javascript:;" >Delete</a>
 								</div>
@@ -1779,6 +2294,18 @@ class ClientDocumentController extends Controller
 				ob_start();
 				foreach($fetchd as $fetch){
 					$admin = ClientDocumentStaffResolver::staffRowById($fetch->user_id);
+                    $previewUrl = $this->documentAccessUrlAttr($fetch);
+                    $previewHref = $this->documentAccessUrlForDisplay($fetch);
+                    $isLegacyLocal = $this->documentIsLegacyLocalFile($fetch);
+                    $downloadHref = $isLegacyLocal
+                        ? $previewHref
+                        : (url('/download-document') . '?filelink=' . urlencode($previewHref) . '&filename=' . urlencode(
+                            self::buildClientDocumentDownloadFilename(
+                                (string) ($fetch->file_name ?? 'document'),
+                                (string) ($fetch->filetype ?? '')
+                            )
+                        ));
+                    $fileExt = strtolower((string) ($fetch->filetype ?? ''));
 					?>
 					<div class="grid_list">
 						<div class="grid_col">
@@ -1786,12 +2313,17 @@ class ClientDocumentController extends Controller
 								<?php echo \App\Helpers\IconHelper::render('file-image'); ?>
 							</div>
 							<div class="grid_content">
-								<span id="grid_<?php echo $fetch->id; ?>" class="gridfilename"><?php echo $fetch->file_name; ?></span>
+								<span id="grid_<?php echo $fetch->id; ?>" class="gridfilename"><?php echo htmlspecialchars((string) $fetch->file_name, ENT_QUOTES, 'UTF-8'); ?></span>
 								<div class="dropdown d-inline dropdown_ellipsis_icon">
 									<a class="dropdown-toggle" type="button" id="" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false"><?php echo \App\Helpers\IconHelper::render('ellipsis-v'); ?></a>
 									<div class="dropdown-menu">
-										<a class="dropdown-item" href="<?php echo asset('img/documents'); ?>/<?php echo $fetch->myfile; ?>">Preview</a>
-										<a download class="dropdown-item" href="<?php echo asset('img/documents'); ?>/<?php echo $fetch->myfile; ?>">Download</a>
+										<?php if ($isLegacyLocal) { ?>
+										<a class="dropdown-item" href="<?php echo htmlspecialchars($previewHref, ENT_QUOTES, 'UTF-8'); ?>">Preview</a>
+										<a download class="dropdown-item" href="<?php echo htmlspecialchars($previewHref, ENT_QUOTES, 'UTF-8'); ?>">Download</a>
+										<?php } else { ?>
+										<a class="dropdown-item" href="javascript:void(0);" onclick="previewFile('<?php echo htmlspecialchars($fileExt, ENT_QUOTES, 'UTF-8');?>','<?php echo $previewUrl; ?>','preview-container-documentlist')">Preview</a>
+										<a class="dropdown-item download-file" href="<?php echo htmlspecialchars($downloadHref, ENT_QUOTES, 'UTF-8'); ?>" target="_blank" rel="noopener">Download</a>
+										<?php } ?>
 										<a data-id="<?php echo $fetch->id; ?>" class="dropdown-item deletenote" data-href="deletedocs" href="javascript:;" >Delete</a>
 									</div>
 								</div>
@@ -1805,7 +2337,7 @@ class ClientDocumentController extends Controller
 				$response['griddata']	=$griddata;
 			}else{
 				$response['status'] 	= 	false;
-				$response['message']	=	'Please try again';
+				$response['message']	=	$uploadFailMessage ?: 'Please try again';
 			}
 		 }else{
 			 $response['status'] 	= 	false;
@@ -1841,7 +2373,7 @@ class ClientDocumentController extends Controller
 	}
 
     /**
-     * Delete document
+     * Delete document (S3 or legacy local file cleanup is best-effort).
      */
     public function deletedocs(Request $request){
 		$note_id = $request->note_id;
@@ -1849,6 +2381,23 @@ class ClientDocumentController extends Controller
 		if(Document::where('id',$note_id)->exists()){
 
 			$data = DB::table('documents')->where('id', @$note_id)->first();
+
+            // Best-effort storage cleanup before DB delete
+            if ($data) {
+                $hasS3 = (! empty($data->myfile_key))
+                    || (! empty($data->myfile) && is_string($data->myfile)
+                        && (str_starts_with((string) $data->myfile, 'http://')
+                            || str_starts_with((string) $data->myfile, 'https://')));
+                if ($hasS3) {
+                    $this->tryDeleteDocumentS3Object($data);
+                } elseif (! empty($data->myfile) && $this->documentIsLegacyLocalFile($data)) {
+                    $localPath = public_path('img/documents/' . ltrim((string) $data->myfile, '/'));
+                    if (is_file($localPath)) {
+                        @unlink($localPath);
+                    }
+                }
+            }
+
 			$res = DB::table('documents')->where('id', @$note_id)->delete();
 
 			if($res){
@@ -1878,6 +2427,13 @@ class ClientDocumentController extends Controller
 
     public function downloadpdf(Request $request, $id = NULL){
 	    	$fetchd = Document::where('id',$id)->first();
+            if (! $fetchd) {
+                abort(404, 'Document not found');
+            }
+            // Conversion view expects a local filename under img/documents
+            if (! $this->documentIsLegacyLocalFile($fetchd)) {
+                abort(400, 'PDF conversion is only available for local image documents.');
+            }
 	    	$data = ['title' => 'Welcome to codeplaners.com','image' => $fetchd->myfile];
         $pdf = PDF::loadView('myPDF', $data);
 

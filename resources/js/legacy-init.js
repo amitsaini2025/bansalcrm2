@@ -725,7 +725,9 @@
     $(document).ready(function(){
         if (document.getElementById('countbell_notification')) {
             document.getElementById('countbell_notification').parentNode.addEventListener('click', function(event){
-                window.location = "/all-notifications";
+                // N-5: respect app base (subdirectory) via site_url
+                var base = (typeof site_url !== 'undefined' && site_url) ? site_url : '';
+                window.location = base + '/all-notifications';
             });
         }
         
@@ -735,45 +737,76 @@
                 method:"GET",
                 dataType:"json",
                 success:function(data) {
-                    if(data.unseen_notification > 0) {
-                        $('.countbell').html(data.unseen_notification);
+                    // Always sync badge (including 0) so it can clear after read/mark-all
+                    var count = parseInt(data && data.unseen_notification, 10);
+                    if (isNaN(count) || count < 0) {
+                        count = 0;
                     }
+                    $('.countbell').html(count > 0 ? count : '');
                 }
             });
         }
         
+        function mark_toast_message_seen(notificationId) {
+            if (!notificationId) {
+                return;
+            }
+            $.ajax({
+                url: site_url + "/notifications/mark-toast-seen",
+                method: "POST",
+                headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content') },
+                data: { id: notificationId }
+            });
+        }
+
         function load_unseen_messages(view = '') {
             load_unseen_notification();
             var playing = false;
             $.ajax({
                 url: site_url + "/fetch-messages",
                 method:"GET",
+                dataType:"json",
                 success:function(data) {
-                    if(data != 0){
-                        if (typeof iziToast !== 'undefined') {
-                            iziToast.show({
-                                backgroundColor: 'rgba(0,0,255,0.3)',
-                                messageColor: 'rgba(255,255,255)',
-                                title: '',
-                                message: data,
-                                position: 'bottomRight'
-                            });
+                    // Support legacy plain-string responses and new {id, message} JSON
+                    var message = null;
+                    var notificationId = null;
+                    if (data && typeof data === 'object') {
+                        message = data.message || null;
+                        notificationId = data.id || null;
+                    } else if (data != null && data !== 0 && data !== '0') {
+                        message = data;
+                    }
+
+                    if (!message) {
+                        return;
+                    }
+
+                    // N-2: only mark seen after toast can actually be shown
+                    if (typeof iziToast !== 'undefined') {
+                        iziToast.show({
+                            backgroundColor: 'rgba(0,0,255,0.3)',
+                            messageColor: 'rgba(255,255,255)',
+                            title: '',
+                            message: message,
+                            position: 'bottomRight'
+                        });
+                        mark_toast_message_seen(notificationId);
+                    }
+
+                    $(this).toggleClass("down");
+                    if (playing == false) {
+                        var player = document.getElementById('player');
+                        if (player) {
+                            player.play();
+                            playing = true;
+                            $(this).text("stop sound");
                         }
-                        $(this).toggleClass("down");
-                        if (playing == false) {
-                            var player = document.getElementById('player');
-                            if (player) {
-                                player.play();
-                                playing = true;
-                                $(this).text("stop sound");
-                            }
-                        } else {
-                            var player = document.getElementById('player');
-                            if (player) {
-                                player.pause();
-                                playing = false;
-                                $(this).text("restart sound");
-                            }
+                    } else {
+                        var player = document.getElementById('player');
+                        if (player) {
+                            player.pause();
+                            playing = false;
+                            $(this).text("restart sound");
                         }
                     }
                 }

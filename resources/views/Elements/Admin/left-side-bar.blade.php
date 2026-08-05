@@ -128,11 +128,8 @@
 			if(Route::currentRouteName() == 'officevisits.waiting' || Route::currentRouteName() == 'officevisits.attending' || Route::currentRouteName() == 'officevisits.completed'){
 				$checlasstype = 'active'; 
 			}
-			 //if(\Auth::user()->role == 1){
-                $InPersonwaitingCount = \App\Models\CheckinLog::where('status',0)->count();
-            /*}else{
-                $InPersonwaitingCount = \App\Models\CheckinLog::where('user_id',Auth::user()->id)->where('status',0)->orderBy('created_at', 'desc')->count();
-            }*/
+			// N-3: role/reception scoped waiting badge (same as fetchInPersonWaitingCount)
+			$InPersonwaitingCount = \App\Models\CheckinLog::waitingCountForUser(\Auth::user());
 			?>
 			<li class="dropdown {{@$checlasstype}}">
 				<a href="{{route('officevisits.waiting')}}" class="nav-link">@icon('check-circle')<span>In Person<span class="countInPersonWaitingAction" style="background: #0066cc;

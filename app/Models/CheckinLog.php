@@ -50,4 +50,26 @@ class CheckinLog extends Model
     {
         return $this->hasMany('App\Models\CheckinHistory', 'checkin_id');
     }
+
+    /**
+     * Sidebar / poll badge: waiting (status=0) count for the given staff user.
+     * Super admin + reception see the full floor; others see only their assignee queue.
+     * Does not change waiting-list page queries (shared queue UX unchanged).
+     */
+    public static function waitingCountForUser($user): int
+    {
+        if (!$user) {
+            return 0;
+        }
+
+        $receptionId = (int) config('constants.reception_user_id', 0);
+        $seesAll = ((int) $user->role === 1)
+            || ($receptionId > 0 && (int) $user->id === $receptionId);
+
+        if ($seesAll) {
+            return (int) static::where('status', 0)->count();
+        }
+
+        return (int) static::where('user_id', $user->id)->where('status', 0)->count();
+    }
 }

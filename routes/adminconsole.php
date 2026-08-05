@@ -176,6 +176,8 @@ Route::prefix('adminconsole')->middleware('auth:admin')->group(function() {
     //Upload Checklists Routes
     Route::get('/upload-checklists', [UploadChecklistController::class, 'index'])->name('adminconsole.upload_checklists.index');
     Route::post('/upload-checklists/store', [UploadChecklistController::class, 'store'])->name('adminconsole.upload_checklists.store');
+    Route::get('/upload-checklists/edit/{id}', [UploadChecklistController::class, 'edit'])->name('adminconsole.upload_checklists.edit');
+    Route::post('/upload-checklists/edit/{id}', [UploadChecklistController::class, 'update'])->name('adminconsole.upload_checklists.update');
     
     //Email Labels Routes
     Route::get('/email-labels', [EmailLabelController::class, 'index'])->name('adminconsole.emaillabels.index');

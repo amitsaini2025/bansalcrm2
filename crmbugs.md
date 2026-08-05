@@ -3,7 +3,7 @@
 **Date:** 2026-07-26  
 **Last deep review:** 2026-07-26 (code-verified; false positives retracted; wording corrected)  
 **Scope:** Full CRM audit by area (Clients, Leads, Partners, Agents, Applications, Invoices/Receipts, Email/Messaging, Documents, Followups, Actions, Staff/Roles/Teams/Branches, Reports, Admin Console, Auth/CRM Access, Ongoing Sheet, Notifications, Shared Frontend/Config, SMS Webhooks).  
-**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4, L-5, L-7, L-8, L-9, L-11).  
+**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4, L-5, L-7, L-8, L-9, L-11, OS-1, OS-2, OS-3, N-1, N-2, N-3, N-4, N-5).  
 **Stack note:** Laravel **13.x** (route parameters bind **by position** after DI, not by PHP parameter name).
 
 Severity: **Critical** (crash / data corruption / money wrong / security) · **High** (major feature broken or serious auth hole) · **Medium** (incorrect behavior) · **Low** (edge case / UX / maintenance risk)
@@ -19,7 +19,11 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 | **APP-3** | Split: ~1470 request-controlled SQLi; ~1575 same antipattern but ID from DB |
 | **P-3 / P-11** | Removed false “ungrouped OR” on partner Invoice tab (OR **is** grouped); fee-join inflation remains |
 | **FE-4** | Narrowed residual: default Tom Select templates already emit HTML; risk is custom plain-text `render` |
-| **N-1** | Split: initial header badge OK; AJAX poll returns total not unseen |
+| **N-1** | **FIXED** — `fetchnotification` counts `receiver_status = 0` only; `legacy-init.js` always syncs badge (clears at 0) |
+| **N-2** | **FIXED** — `fetchmessages` no longer marks `seen` on poll; client marks after toast via `/notifications/mark-toast-seen` |
+| **N-3** | **FIXED** — In Person waiting badge scoped: admin + reception see all; others see own assignee queue (list pages unchanged) |
+| **N-4** | **FIXED** — Office-visit toast text escaped + safe same-origin URL for View Details (`admin.blade.php`) |
+| **N-5** | **FIXED** — Bell click uses `site_url + '/all-notifications'` (subdirectory-safe) |
 | **CA-2** | Downgraded practical risk — grant create/approve always sets `ends_at` |
 | **S-1** | Added exact StaffController arg + double mismatch (values vs keys; string vs module id) |
 | **ACT-1** | Noted `FIXES_APPLIED_assigned_by_me.md` did **not** fix XSS |
@@ -448,29 +452,45 @@ if ($invoicelist->type == 2) {
 
 ### High
 
-#### D-1. `uploaddocument` still uses local storage, not S3
-- **File:** `ClientDocumentController.php` (~1673–1814) — `public/img/documents/` vs `uploadalldocument` S3 path → inconsistent preview/download.
+#### ~~D-1. `uploaddocument` still uses local storage, not S3~~ — **FIXED**
+- **File:** `ClientDocumentController.php` — `uploaddocument`, dual preview HTML, `deletedocs`, `downloadpdf` guard; compose dual-read in `AdminController` + `detail.blade.php`
+- **Fix:** New uploads use S3 (`myfile` URL + `myfile_key`) with fail-closed on S3 error; list/preview/delete dual-read S3 vs legacy `img/documents/`; PDF convert only for legacy local images; compose attach/send uses remote when key/URL present so education/migration S3 rows keep working.
+#### ~~D-2. `uploadalldocument` continues after S3 failure~~ — **FIXED**
+- **File:** `ClientDocumentController.php` — `uploadalldocument` (+ bulk upload same fail-closed pattern); `document-upload.js` error toast
+- **Fix:** On S3 put failure, return `status: false`, do not write `myfile` / `myfile_key`; checklist row stays uploadable. Success path unchanged.
 
-#### D-2. `uploadalldocument` continues after S3 failure
-- **File:** (~1446–1457) — logs warning, still saves DB row → UI shows doc that 404s.
+#### ~~D-3. `download_document` / preview — no authorization (any authenticated admin + arbitrary `filelink`)~~ — **FIXED**
+- **File:** `ClientDocumentController.php` — `download_document`, `preview_document`, `preview_document_view` + `authorizeDocumentFileAccess`
+- **Fix:** Presign only when `filelink` matches a `documents` row (`myfile` / `signed_doc_link` / resolved S3 key / optional `document_id`). Existing UI keeps using `filelink` only; arbitrary S3 URLs without a CRM row get 403.
 
-#### D-3. `download_document` / preview — no authorization (any authenticated admin + arbitrary `filelink`)
-- **File:** (~697–787) — accepts arbitrary S3 URL and presigns if object exists.
-
-#### D-4. Public signing: Python failure silently copies unsigned PDF
-- **File:** `PublicDocumentController.php` (~411–437) — on Python error, copies unsigned PDF, marks signed, generates tamper hash from unsigned copy.
+#### ~~D-4. Public signing: Python failure silently copies unsigned PDF~~ — **FIXED**
+- **File:** `PublicDocumentController.php` — public `submitSignatures` / add_signatures
+- **Fix:** On Python HTTP/body/connection failure, missing/empty output, or output identical to source PDF: leave signer pending, no signed status/hash/_signed row; return error (503/AJAX or redirect) so client can retry. Success path unchanged when Python stamps the file.
 
 ### Medium
 
-#### D-5. `deletealldocs` S3 key reconstruction fragile → orphan objects
-#### D-6. Public signing: activity/notifications skip when only `client_id` set (not `documentable_*`)
-#### D-7. Public signing: S3 download disables SSL verification (`verify_peer => false`)
-#### D-8. Legacy preview uses `asset()` on full S3 URL → broken double URL
+#### ~~D-5. `deletealldocs` S3 key reconstruction fragile → orphan objects~~ — **FIXED**
+- **File:** `ClientDocumentController.php` — `deletealldocs` + shared `resolveS3KeyFromFileUrl` / multi-candidate S3 delete
+- **Fix:** Resolve key like preview (strip bucket prefix); fallbacks: full key from `myfile`, `{client_unique_id}/{doc_type}/{myfile_key}`, legacy segments; S3 miss only logs — DB delete + response still succeed.
+#### ~~D-6. Public signing: activity/notifications skip when only `client_id` set (not `documentable_*`)~~ — **FIXED**
+- **File:** `PublicDocumentController.php` — `createSignatureNotifications`
+- **Fix:** Resolve client from `documentable_*` (Admin) first; fall back to `client_id`. Activity + notification when client found; signing flow unchanged on failure.
+#### ~~D-7. Public signing: S3 download disables SSL verification (`verify_peer => false`)~~ — **FIXED**
+- **File:** `PublicDocumentController.php` — `downloadS3FileToTemp`
+- **Fix:** Prefer `Storage::disk('s3')->get` → presigned verified HTTP → verified HTTPS; insecure SSL only when `APP_ENV=local` and `ALLOW_INSECURE_S3_DOWNLOAD=true`.
+#### ~~D-8. Legacy preview uses `asset()` on full S3 URL → broken double URL~~ — **FIXED**
+- **Files:** `Helper::documentFileUrl` / `documentFileUrlAttr`; client/partner document HTML; `document-handlers.js` normalize
+- **Fix:** Absolute http(s) URLs passed through; relative paths still use `asset()`; JS unwraps accidental `https://app/https://…` if any remain.
 
 ### Low
 
-#### D-9. Drag-drop click always opens file picker (no target filtering)
-#### D-10. `UploadChecklistController` incomplete (no edit/delete; missing files break compose)
+#### ~~D-9. Drag-drop click always opens file picker (no target filtering)~~ — **FIXED**
+- **Files:** `blade-inline.js`, `partner-detail/bulk-upload.js`, `drag-drop-handlers.js` (+ Vite rebuild)
+- **Fix:** Click opens file picker only on empty dropzone/`#ddArea` area; skips interactive children; client bulk uses scoped `$(this).find('.bulk-upload-file-input')`.
+#### ~~D-10. `UploadChecklistController` incomplete (no edit/delete; missing files break compose)~~ — **FIXED**
+- **Files:** `UploadChecklistController.php`; `UploadChecklist` model; `AdminController` compose + `deleteAction`; `uploadchecklist/index|edit`; routes
+- **Fix:** Edit/update (+ optional file replace); delete via existing `deleteAction` with disk cleanup; compose skips missing `public/checklists/*` files and logs a warning; list shows Missing when file absent.
+
 
 ---
 
@@ -636,17 +656,20 @@ if ($invoicelist->type == 2) {
 
 ### High
 
-#### OS-1. Mutating endpoints lack client visibility checks
-- **File:** `OngoingSheetController.php` — `updateReference`, `storeSheetComment`, `updateChecklistStatus` (can set status/stage), `storePhoneReminder`
-- **What happens:** List uses `StaffClientVisibility`; mutations accept any `application_id` / `clientId`.
+#### OS-1. Mutating endpoints lack client visibility checks — **FIXED**
+- **File:** `OngoingSheetController.php` — `updateReference`, `storeSheetComment`, `updateChecklistStatus`, `storePhoneReminder`
+- **What happened:** List used `StaffClientVisibility`; mutations accepted any `application_id` / `clientId`.
+- **Fix:** Shared `denyUnlessVisibleClient()` uses `StaffClientVisibility::canAccessAdminRecord` before mutations; 403 JSON when denied. Exempt / allocated access unchanged for rows staff can already see.
 
 ### Medium
 
-#### OS-2. Insights “clients seen” / load not visibility-scoped the same way as list
+#### OS-2. Insights “clients seen” / load not visibility-scoped the same way as list — **FIXED**
+- **Fix:** `sheetsInsights` scopes check-in “clients seen” and per-assignee “load” with `StaffClientVisibility` (same rules as `$appBase` / sheet list). Exempt / non-strict users unchanged.
 
 ### Low
 
-#### OS-3. Session filter persistence surprises (hard to clear without `clear_filters`)
+#### OS-3. Session filter persistence surprises (hard to clear without `clear_filters`) — **FIXED**
+- **Fix:** Session restore still keeps filters on return, but bare sheet visits now **redirect** to a URL that includes the restored filters so the address bar matches applied filters. Clear/Reset still use `clear_filters` and wipe session. See `OngoingSheetController::index` + restore redirect helpers.
 
 ---
 
@@ -654,19 +677,27 @@ if ($invoicelist->type == 2) {
 
 ### High
 
-#### N-1. Bell count poll returns total notifications, not unseen
-- **Files:** `AdminController.php` `fetchnotification` (~123–140) — `receiver_status = 0` filter **commented**; returns total as `unseen_notification`; `legacy-init.js` treats value as unseen → badge can stay high / never clear when count is 0.
-- **Review note:** Initial header badge in `header.blade.php` **does** filter `receiver_status = 0`. Dual path: first paint OK, poll wrong.
+#### ~~N-1. Bell count poll returns total notifications, not unseen~~ — **FIXED**
+- **Was:** `AdminController.php` `fetchnotification` — `receiver_status = 0` filter commented; returned total as `unseen_notification`; `legacy-init.js` only updated badge when count `> 0` (never cleared).
+- **Fix:** Poll count matches header: `receiver_id` + `receiver_status = 0`; badge always synced (empty when 0).
 
 ### Medium
 
-#### N-2. `fetchmessages` auto-marks first unseen as seen on poll (even if toast fails)
-#### N-3. In-person waiting count is global for all roles (role branch commented)
-#### N-4. Office-visit toast HTML not escaped (`layouts/admin.blade.php` ~517–521) — XSS risk
+#### ~~N-2. `fetchmessages` auto-marks first unseen as seen on poll (even if toast fails)~~ — **FIXED**
+- **Was:** GET poll set `seen = 1` before toast; toast failure still consumed notification.
+- **Fix:** `fetchmessages` returns `{id, message}` without marking; client POSTs `/notifications/mark-toast-seen` only after `iziToast.show`.
+#### ~~N-3. In-person waiting count is global for all roles (role branch commented)~~ — **FIXED**
+- **Was:** Sidebar + `fetchInPersonWaitingCount` always counted all `status=0` (role branch commented).
+- **Fix:** Shared `CheckinLog::waitingCountForUser()` — global for role 1 and `reception_user_id`; others filter `user_id`. Waiting list page still shows full queue (no feature break).
+#### ~~N-4. Office-visit toast HTML not escaped (`layouts/admin.blade.php` ~517–521) — XSS risk~~ — **FIXED**
+- **Was:** Dynamic toast fields concatenated into `innerHTML` without escaping.
+- **Fix:** `escapeHtml()` on text fields; `safeNotificationUrl()` allows only same-origin/relative paths (fallback waiting page). Buttons/actions unchanged.
 
 ### Low
 
-#### N-5. Bell click hard-codes `/all-notifications` (ignores subdirectory / `site_url`)
+#### ~~N-5. Bell click hard-codes `/all-notifications` (ignores subdirectory / `site_url`)~~ — **FIXED**
+- **Was:** `window.location = "/all-notifications"` always hit site root.
+- **Fix:** Navigate with `(site_url || '') + '/all-notifications'` in `legacy-init.js`.
 
 ---
 
@@ -738,7 +769,7 @@ if ($invoicelist->type == 2) {
 2. C-1/C-2/C-7–C-11 IDOR; D-3 document download auth; AC-1 Admin Console gates; S-1 role auth mismatch  
 3. L-1 convert-to-client; C-3 missing application routes; APP-1/APP-2 finalize + stage crash  *(A-1 agent import — **FIXED**)*  
 4. D-4 signing unsigned PDF; E-6 Elite webhook auth; SMS-1 webhook signatures; FE-1 APP_DEBUG default  
-5. F-1 followup consultant hardcoding; FE-5 recipient XSS; N-1 notification poll badge  
+5. F-1 followup consultant hardcoding; FE-5 recipient XSS; N-1 notification poll badge *(N-1 — **FIXED**)*  
 
 ---
 

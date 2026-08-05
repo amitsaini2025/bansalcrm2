@@ -586,14 +586,14 @@ use App\Http\Controllers\Controller;
 																	<div data-id="{{$fetch->id}}" data-name="<?php echo $fetch->file_name; ?>" class="doc-row">
 																		<?php
 																		if (isset($fetch->myfile_key) && $fetch->myfile_key != '') {
-																			$inlinePreviewUrl = asset($fetch->myfile);
+																			$inlinePreviewUrl = \App\Helpers\Helper::documentFileUrl($fetch->myfile);
 																		} else {
 																			$docType = $fetch->doc_type ? $fetch->doc_type : 'documents';
 																			if (filter_var($fetch->myfile, FILTER_VALIDATE_URL)) {
-																				$inlinePreviewUrl = asset($fetch->myfile);
+																				$inlinePreviewUrl = \App\Helpers\Helper::documentFileUrl($fetch->myfile);
 																			} else {
 																				$url = 'https://'.env('AWS_BUCKET').'.s3.'. env('AWS_DEFAULT_REGION') . '.amazonaws.com/';
-																				$inlinePreviewUrl = asset($url.$fetchedData->id.'/'.$docType.'/'.$fetch->myfile);
+																				$inlinePreviewUrl = \App\Helpers\Helper::documentFileUrl($url.$fetchedData->id.'/'.$docType.'/'.$fetch->myfile);
 																			}
 																		}
 																		?>
@@ -741,10 +741,10 @@ use App\Http\Controllers\Controller;
 																	<div data-id="{{$fetch->id}}" data-name="<?php echo $fetch->file_name; ?>" class="doc-row">
 																		<?php
 																		if (isset($fetch->myfile_key) && $fetch->myfile_key != '') {
-																			$inlinePreviewUrl = asset($fetch->myfile);
+																			$inlinePreviewUrl = \App\Helpers\Helper::documentFileUrl($fetch->myfile);
 																		} else {
 																			$url = 'https://'.env('AWS_BUCKET').'.s3.'. env('AWS_DEFAULT_REGION') . '.amazonaws.com/';
-																			$inlinePreviewUrl = asset($url.$fetchedData->id.'/'.$fetch->doc_type.'/'.$fetch->myfile);
+																			$inlinePreviewUrl = \App\Helpers\Helper::documentFileUrl($url.$fetchedData->id.'/'.$fetch->doc_type.'/'.$fetch->myfile);
 																		}
 																		?>
 																			<a href="javascript:void(0);"

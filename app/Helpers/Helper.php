@@ -179,4 +179,41 @@ class Helper
 
         return $asString !== '' ? $asString : '—';
     }
+
+    /**
+     * Browser URL for a document file stored as either a full remote URL or a public relative/local path.
+     * Prevents asset() double-wrapping (e.g. https://app/https://bucket.s3.../key).
+     */
+    public static function documentFileUrl(?string $pathOrUrl): string
+    {
+        $pathOrUrl = trim((string) $pathOrUrl);
+        if ($pathOrUrl === '') {
+            return '';
+        }
+
+        // Already double-wrapped by a previous asset(fullUrl) misuse
+        if (preg_match('#^https?://[^/]+/(https?://.+)$#i', $pathOrUrl, $matches)) {
+            return $matches[1];
+        }
+
+        // Protocol-relative
+        if (str_starts_with($pathOrUrl, '//')) {
+            return $pathOrUrl;
+        }
+
+        // Absolute remote URL (S3, CDN, etc.)
+        if (preg_match('#^https?://#i', $pathOrUrl)) {
+            return $pathOrUrl;
+        }
+
+        return asset(ltrim($pathOrUrl, '/'));
+    }
+
+    /**
+     * Escaped document URL safe for HTML attributes and single-quoted JS onclick strings.
+     */
+    public static function documentFileUrlAttr(?string $pathOrUrl): string
+    {
+        return htmlspecialchars(self::documentFileUrl($pathOrUrl), ENT_QUOTES, 'UTF-8');
+    }
 }

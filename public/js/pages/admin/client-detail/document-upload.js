@@ -112,10 +112,22 @@ jQuery(document).ready(function($){
                         $('.allgriddata').html(ress.griddata);
                     }
                 }else{
-                    $('.custom-error-msg').html('<span class="alert alert-danger">'+ress.message+'</span>');
+                    var failMsg = (ress && ress.message) ? ress.message : 'Upload failed. Please try again.';
+                    $('.custom-error-msg').html('<span class="alert alert-danger">'+failMsg+'</span>');
+                    if (typeof window.toastMsg === 'function') {
+                        window.toastMsg(failMsg, 'error');
+                    }
                 }
                 if(typeof getallactivities === 'function') {
                     getallactivities();
+                }
+            },
+            error: function() {
+                $('.popuploader').hide();
+                var failMsg = 'Upload failed. Please try again.';
+                $('.custom-error-msg').html('<span class="alert alert-danger">'+failMsg+'</span>');
+                if (typeof window.toastMsg === 'function') {
+                    window.toastMsg(failMsg, 'error');
                 }
             }
         });

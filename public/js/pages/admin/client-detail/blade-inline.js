@@ -289,11 +289,17 @@ $(document).on('click', '.bulk-upload-toggle-btn', function() {
     }
 });
 
-// Click to browse files
+// Click to browse files — only empty dropzone area (not interactive children)
 $(document).on('click', '.bulk-upload-dropzone', function(e) {
-    if (!$(e.target).is('input')) {
-        $('.bulk-upload-file-input').click();
+    if ($(e.target).closest(
+        'input, button, a, select, textarea, label, ' +
+        '.bulk-upload-remove-file, .dropdown, .dropdown-menu, ' +
+        '.bulk-upload-file-list'
+    ).length) {
+        return;
     }
+    e.preventDefault();
+    $(this).find('.bulk-upload-file-input').first().click();
 });
 
 // File input change

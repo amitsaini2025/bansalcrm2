@@ -548,8 +548,11 @@ Route::post('/save_tag', [ClientController::class, 'save_tag']);
 
 Route::get('/fetch-notification', [AdminController::class, 'fetchnotification']);
 Route::get('/fetch-messages', [AdminController::class, 'fetchmessages']);
+Route::post('/notifications/mark-toast-seen', [AdminController::class, 'markToastMessageSeen'])->name('notifications.mark-toast-seen');
 Route::get('/upload-checklists', [UploadChecklistController::class, 'index'])->name('upload_checklists.index');
 Route::post('/upload-checklists/store', [UploadChecklistController::class, 'store'])->name('upload_checklistsupload');
+Route::get('/upload-checklists/edit/{id}', [UploadChecklistController::class, 'edit'])->name('upload_checklists.edit');
+Route::post('/upload-checklists/edit/{id}', [UploadChecklistController::class, 'update'])->name('upload_checklists.update');
 Route::get('/teams', [TeamController::class, 'index'])->name('teams.index');
 Route::get('/teams/edit/{id}', [TeamController::class, 'edit'])->name('teams.edit');
 Route::post('/teams/edit', [TeamController::class, 'edit'])->name('teams.update');

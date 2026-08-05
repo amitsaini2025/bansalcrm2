@@ -319,7 +319,7 @@
                         
                         <div class="d-flex gap-2 align-items-center flex-wrap">
                             @if($activeFilterCount > 0)
-                                <a href="{{ route($sheetRoute ?? 'clients.sheets.ongoing', ['clear_filters' => 1]) }}" class="btn-ongoing-reset text-decoration-none">
+                                <a href="{{ route($sheetRoute ?? 'clients.sheets.ongoing', ['clear_filters' => 1]) }}" class="btn-ongoing-reset text-decoration-none" title="Clear filters and stop remembering them for next visit">
                                     @icon('times', 'solid', ['class' => 'me-1']) Clear Filters
                                 </a>
                             @endif
@@ -422,7 +422,7 @@
                                             <button type="submit" class="btn-ongoing-apply">
                                                 @icon('search', 'solid', ['class' => 'me-1']) Apply
                                             </button>
-                                            <a href="{{ route($sheetRoute ?? 'clients.sheets.ongoing', ['clear_filters' => 1]) }}" class="btn-ongoing-reset text-decoration-none">
+                                            <a href="{{ route($sheetRoute ?? 'clients.sheets.ongoing', ['clear_filters' => 1]) }}" class="btn-ongoing-reset text-decoration-none" title="Clear filters and stop remembering them for next visit">
                                                 @icon('redo', 'solid', ['class' => 'me-1']) Reset
                                             </a>
                                         </div>
