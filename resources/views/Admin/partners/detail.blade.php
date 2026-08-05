@@ -592,8 +592,7 @@ use App\Http\Controllers\Controller;
 																			if (filter_var($fetch->myfile, FILTER_VALIDATE_URL)) {
 																				$inlinePreviewUrl = \App\Helpers\Helper::documentFileUrl($fetch->myfile);
 																			} else {
-																				$url = 'https://'.env('AWS_BUCKET').'.s3.'. env('AWS_DEFAULT_REGION') . '.amazonaws.com/';
-																				$inlinePreviewUrl = \App\Helpers\Helper::documentFileUrl($url.$fetchedData->id.'/'.$docType.'/'.$fetch->myfile);
+																				$inlinePreviewUrl = \App\Helpers\Helper::s3ObjectUrl($fetchedData->id.'/'.$docType.'/'.$fetch->myfile);
 																			}
 																		}
 																		?>
@@ -649,14 +648,13 @@ use App\Http\Controllers\Controller;
 																<div class="dropdown-menu">
 																	<?php $docType = $fetch->doc_type ? $fetch->doc_type : 'documents'; ?>
 																	<?php if( isset($fetch->myfile_key) && $fetch->myfile_key != ""){ //For new file upload ?>
-																		<a target="_blank" class="dropdown-item" href="<?php echo $fetch->myfile; ?>">Preview</a>
-																		<a download class="dropdown-item" href="<?php echo $fetch->myfile; ?>">Download</a>
+																		<a target="_blank" class="dropdown-item" href="<?php echo \App\Helpers\Helper::documentFileUrl($fetch->myfile); ?>">Preview</a>
+																		<a download class="dropdown-item" href="<?php echo \App\Helpers\Helper::documentFileUrl($fetch->myfile); ?>">Download</a>
 																	<?php } else {  //For old file upload
 																		if (filter_var($fetch->myfile, FILTER_VALIDATE_URL)) {
-																			$previewUrl = $fetch->myfile;
+																			$previewUrl = \App\Helpers\Helper::documentFileUrl($fetch->myfile);
 																		} else {
-																			$url = 'https://'.env('AWS_BUCKET').'.s3.'. env('AWS_DEFAULT_REGION') . '.amazonaws.com/';
-																			$previewUrl = $url.$fetchedData->id.'/'.$docType.'/'.$fetch->myfile;
+																			$previewUrl = \App\Helpers\Helper::s3ObjectUrl($fetchedData->id.'/'.$docType.'/'.$fetch->myfile);
 																		}
 																	?>
 																		<a target="_blank" class="dropdown-item" href="<?php echo $previewUrl; ?>">Preview</a>
@@ -743,8 +741,7 @@ use App\Http\Controllers\Controller;
 																		if (isset($fetch->myfile_key) && $fetch->myfile_key != '') {
 																			$inlinePreviewUrl = \App\Helpers\Helper::documentFileUrl($fetch->myfile);
 																		} else {
-																			$url = 'https://'.env('AWS_BUCKET').'.s3.'. env('AWS_DEFAULT_REGION') . '.amazonaws.com/';
-																			$inlinePreviewUrl = \App\Helpers\Helper::documentFileUrl($url.$fetchedData->id.'/'.$fetch->doc_type.'/'.$fetch->myfile);
+																			$inlinePreviewUrl = \App\Helpers\Helper::s3ObjectUrl($fetchedData->id.'/'.$fetch->doc_type.'/'.$fetch->myfile);
 																		}
 																		?>
 																			<a href="javascript:void(0);"
@@ -766,13 +763,13 @@ use App\Http\Controllers\Controller;
 																	<button class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Action</button>
 																	<div class="dropdown-menu">
 																		<?php
-																		$url = 'https://'.env('AWS_BUCKET').'.s3.'. env('AWS_DEFAULT_REGION') . '.amazonaws.com/';
+																		if (isset($fetch->myfile_key) && $fetch->myfile_key != "") {
+																			$notUsedPreviewUrl = \App\Helpers\Helper::documentFileUrl($fetch->myfile);
+																		} else {
+																			$notUsedPreviewUrl = \App\Helpers\Helper::s3ObjectUrl($fetchedData->id.'/'.$fetch->doc_type.'/'.$fetch->myfile);
+																		}
 																		?>
-																		<?php if( isset($fetch->myfile_key) && $fetch->myfile_key != ""){ //For new file upload ?>
-																			<a target="_blank" class="dropdown-item" href="<?php echo $fetch->myfile; ?>">Preview</a>
-																		<?php } else {  //For old file upload ?>
-																			<a target="_blank" class="dropdown-item" href="<?php echo $url.$fetchedData->id.'/'.$fetch->doc_type.'/'.$fetch->myfile; ?>">Preview</a>
-																		<?php } ?>
+																			<a target="_blank" class="dropdown-item" href="<?php echo $notUsedPreviewUrl; ?>">Preview</a>
 
 																		<a data-id="{{$fetch->id}}" class="dropdown-item backtodoc" data-doctype="documents" data-href="backtodoc" href="javascript:;">Back To Document</a>
 																	</div>
@@ -931,6 +928,7 @@ use App\Http\Controllers\Controller;
                                     <div class="row">
 										<div class="col-md-12 mt-3 mb-3">
                                             <?php
+                                            // Latest fee row only (MAX id) — same rule as partner student tab totals
                                             $studentdataArr = \App\Models\Application::leftJoin('partners', 'applications.partner_id', '=', 'partners.id')
                                             ->leftJoin('application_fee_options', 'applications.id', '=', 'application_fee_options.app_id')
                                             ->select(
@@ -944,6 +942,9 @@ use App\Http\Controllers\Controller;
                                                         ->orWhere('applications.stage', 'Enrolled')
                                                         ->orWhere('applications.stage', 'Coe Cancelled');
                                             })
+                                            ->whereRaw(
+                                                'application_fee_options.id = (SELECT MAX(afo2.id) FROM application_fee_options afo2 WHERE afo2.app_id = applications.id)'
+                                            )
                                             ->orderBy('applications.created_at', 'ASC')
                                             ->get(); //dd($studentdataArr);
                                             $Total_Projected_Fee = 0;
@@ -1042,8 +1043,7 @@ use App\Http\Controllers\Controller;
                                                                     if(isset($rec_val->uploaded_doc_id) && $rec_val->uploaded_doc_id >0){
                                                                         $client_doc_list = ($invoiceDocumentMap ?? collect())->get($rec_val->uploaded_doc_id);
                                                                         if($client_doc_list){
-                                                                            $url = 'https://'.env('AWS_BUCKET').'.s3.'. env('AWS_DEFAULT_REGION') . '.amazonaws.com/';
-                                                                            $awsUrl =  $client_doc_list->myfile;
+                                                                            $awsUrl = \App\Helpers\Helper::documentFileUrl($client_doc_list->myfile);
                                                                         ?>
                                                                             <a target="_blank" class="link-primary" href="<?php echo $awsUrl;?>">@icon('file-pdf')</a>
                                                                         <?php

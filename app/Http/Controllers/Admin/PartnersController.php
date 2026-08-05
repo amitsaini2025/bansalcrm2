@@ -3343,9 +3343,8 @@ class PartnersController extends Controller
                 $response['db_total_deposit_amount'] = $db_total_deposit_amount; //dd($db_total_deposit_amount);
 
                 if($doc_saved){
-                    //Get AWS Url link
-                    $url = 'https://'.env('AWS_BUCKET').'.s3.'. env('AWS_DEFAULT_REGION') . '.amazonaws.com/';
-                    $awsUrl = $url.$client_unique_id.'/'.$doctype.'/'.$name; //dd($awsUrl);
+                    //Get AWS Url link (disk/AWS_URL — not hand-built host)
+                    $awsUrl = \App\Helpers\Helper::s3ObjectUrl($client_unique_id.'/'.$doctype.'/'.$name);
                     $response['awsUrl'] = $awsUrl;
                     $response['message'] = 'Student Invoice with document added successfully';
                     $subject = 'added student invoice with invoice No-'.$requestData['invoice_no'].' and document' ;
@@ -3528,9 +3527,8 @@ class PartnersController extends Controller
                     ->where('invoice_type',1)
                     ->update(['uploaded_doc_id'=> $insertedDocId2]);
 
-                    //Get AWS Url link
-                    $url2 = 'https://'.env('AWS_BUCKET').'.s3.'. env('AWS_DEFAULT_REGION') . '.amazonaws.com/';
-                    $awsUrl2 = $url2.$client_unique_id.'/'.$doctype.'/'.$name; //dd($awsUrl);
+                    //Get AWS Url link (disk/AWS_URL — not hand-built host)
+                    $awsUrl2 = \App\Helpers\Helper::s3ObjectUrl($client_unique_id.'/'.$doctype.'/'.$name);
                     $response['awsUrl2'] = $awsUrl2;
                     $response['message'] = 'Student Invoice with document added successfully';
                     $subject = 'added student invoice with invoice No-'.$requestData['invoice_no'].' and document' ;
@@ -3739,9 +3737,8 @@ class PartnersController extends Controller
                 $response['db_total_deposit_amount'] = $db_total_deposit_amount; //dd($db_total_deposit_amount );
 
                 if($doc_saved){
-                    //Get AWS Url link
-                    $url = 'https://'.env('AWS_BUCKET').'.s3.'. env('AWS_DEFAULT_REGION') . '.amazonaws.com/';
-                    $awsUrl = $url.$client_unique_id.'/'.$doctype.'/'.$name; //dd($awsUrl);
+                    //Get AWS Url link (disk/AWS_URL — not hand-built host)
+                    $awsUrl = \App\Helpers\Helper::s3ObjectUrl($client_unique_id.'/'.$doctype.'/'.$name);
                     $response['awsUrl'] = $awsUrl;
                     $response['message'] = 'Record Invoice with document added successfully';
 
@@ -3908,9 +3905,8 @@ class PartnersController extends Controller
                 $response['db_total_deposit_amount'] = $db_total_deposit_amount; //dd($db_total_deposit_amount );
 
                 if($doc_saved){
-                    //Get AWS Url link
-                    $url = 'https://'.env('AWS_BUCKET').'.s3.'. env('AWS_DEFAULT_REGION') . '.amazonaws.com/';
-                    $awsUrl = $url.$client_unique_id.'/'.$doctype.'/'.$name; //dd($awsUrl);
+                    //Get AWS Url link (disk/AWS_URL — not hand-built host)
+                    $awsUrl = \App\Helpers\Helper::s3ObjectUrl($client_unique_id.'/'.$doctype.'/'.$name);
 
                     //$awsUrl = URL::to('/img/client_receipts').'/'.$document_upload;
                     $response['awsUrl'] = $awsUrl;
@@ -5412,10 +5408,7 @@ class PartnersController extends Controller
 
     private function s3Url(string $path): string
     {
-        /** @var \Illuminate\Filesystem\FilesystemAdapter $disk */
-        $disk = Storage::disk('s3');
-
-        return $disk->url($path);
+        return \App\Helpers\Helper::s3ObjectUrl($path);
     }
     
 }

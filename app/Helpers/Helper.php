@@ -210,6 +210,55 @@ class Helper
     }
 
     /**
+     * Public URL for an S3 object key, or pass-through for already-absolute URLs.
+     * Prefer disk / AWS_URL config (same as Storage uploads) over hand-built hosts.
+     */
+    public static function s3ObjectUrl(?string $keyOrUrl): string
+    {
+        $keyOrUrl = trim((string) $keyOrUrl);
+        if ($keyOrUrl === '') {
+            return '';
+        }
+
+        // Absolute or double-wrapped remote URL — never rebuild host
+        if (
+            preg_match('#^https?://#i', $keyOrUrl)
+            || str_starts_with($keyOrUrl, '//')
+            || preg_match('#^https?://[^/]+/(https?://.+)$#i', $keyOrUrl)
+        ) {
+            return self::documentFileUrl($keyOrUrl);
+        }
+
+        $key = ltrim(str_replace('\\', '/', $keyOrUrl), '/');
+        if ($key === '') {
+            return '';
+        }
+
+        // AWS_URL on s3 disk (path-style / CDN / custom endpoint)
+        $configuredBase = rtrim((string) (config('filesystems.disks.s3.url') ?: env('AWS_URL', '')), '/');
+        if ($configuredBase !== '') {
+            return $configuredBase . '/' . $key;
+        }
+
+        try {
+            $url = \Illuminate\Support\Facades\Storage::disk('s3')->url($key);
+            if (is_string($url) && trim($url) !== '') {
+                return $url;
+            }
+        } catch (\Throwable $e) {
+            // fall through to legacy virtual-hosted form
+        }
+
+        $bucket = (string) (config('filesystems.disks.s3.bucket') ?: env('AWS_BUCKET', ''));
+        $region = (string) (config('filesystems.disks.s3.region') ?: env('AWS_DEFAULT_REGION', ''));
+        if ($bucket !== '' && $region !== '') {
+            return 'https://' . $bucket . '.s3.' . $region . '.amazonaws.com/' . $key;
+        }
+
+        return self::documentFileUrl($key);
+    }
+
+    /**
      * Escaped document URL safe for HTML attributes and single-quoted JS onclick strings.
      */
     public static function documentFileUrlAttr(?string $pathOrUrl): string

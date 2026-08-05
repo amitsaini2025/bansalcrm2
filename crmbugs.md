@@ -264,10 +264,11 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 - **What happens:** `$totaldue = $total_fee - $coom_amt` without subtracting `$amount_rec`.
 - **Fix:** Same `Invoice::computeOutstandingDue` path as P-1 (includes `$amount_rec`).
 
-#### P-3. Partner Invoice tab summary totals inflated
+#### ~~P-3. Partner Invoice tab summary totals inflated~~ — **FIXED**
 - **File:** `partners/detail.blade.php` (~934–957)
 - **What happens:** `leftJoin` all `application_fee_options` rows without “latest fee only” (`MAX(id)`) constraint → multiple fee snapshots per application multiply Total Projected Fee / Commission totals.
 - **Review note:** Stage ORs **are** wrapped in `where(function …)` — do **not** blame ungrouped OR here. Other partner student queries correctly use latest-fee logic.
+- **Fix:** Invoice summary constrains `application_fee_options` to latest row only (`id = MAX(id)` per `app_id`), same rule as partner student tab totals. Stage filter and invoice/payment sums unchanged.
 
 #### ~~P-4. Student tab export ignores table search~~ — **FIXED**
 - **File:** `public/js/pages/admin/partner-detail/datatable-handlers.js`
@@ -281,7 +282,11 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 
 ### Medium
 
-#### P-6. `URL::to` / hardcoded S3 URL host mismatch risk (print/download)
+#### ~~P-6. `URL::to` / hardcoded S3 URL host mismatch risk (print/download)~~ — **FIXED**
+- **Files:** `Helper.php` `s3ObjectUrl`; `partners/detail.blade.php`; `PartnersController.php` (awsUrl responses + `s3Url()`)
+- **What happens:** Hand-built `https://{bucket}.s3.{region}.amazonaws.com/` could disagree with `AWS_URL` / s3 disk config for partner docs; print used `URL::to` (app host, not S3).
+- **Fix:** Shared `Helper::s3ObjectUrl()` (disk/`AWS_URL`, pass-through full URLs); partner preview/download and invoice doc URLs use it. Print routes left as `URL::to` (app PDF, not S3).
+
 #### ~~P-7. Partner student invoice ID generation race (`MAX(invoice_id)+1` without lock)~~ — **FIXED**
 - **Fix:** New creates only — `withNextPartnerStudentInvoiceId` lock (PG advisory / MySQL GET_LOCK) + max+1, then insert in same transaction for types 1/2/3. Existing rows not rewritten.
 #### ~~P-8. Accounts tab export search uses `id ILIKE` (fragile)~~ — **FIXED**
@@ -292,7 +297,7 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 - **Fix:** Student tab uses DataTables `column().visible()` from checkbox state (1-based map preserved); re-applies on `draw`. Removed fragile jQuery `nth-child` handlers from `legacy-init.js` (partner student only).
 
 #### ~~P-11. Partner invoice tab stage filter uses ungrouped OR~~ — **RETRACTED**
-- Stage filter in Invoice tab summary **is** grouped (see P-3). Removed as duplicate/false claim.
+- Stage filter in Invoice tab summary **is** grouped (see P-3). Not a bug — no code change. Closed as false/duplicate claim; real fee inflation was **P-3** (fixed).
 
 ---
 
