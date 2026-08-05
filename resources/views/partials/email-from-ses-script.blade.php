@@ -3,9 +3,26 @@
 (function() {
 	var sendersUrl = '{{ route("admin.outlook.senders") }}';
 
-	function populateEmailFromSelects(senders) {
+	function optionValueInSelect(select, email) {
+		if (!email) return false;
+		var want = String(email).toLowerCase().trim();
+		for (var i = 0; i < select.options.length; i++) {
+			if (String(select.options[i].value || '').toLowerCase().trim() === want) {
+				return select.options[i].value;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Fill .email-from-ses selects. Prefer previous value if still valid; else API default_from.
+	 */
+	function populateEmailFromSelects(senders, defaultFrom) {
 		var selects = document.querySelectorAll('.email-from-ses');
 		if (selects.length === 0) return;
+
+		senders = senders || [];
+		defaultFrom = defaultFrom || '';
 
 		selects.forEach(function(select) {
 			var prev = select.value;
@@ -20,12 +37,14 @@
 						: (s.email || '');
 					select.appendChild(opt);
 				});
-				if (prev) {
-					for (var i = 0; i < select.options.length; i++) {
-						if (select.options[i].value === prev) {
-							select.value = prev;
-							break;
-						}
+				// Keep intentional selection; only auto-pick when empty
+				var matchPrev = optionValueInSelect(select, prev);
+				if (matchPrev) {
+					select.value = matchPrev;
+				} else {
+					var matchDefault = optionValueInSelect(select, defaultFrom);
+					if (matchDefault) {
+						select.value = matchDefault;
 					}
 				}
 			} else {
@@ -56,7 +75,7 @@
 				return r.json();
 			})
 			.then(function(data) {
-				populateEmailFromSelects(data.senders || []);
+				populateEmailFromSelects(data.senders || [], data.default_from || '');
 			})
 			.catch(function() {
 				selects.forEach(function(select) {

@@ -19,17 +19,19 @@ use GuzzleHttp\Client;
 
 /**
  * Client email and SMS messaging
- * 
+ *
  * Methods moved from ClientsController:
- * - uploadmail (TODO - still in ClientsController)
+ * - uploadmail
  * - enhanceMessage
- * - sendmsg
  * - fetchClientContactNo
  * - isgreviewmailsent
  * - updateemailverified
  * - emailVerify
  * - emailVerifyToken (public, no auth)
  * - thankyou (public, no auth)
+ *
+ * Note: free-form client SMS uses #sendSmsModal on client detail → Admin Console
+ * features.sms.send (UnifiedSmsManager). Legacy sendmsg method/route was never migrated.
  */
 class ClientMessagingController extends Controller
 {
@@ -231,16 +233,20 @@ class ClientMessagingController extends Controller
      */
     public function isgreviewmailsent(Request $request){
         $data = $request->all();
+        // Default when already sent (is_greview_mail_sent == 1) so json_encode never uses undefined $response
+        $response = [
+            'status' => true,
+            'message' => 'Google review invitation already sent',
+        ];
         if($data['is_greview_mail_sent'] != 1){
             $userInfo = Admin::select('first_name','email')->where('id', $data['id'])->first();
             if($userInfo){
-                //Google review email link To Customer
+                // Google review email - blade uses firstname + reviewLink (not free-form body)
                 $details = [
                     'title' => 'Invitation For Google Review At Bansal Immigration',
-                    'body' => 'This is for testing email using smtp',
-                    'fullname' => $userInfo->first_name,
-                    'email'=> $userInfo->email,
-                    'reviewLink'=> env('GOOGLE_REVIEW_LINK')
+                    'firstname' => $userInfo->first_name,
+                    'email' => $userInfo->email,
+                    'reviewLink' => env('GOOGLE_REVIEW_LINK'),
                 ];
 
                 // Configure mailer - uses .env by default when no From email provided
@@ -310,32 +316,37 @@ class ClientMessagingController extends Controller
     }
 
     /**
-     * Upload/record sent mail
+     * Upload/record mail against a client Email tab (manual entry; does not send).
      */
-    public function uploadmail(Request $request){
-		$requestData 		= 	$request->all();
-		$obj				= 	new \App\Models\Email;
-		$obj->user_id		=	Auth::user()->id;
-		$obj->from_mail 	=  $requestData['from'];
-		$obj->to_mail 		=  $requestData['to'];
-		$obj->subject		=  $requestData['subject'];
-		$obj->message		=  $requestData['message'];
-		$obj->mail_type		=  1;
-		$obj->client_id		=  @$requestData['client_id'];
-		$obj->type          =  'client';
-		$obj->conversion_type = 'conversion_email_fetch';
-		$obj->mail_body_type  = 'inbox';
-		$saved				=	$obj->save();
-		if(!$saved)
-			{
-				return redirect()->back()->with('error', \Config::get('constants.server_error'));
-			}
+    public function uploadmail(Request $request)
+    {
+        $validated = $request->validate([
+            'from' => 'required|string|max:255',
+            'to' => 'required|string|max:500',
+            'subject' => 'required|string|max:500',
+            'message' => 'required|string|max:100000',
+            'client_id' => 'required|integer|exists:admins,id',
+        ]);
 
-			else
-			{
-				return redirect()->back()->with('success', 'Email uploaded Successfully');
+        $obj = new \App\Models\Email;
+        $obj->user_id = Auth::user()->id;
+        $obj->from_mail = trim($validated['from']);
+        $obj->to_mail = trim($validated['to']);
+        $obj->subject = trim($validated['subject']);
+        $obj->message = $validated['message'];
+        // Keep flags compatible with Email tab conversion/inbox queries (existing behavior)
+        $obj->mail_type = 1;
+        $obj->client_id = (int) $validated['client_id'];
+        $obj->type = 'client';
+        $obj->conversion_type = 'conversion_email_fetch';
+        $obj->mail_body_type = 'inbox';
+        $saved = $obj->save();
 
-			}
-	}
+        if (! $saved) {
+            return redirect()->back()->with('error', \Config::get('constants.server_error'))->withInput();
+        }
+
+        return redirect()->back()->with('success', 'Email uploaded Successfully');
+    }
 
 }

@@ -1342,6 +1342,8 @@ class AdminController extends Controller
 		$user_id = @Auth::user()->id;
 		$reciept_id = null; // Initialize as NULL for PostgreSQL integer column compatibility
 		$array = array();
+		// For S3 / Email.client_id when compose omits client_id (invoice/receipt flows)
+		$invoiceRelatedClientId = null;
 
         if(isset($requestData['receipt'])){
             $fetchedData = InvoicePayment::where('id', '=', $requestData['receipt'])->first();
@@ -1357,6 +1359,9 @@ class AdminController extends Controller
             // Get client_id from invoice relationship for S3 path structure
             $invoice = $fetchedData->invoice;
             $client_id = $invoice ? $invoice->client_id : 'general';
+            if ($invoice && ! empty($invoice->client_id) && is_numeric($invoice->client_id)) {
+                $invoiceRelatedClientId = (int) $invoice->client_id;
+            }
             $client_info = \App\Models\Admin::select('client_id')->where('id', $client_id)->first();
             $client_unique_id = $client_info ? $client_info->client_id : 'general';
             
@@ -1391,6 +1396,9 @@ class AdminController extends Controller
 
 			$clientdata = \App\Models\Admin::where('id', $invoicedetail->client_id)->first();
 			$admindata = \App\Models\Staff::find($invoicedetail->user_id);
+			if (! empty($invoicedetail->client_id) && is_numeric($invoicedetail->client_id)) {
+				$invoiceRelatedClientId = (int) $invoicedetail->client_id;
+			}
 
 			$logoBase64 = \App\Helpers\Helper::profileLogoBase64(
 				\App\Helpers\Helper::invoiceProfileLogoFilename($invoicedetail)
@@ -1468,8 +1476,40 @@ class AdminController extends Controller
 		$obj->message		 =  isset($requestData['message']) ? $requestData['message'] : '';
 		// Set mail_type - Required NOT NULL field for PostgreSQL (1 = manually composed/sent email)
 		$obj->mail_type		=  1;
-		// client_id for Email tab / S3 archival (required for sent emails to appear)
-		$obj->client_id		=  $requestData['client_id'] ?? ($requestData['email_to'][0] ?? null);
+		// Entity id for Email tab / S3 archival (emails.client_id holds client, partner, or agent pk by type)
+		// Never store free-form email addresses here.
+		$resolvedEntityId = null;
+		if (!empty($requestData['client_id']) && is_numeric($requestData['client_id'])) {
+			$resolvedEntityId = (int) $requestData['client_id'];
+		} elseif (!empty($requestData['application_id']) && is_numeric($requestData['application_id'])) {
+			$appForClient = \App\Models\Application::find((int) $requestData['application_id']);
+			if ($appForClient && $appForClient->client_id) {
+				$resolvedEntityId = (int) $appForClient->client_id;
+			}
+		} elseif ($invoiceRelatedClientId !== null) {
+			$resolvedEntityId = $invoiceRelatedClientId;
+		} elseif (!empty($requestData['email_to']) && is_array($requestData['email_to'])) {
+			foreach ($requestData['email_to'] as $toVal) {
+				if (is_numeric($toVal)) {
+					$resolvedEntityId = (int) $toVal;
+					break;
+				}
+			}
+		}
+		$obj->client_id = $resolvedEntityId;
+		// Default type for archival paths when form omits it (client detail / invoice)
+		if (empty($obj->type) && $resolvedEntityId !== null) {
+			$obj->type = 'client';
+		}
+
+		if ($resolvedEntityId === null) {
+			Log::warning('Compose sendmail: no entity client_id resolved; S3 archive / Email tab linking may skip', [
+				'type' => $requestData['type'] ?? null,
+				'has_client_id_field' => ! empty($requestData['client_id']),
+				'has_application_id' => ! empty($requestData['application_id']),
+				'to_count' => isset($requestData['email_to']) && is_array($requestData['email_to']) ? count($requestData['email_to']) : 0,
+			]);
+		}
       
 		$attachments = array();
       
@@ -1746,8 +1786,9 @@ class AdminController extends Controller
             }
         }
 
-		$subject = $requestData['subject'];
-		$message = $requestData['message'];
+		// Keep originals so each recipient gets a clean placeholder pass (multi-To)
+		$subjectOriginal = $requestData['subject'];
+		$messageOriginal = $requestData['message'];
 		$s3Stored = false; // Store to S3 only once (not per recipient)
 
         // Build attachment tuples once before the recipient loop so UploadedFile objects
@@ -1774,33 +1815,79 @@ class AdminController extends Controller
             $attachmentTuples[] = ['path' => $array['file'], 'name' => $array['file_name'] ?? basename($array['file'])];
         }
 
-        // CC list resolved once (emails only)
+        // CC list resolved once (emails only; allow free-form @ addresses like To)
         $ccEmails = [];
         if (isset($requestData['email_cc']) && !empty($requestData['email_cc'])) {
             foreach ($requestData['email_cc'] as $cc) {
+                $cc = is_string($cc) ? trim($cc) : $cc;
+                if ($cc === '' || $cc === null) {
+                    continue;
+                }
+                if (is_string($cc) && strpos($cc, '@') !== false) {
+                    $ccEmails[] = $cc;
+                    continue;
+                }
+                if (!is_numeric($cc)) {
+                    continue;
+                }
                 $clientcc = \App\Models\Admin::where('id', $cc)->first();
-                if ($clientcc) {
+                if ($clientcc && !empty($clientcc->email)) {
                     $ccEmails[] = $clientcc->email;
                 }
             }
         }
 
+		// Success must not return inside this loop — otherwise only the first recipient gets mail (E-2).
+		// Failures still return immediately (same fail-fast as before). Final success is after the loop.
 		foreach($requestData['email_to'] as $l){
-			if(@$requestData['type'] == 'partner'){
+			// Per-recipient checklist paths (reset each iteration so multi-To does not stack duplicates)
+			$array['files'] = [];
+			$subject = $subjectOriginal;
+			$message = $messageOriginal;
+			$l = is_string($l) ? trim($l) : $l;
+			$client = null;
+
+			// Free-form email (college compose uses email as Tom Select id) — match resolveRecipientsToEmails
+			if (is_string($l) && strpos($l, '@') !== false) {
+				$displayName = strstr($l, '@', true);
+				if (!is_string($displayName) || $displayName === '') {
+					$displayName = 'Recipient';
+				}
+				$client = (object) [
+					'email' => $l,
+					'first_name' => $displayName,
+					'partner_name' => $displayName,
+					'full_name' => $displayName,
+					'dob' => null,
+				];
+			} elseif (@$requestData['type'] == 'partner') {
 				$client = \App\Models\Partner::Where('id', $l)->first();
-			$subject = str_replace('{Client First Name}',$client->partner_name, $subject);
-			$message = str_replace('{Client First Name}',$client->partner_name, $message);
-			}else if(@$requestData['type'] == 'agent'){
+			} elseif (@$requestData['type'] == 'agent') {
 				$client = \App\Models\Agent::Where('id', $l)->first();
-			$subject = str_replace('{Client First Name}',$client->full_name, $subject);
-			$message = str_replace('{Client First Name}',$client->full_name, $message);
-			}else{
+			} else {
 				$client = \App\Models\Admin::Where('id', $l)->first();
-			$subject = str_replace('{Client First Name}',$client->first_name, $subject);
-			$message = str_replace('{Client First Name}',$client->first_name, $message);
 			}
 
-			$message = str_replace('{Client Assignee Name}',$client->first_name, $message);
+			if (!$client || empty($client->email)) {
+				$errMsg = 'Failed to send email: invalid or missing recipient (' . (is_scalar($l) ? (string) $l : 'unknown') . ').';
+				if ($request->ajax() || $request->wantsJson()) {
+					return response()->json(['status' => false, 'message' => $errMsg]);
+				}
+				return redirect()->back()->with('error', $errMsg)->withInput();
+			}
+
+			if (@$requestData['type'] == 'partner') {
+				$subject = str_replace('{Client First Name}', $client->partner_name ?? $client->first_name ?? '', $subject);
+				$message = str_replace('{Client First Name}', $client->partner_name ?? $client->first_name ?? '', $message);
+			} elseif (@$requestData['type'] == 'agent') {
+				$subject = str_replace('{Client First Name}', $client->full_name ?? $client->first_name ?? '', $subject);
+				$message = str_replace('{Client First Name}', $client->full_name ?? $client->first_name ?? '', $message);
+			} else {
+				$subject = str_replace('{Client First Name}', $client->first_name ?? '', $subject);
+				$message = str_replace('{Client First Name}', $client->first_name ?? '', $message);
+			}
+
+			$message = str_replace('{Client Assignee Name}', $client->first_name ?? '', $message);
 			$message = str_replace('{Company Name}', \App\Helpers\Helper::defaultCrmCompanyName(), $message);
 			$client_dob = '';
 			if (isset($client->dob) && $client->dob && $client->dob != '0000-00-00') {
@@ -1915,34 +2002,29 @@ class AdminController extends Controller
                 // Archive email to S3 (HTML snapshot + attachments) — once per email, not per recipient
                 if (!$s3Stored) {
                     try {
-                        $this->crmSentEmailS3Service->storeToS3($obj, $subject, $message, $recipientTuples);
-                        $s3Stored = true;
+                        // Only mark stored when service actually succeeded (needs client_id + S3 config)
+                        $s3Stored = $this->crmSentEmailS3Service->storeToS3($obj, $subject, $message, $recipientTuples) === true;
                     } catch (\Exception $s3Ex) {
-                        Log::warning('CRM sent email S3 storage failed (email still sent)', ['error' => $s3Ex->getMessage()]);
+                        Log::warning('CRM sent email S3 storage failed (email still sent)', [
+                            'error' => $s3Ex->getMessage(),
+                            'mail_report_id' => $obj->id ?? null,
+                            'entity_id' => $obj->client_id ?? null,
+                        ]);
                     }
                 }
-
-                // Clean up receipt/invoice temp file after archival
-                if (isset($array['file']) && file_exists($array['file'])) {
-                    @unlink($array['file']);
-                }
-
-                // Return JSON response for AJAX requests (include email_category so client detail can open College tab when sent from college address)
-                if($request->ajax() || $request->wantsJson()) {
-                    $json = ['status' => true, 'message' => 'Email sent successfully!'];
-                    if (isset($obj->email_category)) {
-                        $json['email_category'] = $obj->email_category;
-                    }
-                    return response()->json($json);
-                }
-                return redirect()->back()->with('success', 'Email sent successfully!');
+                // Continue to next recipient — response returned after the loop
             } catch (\Exception $e) {
-                // Return JSON response for AJAX requests
+                // Fail-fast on first send error (same as before); some prior recipients may already have received mail
                 if($request->ajax() || $request->wantsJson()) {
                     return response()->json(['status' => false, 'message' => 'Failed to send email: ' . $e->getMessage()]);
                 }
                 return redirect()->back()->with('error', 'Failed to send email: ' . $e->getMessage())->withInput();
             }
+		}
+
+		// Clean up receipt/invoice temp after all recipients (was inside loop and broke multi-To PDFs)
+		if (isset($array['file']) && is_string($array['file']) && file_exists($array['file'])) {
+			@unlink($array['file']);
 		}
         if(!empty($array['file'])){
             unset($array['file']);

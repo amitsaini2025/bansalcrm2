@@ -157,7 +157,7 @@ class EliteEmailController extends Controller
         $sort     = in_array($request->get('sort', 'newest'), ['oldest'], true) ? 'asc' : 'desc';
 
         $query = Email::query()
-            ->where('mail_type', '=', 1, 'and')
+            ->where('mail_type', 1)
             ->where(function ($q) use ($like) {
                 $q->whereRaw('LOWER(TRIM(COALESCE(from_mail,\'\'))) LIKE ?', [strtolower($like)])
                   ->orWhereRaw('LOWER(TRIM(COALESCE(to_mail,\'\'))) LIKE ?', [strtolower($like)]);
@@ -225,7 +225,7 @@ class EliteEmailController extends Controller
         }
 
         $query = OutlookDraftEmail::query()
-            ->where('admin_id', '=', $adminId, 'and')
+            ->where('admin_id', $adminId)
             ->where(function ($q) use ($like) {
                 $q->whereRaw('LOWER(TRIM(COALESCE(from_email,\'\'))) LIKE ?', [strtolower($like)])
                   ->orWhereRaw('LOWER(TRIM(COALESCE(to_email,\'\'))) LIKE ?', [strtolower($like)]);
@@ -434,12 +434,23 @@ class EliteEmailController extends Controller
         }
 
         if (! $eliteTo && ! $eliteFrom) {
-            Log::warning('elite.inbound.rejected', [
+            // Parsed addresses but none Elite → reject (no longer force-save non-Elite mail).
+            // Empty from + empty to still saves — provider parse gaps must not drop real Elite mail.
+            $hasResolvedParticipant = ($fromAddress !== null && $fromAddress !== '')
+                || (is_array($toAddresses) && $toAddresses !== []);
+
+            Log::warning('elite.inbound.rejected', array_merge($this->inboundCorrelationContext($request), [
                 'from' => $fromAddress,
                 'to' => $toAddresses,
-            ]);
-            // Don't reject — save anyway to avoid losing emails
-            $eliteTo = true;
+                'action' => $hasResolvedParticipant ? 'http_422' : 'save_ambiguous',
+            ]));
+
+            if ($hasResolvedParticipant) {
+                return response()->json([
+                    'ok' => false,
+                    'error' => 'Not an Education Elite recipient or sender',
+                ], 422);
+            }
         }
         $text = $request->input('text') ?? $request->input('body_text') ?? $request->input('plain');
         $html = $request->input('html') ?? $request->input('body_html') ?? $request->input('body');

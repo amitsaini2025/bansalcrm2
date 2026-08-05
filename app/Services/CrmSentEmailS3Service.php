@@ -29,10 +29,16 @@ class CrmSentEmailS3Service
     {
         try {
             $clientId = $mailReport->client_id;
-            if (!$clientId) {
-                Log::warning('CrmSentEmailS3Service: No client_id, skipping S3 storage');
+            if ($clientId === null || $clientId === '' || ! is_numeric($clientId) || (int) $clientId <= 0) {
+                Log::warning('CrmSentEmailS3Service: No client_id, skipping S3 storage (email still delivered)', [
+                    'mail_report_id' => $mailReport->id,
+                    'type' => $mailReport->type,
+                    'from_mail' => $mailReport->from_mail,
+                    'to_mail' => $mailReport->to_mail,
+                ]);
                 return false;
             }
+            $clientId = (int) $clientId;
 
             if (!config('filesystems.disks.s3.key') || !config('filesystems.disks.s3.bucket')) {
                 Log::info('CrmSentEmailS3Service: S3 not configured, skipping storage');
@@ -110,25 +116,69 @@ class CrmSentEmailS3Service
     }
 
     /**
-     * Build full HTML document for the email.
+     * Build full HTML document for the email archive (not the live SES payload).
      */
     protected function buildEmailHtml(Email $mailReport, string $subject, string $messageHtml): string
     {
-        $from = htmlspecialchars($mailReport->from_mail ?? '');
-        $to = htmlspecialchars($mailReport->to_mail ?? '');
+        $from = htmlspecialchars($mailReport->from_mail ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $to = htmlspecialchars($mailReport->to_mail ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $date = $mailReport->created_at ? $mailReport->created_at->format('d/m/Y h:i a') : date('d/m/Y h:i a');
-        $subjectEscaped = htmlspecialchars($subject);
-        $body = $messageHtml;
+        $subjectEscaped = htmlspecialchars($subject, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $body = $this->sanitizeArchiveMessageHtml($messageHtml);
 
-        return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' . $subjectEscaped . '</title></head><body>' .
-            '<div style="font-family:Arial,sans-serif;max-width:800px;">' .
-            '<p><strong>From:</strong> ' . $from . '</p>' .
-            '<p><strong>To:</strong> ' . $to . '</p>' .
-            '<p><strong>Date:</strong> ' . $date . '</p>' .
-            '<p><strong>Subject:</strong> ' . $subjectEscaped . '</p>' .
-            '<hr>' .
-            '<div>' . $body . '</div>' .
-            '</div></body></html>';
+        // CSP limits damage if residual markup is opened as a top-level HTML document in-browser.
+        $csp = "default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
+        return '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+            . '<meta http-equiv="Content-Security-Policy" content="' . htmlspecialchars($csp, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">'
+            . '<title>' . $subjectEscaped . '</title></head><body>'
+            . '<div style="font-family:Arial,sans-serif;max-width:800px;">'
+            . '<p><strong>From:</strong> ' . $from . '</p>'
+            . '<p><strong>To:</strong> ' . $to . '</p>'
+            . '<p><strong>Date:</strong> ' . $date . '</p>'
+            . '<p><strong>Subject:</strong> ' . $subjectEscaped . '</p>'
+            . '<hr>'
+            . '<div class="crm-sent-body">' . $body . '</div>'
+            . '</div></body></html>';
+    }
+
+    /**
+     * Strip high-risk constructs from compose HTML before storing the archive snapshot.
+     * Keeps normal rich formatting (p, a, tables, images, styles) for Email-tab readability.
+     * Does not alter the body actually sent via SES.
+     */
+    protected function sanitizeArchiveMessageHtml(string $messageHtml): string
+    {
+        if ($messageHtml === '') {
+            return '';
+        }
+
+        $html = $messageHtml;
+
+        // Drop script / iframe / object / embed / form blocks and bare tags
+        $blockTags = 'script|iframe|object|embed|form|base|link|meta';
+        $html = preg_replace('#<(' . $blockTags . ')\b[^>]*>[\s\S]*?</\1\s*>#iu', '', $html) ?? $html;
+        $html = preg_replace('#<(' . $blockTags . ')\b[^>]*/?>#iu', '', $html) ?? $html;
+
+        // Inline event handlers: onclick="...", onerror=...
+        $html = preg_replace('/\s+on[a-z]+\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]+)/iu', '', $html) ?? $html;
+
+        // javascript: / vbscript: / data:text/html URLs in common attributes
+        $html = preg_replace(
+            '/\b(href|src|xlink:href|action|formaction|poster)\s*=\s*(["\'])\s*(?:javascript|vbscript|data\s*:\s*text\/html)[^"\']*\2/iu',
+            '$1=$2#$2',
+            $html
+        ) ?? $html;
+        $html = preg_replace(
+            '/\b(href|src|xlink:href|action|formaction|poster)\s*=\s*(?:javascript|vbscript|data\s*:\s*text\/html)[^\s>]*/iu',
+            '$1="#"',
+            $html
+        ) ?? $html;
+
+        // <meta http-equiv=refresh> (already stripped as meta; belt-and-suspenders)
+        $html = preg_replace('/<meta\b[^>]*http-equiv\s*=\s*["\']?\s*refresh[^>]*>/iu', '', $html) ?? $html;
+
+        return $html;
     }
 
     /**

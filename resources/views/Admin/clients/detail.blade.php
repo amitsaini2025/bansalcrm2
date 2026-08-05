@@ -3149,23 +3149,15 @@ $(document).ready(function(){
 	var clientIdForSms = {{ !empty($fetchedData->id) ? (int)$fetchedData->id : 'null' }};
 	console.log('URL check - openSmsReminder:', openSmsReminder, 'applicationId:', applicationId, 'clientIdForSms:', clientIdForSms);
 	console.log('Modal exists:', $('#sendSmsModal').length);
-	if (openSmsReminder === '1' && applicationId && $('#sendSmsModal').length) {
-		console.log('Opening SMS modal from URL');
-		$('#sendSms_client_id').val(clientIdForSms || '');
-		$('#sendSms_application_id').val(applicationId);
-		$('#sendSms_phone').empty().append('<option value="">Select phone...</option>');
-		$('#sendSms_message').val('');
-		$('#sendSms_charCount').text('0');
-		$('#sendSms_template_id').val('');
-		loadSendSmsPhones(clientIdForSms);
-		loadSendSmsTemplates();
-		$('#sendSmsModal').modal('show');
-	}
-
-	$('.send-sms-btn').on('click', function(){
-		var clientId = $(this).attr('data-client-id') || '';
+	// Shared opener for toolbar .send-sms-btn, legacy .sendmsg, and ?open_sms_reminder=
+	window.openClientSendSmsModal = function(clientId, applicationId) {
+		clientId = clientId || '';
+		applicationId = applicationId || '';
+		if (!$('#sendSmsModal').length) {
+			return false;
+		}
 		$('#sendSms_client_id').val(clientId);
-		$('#sendSms_application_id').val('');
+		$('#sendSms_application_id').val(applicationId);
 		$('#sendSms_phone').empty().append('<option value="">Select phone...</option>');
 		$('#sendSms_message').val('');
 		$('#sendSms_charCount').text('0');
@@ -3173,6 +3165,16 @@ $(document).ready(function(){
 		loadSendSmsPhones(clientId);
 		loadSendSmsTemplates();
 		$('#sendSmsModal').modal('show');
+		return true;
+	};
+
+	if (openSmsReminder === '1' && applicationId && $('#sendSmsModal').length) {
+		console.log('Opening SMS modal from URL');
+		window.openClientSendSmsModal(clientIdForSms || '', applicationId);
+	}
+
+	$('.send-sms-btn').on('click', function(){
+		window.openClientSendSmsModal($(this).attr('data-client-id') || '', '');
 	});
 
 	$('#sendSms_message').on('input', function(){

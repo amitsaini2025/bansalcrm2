@@ -2066,35 +2066,17 @@ function customValidate(formName, savetype = '')
 				}
                  
                     else if(formName == 'sendmsg'){
-                        var client_id = $('#sendmsg input[name="client_id"]').val();
-						var myform = document.getElementById('sendmsg');
-						var fd = new FormData(myform);
-						$.ajax({
-							type:'post',
-							url:$("form[name="+formName+"]").attr('action'),
-							processData: false,
-							contentType: false,
-							data: fd,
-							success: function(response){
-								$('.popuploader').hide();
-								var obj = $.parseJSON(response);
-                                if(obj.status){
-									$('#sendmsgmodal').modal('hide');
-                                    $.ajax({
-                                        url: site_url+'/get-notes',
-                                        type:'GET',
-                                        data:{clientid:client_id,type:'client'},
-                                        success: function(responses){
-                                            $('.note_term_list').html(responses);
-                                        }
-                                    });
-                                    refreshClientActivities(client_id);
-									$('.custom-error-msg').html('<span class="alert alert-success">'+obj.message+'</span>');
-								} else {
-									$('.custom-error-msg').html('<span class="alert alert-danger">'+obj.message+'</span>');
-                                }
-							}
-						});
+						// Legacy sendmsg form/backend removed — client SMS uses #sendSmsModal + Admin Console SMS API
+						$('.popuploader').hide();
+						if (typeof window.openClientSendSmsModal === 'function') {
+							var legacyClientId = ($('#sendmsg input[name="client_id"]').val()
+								|| $('#sendSms_client_id').val()
+								|| (typeof App !== 'undefined' && App.getPageConfig ? App.getPageConfig('clientId') : '')
+								|| '');
+							window.openClientSendSmsModal(legacyClientId, '');
+						} else if (typeof toastMsg === 'function') {
+							toastMsg('Please use the Send SMS button on the client page.', 'warning');
+						}
 					}
 					
 

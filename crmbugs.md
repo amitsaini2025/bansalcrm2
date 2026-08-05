@@ -3,7 +3,7 @@
 **Date:** 2026-07-26  
 **Last deep review:** 2026-07-26 (code-verified; false positives retracted; wording corrected)  
 **Scope:** Full CRM audit by area (Clients, Leads, Partners, Agents, Applications, Invoices/Receipts, Email/Messaging, Documents, Followups, Actions, Staff/Roles/Teams/Branches, Reports, Admin Console, Auth/CRM Access, Ongoing Sheet, Notifications, Shared Frontend/Config, SMS Webhooks).  
-**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4, L-5, L-7, L-8, L-9, L-11, OS-1, OS-2, OS-3, N-1, N-2, N-3, N-4, N-5).  
+**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4, L-5, L-7, L-8, L-9, L-11, OS-1, OS-2, OS-3, N-1, N-2, N-3, N-4, N-5, E-1–E-5, E-7, E-8, E-10–E-18).  
 **Stack note:** Laravel **13.x** (route parameters bind **by position** after DI, not by PHP parameter name).
 
 Severity: **Critical** (crash / data corruption / money wrong / security) · **High** (major feature broken or serious auth hole) · **Medium** (incorrect behavior) · **Low** (edge case / UX / maintenance risk)
@@ -45,6 +45,22 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 | **L-8** | **FIXED** — Lead list status labels via `Helper::formatLeadStatusDisplay` (strings + legacy numeric IDs; display-only) |
 | **L-9** | **FIXED** — Lead create multi-assign saves all `assign_to[]` (comma-separated like clients; office from first) |
 | **L-11** | **FIXED** — Removed duplicate `leads.detail` from `web.php`; single registration in `clients.php` under `auth:admin` |
+| **E-1** | **FIXED** — `sendmail` accepts free-form `@` recipients (college compose); does not call Admin on email id |
+| **E-2** | **FIXED** — `sendmail` no longer returns on first success; all To recipients get mail (fail-fast on error unchanged) |
+| **E-3** | **FIXED** — subject/message reset from originals each recipient |
+| **E-4** | **FIXED** — `isgreviewmailsent` always sets `$response` (already-sent default before send branch) |
+| **E-5** | **FIXED** — legacy `.sendmsg` rewired to `#sendSmsModal` / Admin Console SMS; no new sendmsg backend |
+| **E-7** | **FIXED** — checklist `$array['files']` reset each recipient |
+| **E-8** | **FIXED** — From dropdown auto-selects API `default_from` when no previous value |
+| **E-10** | **FIXED** — `uploadmail` validates from/to/subject/message/client_id; keeps Email-tab flags |
+| **E-11** | **FIXED** — Elite inbound 422 when resolved To/From are non-Elite; ambiguous empty parse still saves |
+| **E-12** | **FIXED** — sendmail resolves entity client_id (form/app/invoice/numeric To); S3 skip log; only mark archived on true |
+| **E-13** | **FIXED** — `buildRecipientHtml` escapes name/email/status; badge class uses raw status |
+| **E-14** | **FIXED** — removed Google review test SMTP `body` placeholder (blade unused) |
+| **E-15** | **FIXED** — email modal clears To/CC Tom Select on hide instead of destroy (no re-init race) |
+| **E-16** | **FIXED** (cosmetic) — `where(..., 'and')` was valid Laravel; simplified to `where(col, val)` |
+| **E-17** | **FIXED** — `resolveFromEmail()` + PHPDoc; `configureMailerForEmail` BC alias (never configured mailer) |
+| **E-18** | **FIXED** — CRM sent S3 HTML snapshot sanitizes body + CSP; Email v2 read iframe sandboxed |
 
 ---
 
@@ -403,25 +419,31 @@ if ($invoicelist->type == 2) {
 
 ### Critical
 
-#### E-1. College compose crashes on send
-- **Files:** `AdminController.php` `sendmail` (~1716–1728); `email-handlers.js` (~362)
-- **What happens:** College To entry uses email address as Tom Select `id` (`buildClientRecipientEntry(cEmail, cName, cEmail, 'College')`). Loop does `Admin::where('id', $l)` → null → fatal on `$client->first_name`.
-- **Reproduce:** Client detail → Applications → Compose email to college → Send.
-- **Note:** `resolveRecipientsToEmails()` already accepts `@` addresses for storage; the send loop does not.
+#### ~~E-1. College compose crashes on send~~ — **FIXED**
+- **Files:** `AdminController.php` `sendmail`; `email-handlers.js` (college To id = email)
+- **Was:** Loop used `Admin::where('id', $l)` for college email → null → fatal on `$client->first_name`.
+- **Fix:** If recipient contains `@`, send to that address with a stub recipient object (same idea as `resolveRecipientsToEmails`). ID → model path unchanged for client/partner/agent. Invalid null recipient returns error JSON instead of crash. `client_id` never set from email string (uses form client_id / application / numeric To). (2026-08-05)
 
-#### E-2. Multi-recipient compose sends only to first recipient
-- **File:** `AdminController.php` (~1819–1826) — after first successful send, **returns immediately** inside the foreach. Remaining recipients never get mail.
+#### ~~E-2. Multi-recipient compose sends only to first recipient~~ — **FIXED**
+- **File:** `AdminController.php` `sendmail` (recipient foreach)
+- **Was:** After first successful send, **returns immediately** inside the foreach. Remaining recipients never get mail.
+- **Fix:** Success response deferred until after the loop; all `email_to` recipients are attempted. Fail-fast on first send exception unchanged. Invoice temp unlink moved after loop. (2026-08-05)
 
 ### High
 
-#### E-3. Multi-recipient template placeholders wrong after first recipient
-- **File:** `AdminController.php` (~1719–1738) — `$subject`/`$message` mutated in-place without resetting from originals.
+#### ~~E-3. Multi-recipient template placeholders wrong after first recipient~~ — **FIXED**
+- **File:** `AdminController.php` `sendmail`
+- **Was:** `$subject`/`$message` mutated in-place without resetting from originals.
+- **Fix:** Keep `$subjectOriginal` / `$messageOriginal`; reset each loop iteration before placeholders. (same E-2 pass, 2026-08-05)
 
-#### E-4. Google review email: undefined `$response` when already sent
-- **File:** `ClientMessagingController.php` (~232–272) — `echo json_encode($response)` when already sent → notice / invalid JSON.
+#### ~~E-4. Google review email: undefined `$response` when already sent~~ — **FIXED**
+- **File:** `ClientMessagingController.php` `isgreviewmailsent`
+- **Was:** `echo json_encode($response)` when already sent → notice / invalid JSON.
+- **Fix:** Default `$response` (`status: true`, already-sent message) before the send `if`; first-time send branches still overwrite as before. (2026-08-05)
 
-#### E-5. SMS `sendmsg` backend missing
-- **Files:** Controller docblock lists `sendmsg`; JS opens `#sendmsgmodal` / form `sendmsg`; **no method or route** found.
+#### ~~E-5. SMS `sendmsg` backend missing~~ — **FIXED**
+- **Was:** Docblock listed `sendmsg`; JS opened missing `#sendmsgmodal` / form `sendmsg`; no method or route.
+- **Fix:** No new backend. Legacy `.sendmsg` opens live `#sendSmsModal` via `window.openClientSendSmsModal` (phones/templates + Admin Console `features.sms.send`). Dead form-validation POST branch routes to same modal. Toolbar `.send-sms-btn` unchanged. (2026-08-05)
 
 #### E-6. Elite inbound webhook open when secret unset
 - **File:** `EliteEmailController.php` `assertInboundSecret` (~385–398); `config/crm.php` default `env('EDUCATION_ELITE_INBOUND_SECRET', '')`
@@ -429,22 +451,51 @@ if ($invoicelist->type == 2) {
 
 ### Medium
 
-#### E-7. Checklist attachments duplicated on multi-recipient send
-#### E-8. From dropdown ignores API `default_from`
-- **Files:** `email-from-ses-script.blade.php`; `OutlookController::senders` — docs say auto-select; frontend only restores `prev`.
+#### ~~E-7. Checklist attachments duplicated on multi-recipient send~~ — **FIXED**
+- **Fix:** `$array['files'] = []` each recipient iteration in `sendmail` (same E-2 pass, 2026-08-05).
+#### ~~E-8. From dropdown ignores API `default_from`~~ — **FIXED**
+- **Files:** `email-from-ses-script.blade.php`; `OutlookController::senders`
+- **Was:** Frontend only restored `prev`; never used `default_from`.
+- **Fix:** After loading senders, keep `prev` if still valid; otherwise select `data.default_from` when present in the list. (2026-08-05)
 #### E-9. `SesSenderService` no longer merges SES API identities (doc drift)
-#### E-10. `uploadmail` — no validation, weak persistence
-#### E-11. Elite inbound saves non-Elite mail anyway (“Don't reject — save anyway”)
-#### E-12. S3 archival silent skip when `client_id` missing (sent email won’t appear in Email tab)
-#### E-13. Recipient HTML XSS in `buildRecipientHtml` (unescaped name/email)
+#### ~~E-10. `uploadmail` — no validation, weak persistence~~ — **FIXED**
+- **File:** `ClientMessagingController::uploadmail`
+- **Was:** Raw `$request->all()` save; missing server validation; weak typed client_id.
+- **Fix:** Validate required from/to/subject/message + client_id exists on admins; trim email fields; keep `mail_type`/`conversion_type`/`mail_body_type` for Email tab compatibility. Same redirect success/error. (2026-08-05)
+#### ~~E-11. Elite inbound saves non-Elite mail anyway (“Don't reject — save anyway”)~~ — **FIXED**
+- **File:** `EliteEmailController::persistInbound`
+- **Was:** Non-Elite To/From logged as rejected then `$eliteTo = true` and saved.
+- **Fix:** If any To/From was resolved and none are Elite → JSON 422 (not stored). If no addresses parsed → still save (parse-gap safety). Elite To or From unchanged. (2026-08-05)
+#### ~~E-12. S3 archival silent skip when `client_id` missing (sent email won’t appear in Email tab)~~ — **FIXED**
+- **Files:** `AdminController::sendmail`; `CrmSentEmailS3Service::storeToS3`
+- **Was:** Missing/invalid `client_id` → S3 skip with thin log; compose often left entity id unset (college free email as To-only).
+- **Fix:** Resolve entity id from client_id → application → invoice/receipt client → first numeric To; default `type=client` when omitted; richer skip log; only set `$s3Stored` when `storeToS3` returns true. Send path unchanged on skip. (2026-08-05)
+#### ~~E-13. Recipient HTML XSS in `buildRecipientHtml` (unescaped name/email)~~ — **FIXED**
+- **File:** `public/js/common/recipient-select.js`
+- **Was:** `name`/`email`/`status` concatenated raw into Tom Select option HTML.
+- **Fix:** Escape text via `escapeHtml`; badge class from raw status before escape. (2026-08-05)
 
 ### Low
 
-#### E-14. Google review still uses placeholder SMTP body string
-#### E-15. Email modal destroys Tom Select on every close (re-init races)
-#### E-16. Elite `sent()` query uses invalid Eloquent arity (`where(..., 'and')`)
-#### E-17. `EmailService::configureMailerForEmail(null)` does not configure mailer
-#### E-18. Archived S3 HTML snapshot stores unsanitized body
+#### ~~E-14. Google review still uses placeholder SMTP body string~~ — **FIXED**
+- **File:** `ClientMessagingController::isgreviewmailsent`
+- **Was:** `'body' => 'This is for testing email using smtp'` dead test payload.
+- **Fix:** Removed unused `body` key; keep `firstname` / `reviewLink` for `emails.googlereview`. View unchanged. (2026-08-05)
+#### ~~E-15. Email modal destroys Tom Select on every close (re-init races)~~ — **FIXED**
+- **Files:** `email-handlers.js`; `recipient-select.js`
+- **Was:** `hidden.bs.modal` called `RecipientSelect.destroy` → re-init races on reopen.
+- **Fix:** `RecipientSelect.clear()` resets values/options; modal hide uses clear; keep instance for next `shown` apply/setData. Destroy kept as fallback if `clear` missing. (2026-08-05)
+#### ~~E-16. Elite `sent()` query uses invalid Eloquent arity (`where(..., 'and')`)~~ — **FIXED** (cosmetic / not a runtime bug)
+- **Was:** Claimed invalid arity; 4th arg is Laravel `$boolean` (default `'and'`).
+- **Fix:** `sent()` / `drafts()` use `where('mail_type', 1)` and `where('admin_id', $adminId)` — same SQL. (2026-08-05)
+#### ~~E-17. `EmailService::configureMailerForEmail(null)` does not configure mailer~~ — **FIXED**
+- **File:** `app/Services/EmailService.php`
+- **Was:** Name implied mailer config; method only resolved From; `null` → env / first active from_emails.
+- **Fix:** Added `resolveFromEmail()` with accurate PHPDoc; `configureMailerForEmail` delegates (BC). No send-path behavior change. (2026-08-05)
+#### ~~E-18. Archived S3 HTML snapshot stores unsanitized body~~ — **FIXED**
+- **Files:** `CrmSentEmailS3Service::buildEmailHtml`; `emails_v2` read iframe
+- **Was:** Message HTML injected raw into S3 snapshot (headers only escaped).
+- **Fix:** Before archive, strip script/iframe/object/embed/form, `on*` handlers, javascript/vbscript URLs; add CSP meta. Live SES body unchanged. Email tab body iframe `sandbox="allow-same-origin"` (no scripts). Older S3 files still benefit from iframe sandbox when open in-app. (2026-08-05)
 
 ---
 
@@ -725,8 +776,8 @@ if ($invoicelist->type == 2) {
 - **Default path safe:** Tom Select 2.4.x built-in `option`/`item` templates already return HTML containing `<`, so plain `initTomSelect(el)` / `initModalTomSelects` are **not** generally vulnerable to `"New ."`.
 - **Residual risk:** Custom `render` callbacks that return **plain text without `<`** and bypass `normalizeTemplateOutput` (e.g. some popover paths). Original Compose Email crash was this class of bug.
 
-#### FE-5. `recipient-select.js` XSS in HTML builder path (`buildRecipientHtml`)
-- Confirmed: `wrapTomSelectLabel` escapes; `buildRecipientHtml` still concatenates `name`/`email`/`status` raw when `repo.html` / entry builder path is used.
+#### ~~FE-5. `recipient-select.js` XSS in HTML builder path (`buildRecipientHtml`)~~ — **FIXED** (same as E-13)
+- Confirmed fixed: `buildRecipientHtml` now escapes name/email/status.
 
 #### FE-6. `modern-search.js` depends on global `site_url` (wrong host if unset/mismatched)
 
@@ -754,8 +805,8 @@ if ($invoicelist->type == 2) {
 
 1. **Authorization / IDOR** — Many Client/* AJAX controllers, documents, notes, actions, ongoing sheet mutations, reports, audit logs, teams/branches, Admin Console destructive ops lack visibility/module checks.
 2. **Money math** — Invoice due formulas diverge between list UI (`getinvoices`, partner Accounts tab) and payment store; fee joins inflate partner/commission totals.
-3. **Broken/missing endpoints** — Convert lead, convert/delete application routes, SMS sendmsg, finalize view copy. (Agent Excel import **A-1/A-2** fixed.)
-4. **Email send loop** — College compose crash; multi-recipient early return; placeholder mutation.
+3. **Broken/missing endpoints** — Convert lead, convert/delete application routes, finalize view copy. (Agent Excel import **A-1/A-2** fixed; SMS sendmsg legacy path **E-5 FIXED** — rewired to `#sendSmsModal`.)
+4. **Email send loop** — *(E-1 college crash, E-2 multi-recipient early return, E-3 placeholders, E-7 checklist dup — **FIXED**)*
 5. **APP_URL / URL::to** — Absolute URLs break when browser host ≠ `APP_URL`.
 6. **SQL injection** — Raw string interpolation in application checklist upload count (request path).
 7. **Document integrity** — Signing fallback copies unsigned PDF; download accepts arbitrary S3 links.
@@ -765,7 +816,8 @@ if ($invoicelist->type == 2) {
 
 ## Suggested fix priority (do not implement in this pass)
 
-1. APP-3 (~1470) SQL injection; E-1/E-2 email send; INV-1 + P-1 invoice due math  
+1. APP-3 (~1470) SQL injection; INV-1 + P-1 invoice due math  *(E-1 college / E-2 multi-To email send — **FIXED**)*  
+
 2. C-1/C-2/C-7–C-11 IDOR; D-3 document download auth; AC-1 Admin Console gates; S-1 role auth mismatch  
 3. L-1 convert-to-client; C-3 missing application routes; APP-1/APP-2 finalize + stage crash  *(A-1 agent import — **FIXED**)*  
 4. D-4 signing unsigned PDF; E-6 Elite webhook auth; SMS-1 webhook signatures; FE-1 APP_DEBUG default  

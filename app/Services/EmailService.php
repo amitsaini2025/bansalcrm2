@@ -19,9 +19,18 @@ class EmailService
     }
 
     /**
-     * Resolve email config for From address (email + display_name).
+     * Resolve From address + display name for outbound mail.
+     *
+     * Does NOT reconfigure Laravel's mailer transport or global mail config.
+     * Callers should use the returned object for ->from(...) and choose SES mailer via
+     * SesSenderService::mailerForAddress() (or EmailService::sendEmail).
+     *
+     * When $emailAddress is null/empty: MAIL_FROM_ADDRESS/NAME, else first active from_emails row.
+     * Returns null if no From identity is available.
+     *
+     * @return object{email: string, display_name?: string}|FromEmail|null
      */
-    public function configureMailerForEmail(?string $emailAddress = null): ?object
+    public function resolveFromEmail(?string $emailAddress = null): ?object
     {
         $emailConfig = null;
 
@@ -48,6 +57,15 @@ class EmailService
     }
 
     /**
+     * @deprecated Use resolveFromEmail() — this never configured the mailer; kept for BC.
+     * @return object{email: string, display_name?: string}|FromEmail|null
+     */
+    public function configureMailerForEmail(?string $emailAddress = null): ?object
+    {
+        return $this->resolveFromEmail($emailAddress);
+    }
+
+    /**
      * From address for document signature emails only (send + reminders).
      * Uses signature_from_email from config / from_emails table — not MAIL_FROM_ADDRESS.
      */
@@ -61,7 +79,7 @@ class EmailService
             return $this->getDefaultEmail();
         }
 
-        return $this->configureMailerForEmail($address);
+        return $this->resolveFromEmail($address);
     }
 
     public function getAllActiveEmails()

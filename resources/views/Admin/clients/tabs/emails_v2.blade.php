@@ -138,7 +138,7 @@
                 </div>
                 <div id="attachmentsContainerV2" class="email-attachments-container reading-attachments" hidden></div>
                 <div class="reading-body">
-                    <iframe id="emailReadBodyV2" class="email-read-body-iframe" title="Email content"></iframe>
+                    <iframe id="emailReadBodyV2" class="email-read-body-iframe" title="Email content" sandbox="allow-same-origin"></iframe>
                 </div>
             </div>
         </div>

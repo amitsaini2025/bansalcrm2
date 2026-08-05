@@ -64,10 +64,19 @@
             : 'badge bg-warning text-dark ts-result-row__statistics';
     }
 
+    function escapeHtml(str) {
+        return String(str == null ? '' : str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
     function buildRecipientHtml(name, email, status) {
-        name = name || '';
-        email = email || '';
-        status = status || '';
+        var badgeClass = statusBadgeClass(status || '');
+        name = escapeHtml(name || '');
+        email = escapeHtml(email || '');
+        status = escapeHtml(status || '');
         return (
             "<div class='ts-result-row ag-flex ag-space-between ag-align-center'>" +
             "<div class='ag-flex ag-align-start'>" +
@@ -76,7 +85,7 @@
             "<div class='ag-flex ag-align-center'><small class='ts-result-row__description'>" + email + "</small></div>" +
             "</div></div>" +
             "<div class='ag-flex ag-flex-column ag-align-end'>" +
-            "<span class='" + statusBadgeClass(status) + "'>" + status + "</span>" +
+            "<span class='" + badgeClass + "'>" + status + "</span>" +
             "</div></div>"
         );
     }
@@ -92,14 +101,6 @@
             html: buildRecipientHtml(name, email, status),
             title: name
         };
-    }
-
-    function escapeHtml(str) {
-        return String(str == null ? '' : str)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
     }
 
     /** Tom Select treats strings without '<' as CSS selectors — wrap display labels. */
@@ -170,6 +171,49 @@
         if (typeof window.destroyTomSelect === 'function') {
             window.destroyTomSelect(element);
         }
+    }
+
+    /**
+     * Clear selection/options without destroying Tom Select (avoids re-init races on modal reopen).
+     */
+    function clearRecipientSelect(el) {
+        var element = resolveElement(el);
+        if (!element) {
+            return;
+        }
+        var instance = element.tomselect;
+        if (!instance) {
+            // Native multi/select clear
+            if (element.multiple) {
+                Array.prototype.forEach.call(element.options, function (opt) {
+                    opt.selected = false;
+                });
+            } else {
+                element.value = '';
+            }
+            return;
+        }
+        try {
+            if (typeof instance.clear === 'function') {
+                instance.clear(true);
+            }
+        } catch (e) { /* ignore */ }
+        try {
+            if (instance.options) {
+                Object.keys(instance.options).forEach(function (key) {
+                    if (key === '') {
+                        return;
+                    }
+                    instance.removeOption(key, true);
+                });
+            }
+            if (instance.control_input) {
+                instance.control_input.value = '';
+            }
+            if (typeof instance.refreshOptions === 'function') {
+                instance.refreshOptions(false);
+            }
+        } catch (e2) { /* ignore */ }
     }
 
     function buildAjaxOptions(url, options) {
@@ -670,6 +714,7 @@
         formatRepo: formatRepo,
         formatRepoSelection: formatRepoSelection,
         destroy: destroyRecipientSelect,
+        clear: clearRecipientSelect,
         init: initRecipientSelect,
         initAll: initRecipientSelects,
         reinit: reinitRecipientSelect,

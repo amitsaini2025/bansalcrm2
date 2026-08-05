@@ -201,10 +201,21 @@ jQuery(document).ready(function($){
         RecipientSelect.init(selector, getEmailRecipientInitOptions());
     }
 
+    /**
+     * Reset compose To/CC without destroying Tom Select (destroy+reinit races on rapid reopen).
+     */
     function restoreEmailRecipientAjaxSelects() {
         if (!window.RecipientSelect) {
             return;
         }
+        if (typeof RecipientSelect.clear === 'function') {
+            RecipientSelect.clear('#emailmodal .js-data-example-ajax');
+            if ($('#emailmodal .js-data-example-ajaxccd').length) {
+                RecipientSelect.clear('#emailmodal .js-data-example-ajaxccd');
+            }
+            return;
+        }
+        // Legacy fallback if older RecipientSelect build without clear()
         RecipientSelect.destroy('#emailmodal .js-data-example-ajax');
         if ($('#emailmodal .js-data-example-ajaxccd').length) {
             RecipientSelect.destroy('#emailmodal .js-data-example-ajaxccd');
@@ -376,14 +387,27 @@ jQuery(document).ready(function($){
     });
 
     // ============================================================================
-    // OPEN SMS MODAL
+    // OPEN SMS MODAL (legacy .sendmsg → live #sendSmsModal; no separate sendmsg backend)
     // ============================================================================
     
     $(document).on('click', '.sendmsg', function(){
-        $('#sendmsgmodal').modal('show');
-        var client_id = $(this).attr('data-id');
-        $('#sendmsg_client_id').val(client_id);
-        $('#sendmsg_application_id').val(''); // clear so normal SMS is not recorded as reminder
+        var client_id = $(this).attr('data-id') || $(this).attr('data-client-id') || '';
+        if (typeof window.openClientSendSmsModal === 'function') {
+            window.openClientSendSmsModal(client_id, '');
+            return;
+        }
+        // Fallback: same flow as .send-sms-btn on client detail
+        var $btn = $('.send-sms-btn').first();
+        if ($btn.length) {
+            if (client_id) {
+                $btn.attr('data-client-id', client_id);
+            }
+            $btn.trigger('click');
+            return;
+        }
+        if (typeof window.toastMsg === 'function') {
+            window.toastMsg('Send SMS is not available on this page.', 'warning');
+        }
     });
 
     // ============================================================================
