@@ -4,7 +4,6 @@
 @section('content')
 <style>
 .fc-event-container .fc-h-event{cursor:pointer;}
-#openassigneview .modal-body ul.navbar-nav li .dropdown-menu{transform: none!important; top:40px!important;}
 .sort_col a { color: #212529 !important; font-weight: 700 !important;}
 .group_type_section a.active {color:black;}
 .countAction {background: #1f1655;padding: 0px 5px;border-radius: 50%;color: #fff;margin-left: 5px;}
@@ -41,7 +40,18 @@
 						</div>
 						<div class="card-body">
 							<div class="tab-content" id="quotationContent">
-                                <form action="{{ route('action.assigned_by_me') }}" method="get">
+                                <form action="{{ route('action.assigned_by_me') }}" method="get" id="assignedByMeFilters">
+                                    <div class="row mb-2">
+                                        <div class="col-md-12">
+                                            <label class="form-check form-check-inline" title="Future-dated Followup actions are hidden by default until their assign date">
+                                                <input type="checkbox" class="form-check-input" name="include_scheduled_followups" value="1"
+                                                    {{ !empty($includeScheduledFollowups) ? 'checked' : '' }}
+                                                    onchange="document.getElementById('assignedByMeFilters').submit();">
+                                                Include scheduled follow-ups
+                                            </label>
+                                            <small class="text-muted d-block">Default list shows Followups only on/after their assign date.</small>
+                                        </div>
+                                    </div>
                                     <div class="row">
                                         <div class="col-md-12 group_type_section"><?php //echo $task_group;?>
 
@@ -104,21 +114,40 @@
                                                     } ?>
                                                 </td>
 
-                                                <td>{{ date('d/m/Y',strtotime($list->action_assign_date)) ?? 'N/P'}} </td>
+                                                <td>
+                                                    @if(!empty($list->action_assign_date))
+                                                        {{ date('d/m/Y', strtotime($list->action_assign_date)) }}
+                                                        @php
+                                                            $isFutureFollowup = strcasecmp((string) ($list->task_group ?? ''), 'Followup') === 0
+                                                                && \Carbon\Carbon::parse($list->action_assign_date)->timezone(config('app.timezone'))->startOfDay()
+                                                                    ->gt(\Carbon\Carbon::today(config('app.timezone')));
+                                                        @endphp
+                                                        @if($isFutureFollowup)
+                                                            <span class="badge bg-info text-dark">Scheduled</span>
+                                                        @endif
+                                                    @else
+                                                        N/P
+                                                    @endif
+                                                </td>
                                                 <td>{{ $list->task_group??'N/P' }}</td>
                                                 <td>
                                                     <?php
-                                                    if( isset($list->description) && $list->description != "" ){
-                                                        if (strlen($list->description) > 190) {
-                                                            $full_description = $list->description;
-                                                            $new_string = substr($list->description, 0, 190) . ' <button type="button" class="btn btn-link" data-bs-toggle="popover" title="" data-content="'.$full_description.'">Read more</button>';
-                                                            echo $new_string;
+                                                    // Escaped plain text only (list/popover XSS-safe). Edit prefills still use data-description.
+                                                    $plainDescription = trim(strip_tags((string) ($list->description ?? '')));
+                                                    if ($plainDescription !== '') {
+                                                        $safeHtml = \App\Support\Utf8Helper::sanitizeForHtml($plainDescription);
+                                                        if (mb_strlen($plainDescription) > 190) {
+                                                            $preview = \App\Support\Utf8Helper::sanitizeForHtml(mb_substr($plainDescription, 0, 190));
+                                                            $safeAttr = \App\Support\Utf8Helper::sanitizeForHtmlAttribute($plainDescription);
+                                                            echo $preview . ' <button type="button" class="btn btn-link" data-bs-toggle="popover" data-bs-html="false" data-html="false" title="" data-bs-content="'.$safeAttr.'" data-content="'.$safeAttr.'">Read more</button>';
                                                         } else {
-                                                            echo $list->description;
+                                                            echo $safeHtml;
                                                         }
                                                     } else {
-                                                        echo "N/P";
-                                                    }  echo "\n";?>
+                                                        echo 'N/P';
+                                                    }
+                                                    echo "\n";
+                                                    ?>
                                                 </td>
 
 
@@ -131,7 +160,7 @@
                                                         {{--<a class="btn btn-primary" href="{{ url('/clients/edit/'.base64_encode(convert_uuencode(@$list->client_id)).'') }}">Edit</a>--}}
 
                                                         <?php if($list->task_group != 'Personal Task'){?>
-                                                            <button type="button" data-assignedto="{{ $list->assigned_to }}" data-noteid="{{ $list->description }}" data-taskid="{{ $list->id }}" data-taskgroupid="{{ $list->task_group }}" data-followupdate="{{ $list->action_assign_date }}" class="btn btn-primary btn-block update_task" data-bs-container="body" data-role="popover" data-bs-placement="bottom" data-html="true" data-content="<div id=&quot;popover-content&quot;>
+                                                            <button type="button" data-assignedto="{{ $list->assigned_to }}" data-description="{{ $list->description }}" data-taskid="{{ $list->id }}" data-taskgroupid="{{ $list->task_group }}" data-followupdate="{{ $list->action_assign_date }}" class="btn btn-primary btn-block update_task" data-bs-container="body" data-role="popover" data-bs-placement="bottom" data-html="true" data-content="<div id=&quot;popover-content&quot;>
                                                                 <h4 class=&quot;text-center&quot;>Update Task</h4>
                                                                 <div class=&quot;clearfix&quot;></div>
                                                             <div class=&quot;box-header with-border&quot;>
@@ -202,7 +231,7 @@
                                                     <?php } ?>
 
                                                         <?php if($list->task_group != 'Personal Task'){?>
-                                                        <button type="button" data-assignedto="{{ $list->assigned_to }}" data-noteid="{{ $list->description }}" data-taskid="{{ $list->id }}" data-taskgroupid="{{ $list->task_group }}" data-followupdate="{{ $list->action_assign_date }}" class="btn btn-primary btn-block reassign_task" data-bs-container="body" data-role="popover" data-bs-placement="bottom" data-html="true" title="Reassign" data-content="<div id=&quot;popover-content&quot;>
+                                                        <button type="button" data-assignedto="{{ $list->assigned_to }}" data-description="{{ $list->description }}" data-taskid="{{ $list->id }}" data-taskgroupid="{{ $list->task_group }}" data-followupdate="{{ $list->action_assign_date }}" class="btn btn-primary btn-block reassign_task" data-bs-container="body" data-role="popover" data-bs-placement="bottom" data-html="true" title="Reassign" data-content="<div id=&quot;popover-content&quot;>
                                                             <h4 class=&quot;text-center&quot;>Re-Assign Staff</h4>
                                                             <div class=&quot;clearfix&quot;></div>
                                                         <div class=&quot;box-header with-border&quot;>
@@ -312,15 +341,7 @@
 		</div>
 	</section>
 </div>
-<!-- Assign Modal -->
-
-<div class="modal fade custom_modal" id="openassigneview" tabindex="-1" role="dialog" aria-labelledby="" aria-hidden="true">
-	<div class="modal-dialog modal-lg">
-		<div class="modal-content taskview">
-
-		</div>
-	</div>
-</div>
+<!-- Assign Modal (legacy appointment detail — removed) -->
 
 <!-- Complete Action Modal -->
 <div class="modal fade" id="completeActionModal" tabindex="-1" role="dialog" aria-labelledby="completeActionModalLabel" aria-hidden="true">
@@ -359,6 +380,114 @@
 
 <script>
 	jQuery(document).ready(function($){
+    /**
+     * Resolve the Bootstrap popover tip DOM for a given trigger.
+     * Never fall back to global $('#assignnote') etc. (duplicate ids across rows).
+     */
+    function getPopoverTipForTrigger(triggerEl) {
+        if (!triggerEl) {
+            return $();
+        }
+        try {
+            if (window.bootstrap && window.bootstrap.Popover) {
+                var inst = window.bootstrap.Popover.getInstance(triggerEl);
+                if (inst) {
+                    var tip = (typeof inst.getTipElement === 'function')
+                        ? inst.getTipElement()
+                        : (inst.tip || null);
+                    if (tip) {
+                        return $(tip);
+                    }
+                }
+            }
+        } catch (err) { /* ignore */ }
+
+        var data = $(triggerEl).data('bs.popover');
+        if (data && data.tip) {
+            return $(data.tip);
+        }
+        return $();
+    }
+
+    /** Form root for submit buttons rendered inside the open popover tip. */
+    function getActionPopoverFormFromEvent($btn) {
+        var $form = $btn.closest('.popover');
+        if ($form.length) {
+            return $form;
+        }
+        // Fallback: tip of last known row trigger (not document-wide #ids)
+        if (window._assignedByMeActiveTrigger) {
+            $form = getPopoverTipForTrigger(window._assignedByMeActiveTrigger);
+            if ($form.length) {
+                return $form;
+            }
+        }
+        return $();
+    }
+
+    function loadAssigneeIntoPopover($popover, assignedto) {
+        if (!$popover || !$popover.length) {
+            return;
+        }
+        $.ajax({
+            type: 'post',
+            url: "{{URL::to('/')}}/action/assignee-list",
+            headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content') },
+            data: { assignedto: assignedto },
+            success: function(response) {
+                var obj = $.parseJSON(response);
+                var $select = $popover.find('#rem_cat').first();
+                if (!$select.length) {
+                    return;
+                }
+                if (window.ActionPopoverTomSelect) {
+                    ActionPopoverTomSelect.refreshAssigneeSelect($select[0], obj.message, $popover[0]);
+                } else {
+                    $select.html(obj.message);
+                }
+            }
+        });
+    }
+
+    /**
+     * Wait for this button's popover tip, then prefill only within that tip.
+     * Retries briefly; never writes document-global #id fields.
+     */
+    function fillActionPopoverWhenReady($btn, opts) {
+        var filled = false;
+        var attempts = 0;
+        var maxAttempts = 10;
+        var retryMs = 75;
+
+        var tryFill = function() {
+            if (filled) {
+                return;
+            }
+            var $popover = getPopoverTipForTrigger($btn[0]);
+            if (!$popover.length || !$popover.find('#assign_note_id, #assignnote').length) {
+                attempts += 1;
+                if (attempts < maxAttempts) {
+                    setTimeout(tryFill, retryMs);
+                    return;
+                }
+                if (typeof showToast === 'function') {
+                    showToast('Could not open form. Please try again.', 'warning');
+                }
+                return;
+            }
+
+            filled = true;
+            $popover.find('#assignnote').val(opts.note_description);
+            $popover.find('#assign_note_id').val(opts.task_id);
+            $popover.find('#task_group').val(opts.taskgroup_id);
+            $popover.find('#popoverdatetime').val(opts.finalDate);
+            loadAssigneeIntoPopover($popover, opts.assignedto);
+        };
+
+        $btn.one('shown.bs.popover', tryFill);
+        setTimeout(tryFill, retryMs);
+    }
+
      $(document).delegate('.openassignee', 'click', function(){
         $('.assignee').show();
     });
@@ -373,8 +502,13 @@
         e.stopPropagation();
         
         var $btn = $(this);
+        window._assignedByMeActiveTrigger = this;
         var assignedto = $btn.attr('data-assignedto');
-        var note_id = $btn.attr('data-noteid');
+        // Description text for textarea prefill (legacy data-noteid fallback if present)
+        var note_description = $btn.attr('data-description');
+        if (note_description === undefined) {
+            note_description = $btn.attr('data-noteid') || '';
+        }
         var task_id = $btn.attr('data-taskid');
         var taskgroup_id = $btn.attr('data-taskgroupid');
         var followupdate_id = $btn.attr('data-followupdate');
@@ -384,67 +518,14 @@
         // Popover is already initialized by popover.js on page load - do NOT re-initialize
         // (Re-initializing causes "Bootstrap doesn't allow more than one instance per element" error)
         $btn.popover('show');
-        
-        // Wait for popover to be shown, then set form values
-        var popoverShown = false;
-        var setFormValues = function() {
-            if (popoverShown) return;
-            popoverShown = true;
-            
-            // Find the visible popover element (Bootstrap 5 creates .popover elements)
-            var $popover = $('.popover:visible').last();
-            if ($popover.length) {
-                // Load assignee list via AJAX and set in popover
-                $.ajax({
-                    type:'post',
-                    url:"{{URL::to('/')}}/action/assignee-list",
-                    headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')},
-                    data: {assignedto:assignedto},
-                    success: function(response){
-                        var obj = $.parseJSON(response);
-                        if (window.ActionPopoverTomSelect) {
-                            ActionPopoverTomSelect.refreshAssigneeSelect($popover.find('#rem_cat')[0], obj.message, $popover[0]);
-                        } else {
-                            $popover.find('#rem_cat').html(obj.message);
-                        }
-                    }
-                });
-                
-                // Set form values within the visible popover
-                $popover.find('#assignnote').val(note_id);
-                $popover.find('#assign_note_id').val(task_id);
-                $popover.find('#task_group').val(taskgroup_id);
-                $popover.find('#popoverdatetime').val(finalDate);
-            } else {
-                // Fallback: set values globally (for compatibility)
-                $('#assignnote').val(note_id);
-                $('#assign_note_id').val(task_id);
-                $('#task_group').val(taskgroup_id);
-                $('#popoverdatetime').val(finalDate);
-                
-                // Load assignee list
-                $.ajax({
-                    type:'post',
-                    url:"{{URL::to('/')}}/action/assignee-list",
-                    headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')},
-                    data: {assignedto:assignedto},
-                    success: function(response){
-                        var obj = $.parseJSON(response);
-                        if (window.ActionPopoverTomSelect) {
-                            ActionPopoverTomSelect.refreshAssigneeSelect($('#rem_cat')[0], obj.message, document.body);
-                        } else {
-                            $('#rem_cat').html(obj.message);
-                        }
-                    }
-                });
-            }
-        };
-        
-        // Listen for Bootstrap 5 popover shown event
-        $btn.one('shown.bs.popover', setFormValues);
-        
-        // Fallback timeout in case event doesn't fire
-        setTimeout(setFormValues, 200);
+
+        fillActionPopoverWhenReady($btn, {
+            assignedto: assignedto,
+            note_description: note_description,
+            task_id: task_id,
+            taskgroup_id: taskgroup_id,
+            finalDate: finalDate
+        });
     });
 
     //update task
@@ -453,8 +534,13 @@
         e.stopPropagation();
         
         var $btn = $(this);
+        window._assignedByMeActiveTrigger = this;
         var assignedto = $btn.attr('data-assignedto');
-        var note_id = $btn.attr('data-noteid');
+        // Description text for textarea prefill (legacy data-noteid fallback if present)
+        var note_description = $btn.attr('data-description');
+        if (note_description === undefined) {
+            note_description = $btn.attr('data-noteid') || '';
+        }
         var task_id = $btn.attr('data-taskid');
         var taskgroup_id = $btn.attr('data-taskgroupid');
         var followupdate_id = $btn.attr('data-followupdate');
@@ -464,71 +550,14 @@
         // Popover is already initialized by popover.js on page load - do NOT re-initialize
         // (Re-initializing causes "Bootstrap doesn't allow more than one instance per element" error)
         $btn.popover('show');
-        
-        // Wait for popover to be shown, then set form values
-        var popoverShown = false;
-        var setFormValues = function() {
-            if (popoverShown) return;
-            popoverShown = true;
-            
-            // Find the visible popover element (Bootstrap 5 creates .popover elements)
-            var $popover = $('.popover:visible').last();
-            if ($popover.length) {
-                // Set form values within the visible popover
-                $popover.find('#rem_cat').each(function() {
-                    var $select = $(this);
-                    // Load assignee list via AJAX
-                    $.ajax({
-                        type:'post',
-                        url:"{{URL::to('/')}}/action/assignee-list",
-                        headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')},
-                        data: {assignedto:assignedto},
-                        success: function(response){
-                            var obj = $.parseJSON(response);
-                            if (window.ActionPopoverTomSelect) {
-                                ActionPopoverTomSelect.refreshAssigneeSelect($select[0], obj.message, $popover[0]);
-                            } else {
-                                $select.html(obj.message);
-                            }
-                        }
-                    });
-                });
-                
-                $popover.find('#assignnote').val(note_id);
-                $popover.find('#assign_note_id').val(task_id);
-                $popover.find('#task_group').val(taskgroup_id);
-                $popover.find('#popoverdatetime').val(finalDate);
-            } else {
-                // Fallback: set values globally (for compatibility)
-                $('#rem_cat').html(''); // Will be set by AJAX
-                $('#assignnote').val(note_id);
-                $('#assign_note_id').val(task_id);
-                $('#task_group').val(taskgroup_id);
-                $('#popoverdatetime').val(finalDate);
-                
-                // Load assignee list
-                $.ajax({
-                    type:'post',
-                    url:"{{URL::to('/')}}/action/assignee-list",
-                    headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')},
-                    data: {assignedto:assignedto},
-                    success: function(response){
-                        var obj = $.parseJSON(response);
-                        if (window.ActionPopoverTomSelect) {
-                            ActionPopoverTomSelect.refreshAssigneeSelect($('#rem_cat')[0], obj.message, document.body);
-                        } else {
-                            $('#rem_cat').html(obj.message);
-                        }
-                    }
-                });
-            }
-        };
-        
-        // Listen for Bootstrap 5 popover shown event
-        $btn.one('shown.bs.popover', setFormValues);
-        
-        // Fallback timeout in case event doesn't fire
-        setTimeout(setFormValues, 200);
+
+        fillActionPopoverWhenReady($btn, {
+            assignedto: assignedto,
+            note_description: note_description,
+            task_id: task_id,
+            taskgroup_id: taskgroup_id,
+            finalDate: finalDate
+        });
     });
 
     //Function is used for not complete the task
@@ -541,8 +570,8 @@
                 headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')},
                 data: {id:row_id },
                 success: function(response){
-                    //console.log(response);
-                    var obj = $.parseJSON(response);
+                    // Handle string (legacy) or object (application/json) without breaking reload
+                    var obj = (typeof response === 'string') ? $.parseJSON(response) : response;
                     location.reload();
                 }
 			});
@@ -689,10 +718,16 @@
 		var flag = true;
 		var error ="";
 		$(".custom-error").remove();
-		
-		// Find the visible popover to scope our selectors
-		var $popover = $('.popover:visible').last();
-		var $form = $popover.length ? $popover : $(document); // Fallback to document if popover not found
+
+		// Scope only to the open tip that contains this button — never document-wide #ids
+		var $form = getActionPopoverFormFromEvent($(this));
+		if (!$form.length) {
+			$('.popuploader').hide();
+			if (typeof showToast === 'function') {
+				showToast('Could not find the open form. Please reopen and try again.', 'warning');
+			}
+			return;
+		}
 		
 		if(typeof actionPopoverSelectVal === 'function' ? actionPopoverSelectVal($form.find('#rem_cat')) === '' : $form.find('#rem_cat').val() == ''){
 			$('.popuploader').hide();
@@ -733,7 +768,14 @@
                     var obj = $.parseJSON(response);
                     if(obj.success){
                         $("[data-role=popover]").each(function(){
-                            (($(this).popover('hide').data('bs.popover')||{}).inState||{}).click = false  // fix for BS 3.3.6
+                            // Bootstrap 5: plain hide (no BS3 inState API)
+                            try {
+                                if (window.bootstrap && window.bootstrap.Popover) {
+                                    var inst = window.bootstrap.Popover.getInstance(this);
+                                    if (inst) { inst.hide(); return; }
+                                }
+                            } catch (e) {}
+                            try { $(this).popover('hide'); } catch (e2) {}
                         });
                         location.reload();
                     } else{
@@ -744,6 +786,7 @@
 			});
 		}else{
 			$("#loader").hide();
+			$('.popuploader').hide();
 		}
 	});
 
@@ -755,9 +798,15 @@
 		var error ="";
 		$(".custom-error").remove();
 
-		// Find the visible popover to scope our selectors
-		var $popover = $('.popover:visible').last();
-		var $form = $popover.length ? $popover : $(document); // Fallback to document if popover not found
+		// Scope only to the open tip that contains this button — never document-wide #ids
+		var $form = getActionPopoverFormFromEvent($(this));
+		if (!$form.length) {
+			$('.popuploader').hide();
+			if (typeof showToast === 'function') {
+				showToast('Could not find the open form. Please reopen and try again.', 'warning');
+			}
+			return;
+		}
 
 		if(typeof actionPopoverSelectVal === 'function' ? actionPopoverSelectVal($form.find('#rem_cat')) === '' : $form.find('#rem_cat').val() == ''){
 			$('.popuploader').hide();
@@ -798,7 +847,14 @@
                     var obj = $.parseJSON(response);
                     if(obj.success){
                         $("[data-role=popover]").each(function(){
-                            (($(this).popover('hide').data('bs.popover')||{}).inState||{}).click = false  // fix for BS 3.3.6
+                            // Bootstrap 5: plain hide (no BS3 inState API)
+                            try {
+                                if (window.bootstrap && window.bootstrap.Popover) {
+                                    var inst = window.bootstrap.Popover.getInstance(this);
+                                    if (inst) { inst.hide(); return; }
+                                }
+                            } catch (e) {}
+                            try { $(this).popover('hide'); } catch (e2) {}
                         });
                         location.reload();
                     } else{
@@ -809,184 +865,8 @@
 			});
 		}else{
 			$("#loader").hide();
+			$('.popuploader').hide();
 		}
-	});
-
-	$(document).delegate('.saveassignee', 'click', function(){
-        var appliid = $(this).attr('data-id');
-
-		var assinee = typeof getEnhancedSelectValue === 'function' ? getEnhancedSelectValue('#changeassignee') : $('#changeassignee').val();
-		$('.popuploader').show();
-		// console.log($('#changeassignee').val());
-		$.ajax({
-			url: site_url+'/change_assignee',
-			type:'GET',
-			data:{id: appliid,assinee: assinee},
-			success: function(response){
-				// console.log(response);
-				 var obj = $.parseJSON(response);
-				if(obj.status){
-				    showToast(obj.message, 'success');
-				location.reload();
-
-				}else{
-					showToast(obj.message, 'error');
-				}
-			}
-		});
-    });
-
-	$(document).delegate('.savecomment', 'click', function(){
-		var visitcomment = $('.taskcomment').val();
-		var appliid = $(this).attr('data-id');
-		$('.popuploader').show();
-		$.ajax({
-			url: site_url+'/update_apppointment_comment',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,visit_comment:visitcomment},
-			success: function(responses){
-				// $('.popuploader').hide();
-				$('.taskcomment').val('');
-				$.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						$('.taskview').html(responses);
-					}
-				});
-			}
-		});
-	});
-
-	$(document).delegate('.openassigneview', 'click', function(){
-	    // $('.popuploader').hide();
-	    $('#openassigneview').modal('show');
-	    var v = $(this).attr('id');
-		$.ajax({
-			url: site_url+'/get-assigne-detail',
-			type:'GET',
-			data:{id:v},
-			success: function(responses){
-				$('.popuploader').hide();
-				$('.taskview').html(responses);
-			}
-		});
-	});
-
-	$(document).delegate('.changestatus', 'click', function(){
-		var appliid = $(this).attr('data-id');
-		var status = $(this).attr('data-status');
-		var statusame = $(this).attr('data-status-name');
-		$('.popuploader').show();
-
-		$.ajax({
-			url: site_url+'/update_list_status',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,statusname:statusame,status:status},
-			success: function(responses){
-				$('.popuploader').hide();
-				var obj = JSON.parse(responses);
-				if(obj.status){
-				    console.log(obj.status);
-				    $('.updatestatusview'+appliid).html(obj.viewstatus);
-				}
-				$.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						$('.taskview').html(responses);
-					}
-				});
-			}
-		});
-	});
-
-
-	$(document).delegate('.changepriority', 'click', function(){
-		var appliid = $(this).attr('data-id');
-		var status = $(this).attr('data-status');
-		$('.popuploader').show();
-
-		$.ajax({
-			url: site_url+'/update_list_priority',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,status:status},
-			success: function(responses){
-				$('.popuploader').hide();
-
-				$.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						console.log(responses);
-						$('.taskview').html(responses);
-
-					}
-				});
-			}
-		});
-	});
-
-	$(document).delegate('.desc_click', 'click', function(){
-		$(this).hide();
-		$('.taskdesc').show();
-		$('.taskdesc').focus();
-	});
-	$(document).delegate('.taskdesc', 'blur', function(){
-		$(this).hide();
-		$('.desc_click').show();
-	});
-
-	$(document).delegate('.tasknewdesc', 'blur', function(){
-		var visitpurpose = $(this).val();
-		var appliid = $(this).attr('data-id');
-		$('.popuploader').show();
-		$.ajax({
-			url: site_url+'/update_apppointment_description',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,visit_purpose:visitpurpose},
-			success: function(responses){
-				$.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						$('.taskview').html(responses);
-					}
-				});
-
-			}
-		});
-	});
-
-	$(document).delegate('.taskdesc', 'blur', function(){
-		var visitpurpose = $(this).val();
-		var appliid = $(this).attr('data-id');
-		$('.popuploader').show();
-		$.ajax({
-			url: site_url+'/update_apppointment_description',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,visit_purpose:visitpurpose},
-			success: function(responses){
-				 $.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						$('.taskview').html(responses);
-					}
-				});
-
-			}
-		});
 	});
 });
 </script>

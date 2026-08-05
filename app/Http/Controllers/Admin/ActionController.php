@@ -32,7 +32,7 @@ class ActionController extends Controller
      }
 
     //Update task to be complete
-    public function markComplete(Request $request,Note $note)
+    public function markComplete(Request $request)
     {
         try {
             $noteId = $request->input('id');
@@ -214,46 +214,46 @@ class ActionController extends Controller
     }
 
     //Update task to be not complete
-    public function markIncomplete(Request $request,Note $note)
+    public function markIncomplete(Request $request)
     {
         try {
-            $data = $request->all();
-            
-            if (!isset($data['id'])) {
+            $noteId = $request->input('id');
+
+            if (!$noteId) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Action ID is required'
-                ]);
+                ], 400);
             }
-            
+
             // Get the note before updating
-            $noteRecord = Note::find($data['id']);
-            
+            $noteRecord = Note::find($noteId);
+
             if (!$noteRecord) {
                 return response()->json([
                     'status' => false,
                     'message' => 'Action not found'
-                ]);
+                ], 404);
             }
-            
+
             // Store note details before update
             $clientId = $noteRecord->client_id;
             $noteType = $noteRecord->type;
             $taskGroup = $noteRecord->task_group;
             $assignedTo = $noteRecord->assigned_to;
-            
+
             // Update status to incomplete
-            $updated = Note::where('id', $data['id'])->update(['status' => '0']);
-            
-            if($updated){
+            $updated = Note::where('id', $noteId)->update(['status' => '0']);
+
+            if ($updated) {
                 // Create activity log entry for marking incomplete
                 $admin_data = \App\Models\Staff::find($assignedTo);
-                if($admin_data){
-                    $assignee_name = $admin_data->first_name." ".$admin_data->last_name;
+                if ($admin_data) {
+                    $assignee_name = $admin_data->first_name . " " . $admin_data->last_name;
                 } else {
                     $assignee_name = 'N/A';
                 }
-                
+
                 if ($clientId) {
                     $objs = new ActivitiesLog;
                     $objs->client_id = $clientId;
@@ -274,27 +274,33 @@ class ActionController extends Controller
                     $objs->pin = 0;
                     $objs->save();
                 }
-                
-                $response['status'] = true;
-                $response['message'] = 'Task updated successfully';
-            } else {
-                $response['status'] = false;
-                $response['message'] = 'Please try again';
+
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Task updated successfully'
+                ]);
             }
-            
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Please try again'
+            ], 400);
+
         } catch (\Exception $e) {
             \Log::error('Error marking incomplete: ' . $e->getMessage());
-            $response['status'] = false;
-            $response['message'] = 'An error occurred while updating the task';
+
+            return response()->json([
+                'status' => false,
+                'message' => 'An error occurred while updating the task'
+            ], 500);
         }
-        
-        echo json_encode($response);
     }
 
 
     //All assigned by me task list which r incomplete
     public function assignedByMe(Request $request)
     {  //dd(Auth::user()->id);
+         $includeScheduledFollowups = $this->wantsIncludeScheduledFollowups($request);
          if(\Auth::user()->role == 1){
              $assignees_notCompleted = $this->applyFollowupAssignDateVisibilityFilter(
                  \App\Models\Note::sortable()
@@ -302,7 +308,8 @@ class ActionController extends Controller
                  ->where('status','<>','1')
                  ->where('type','client')
                  ->whereNotNull('client_id')
-                 ->where('is_action',1)
+                 ->where('is_action',1),
+                 $includeScheduledFollowups
              )->orderByRaw('created_at DESC NULLS LAST')->paginate(20);
          } else {
              $assignees_notCompleted = $this->applyFollowupAssignDateVisibilityFilter(
@@ -311,11 +318,12 @@ class ActionController extends Controller
                  ->where('status','<>','1')
                  ->where('user_id',\Auth::user()->id)
                  ->where('type','client')
-                 ->where('is_action',1)
+                 ->where('is_action',1),
+                 $includeScheduledFollowups
              )->orderByRaw('created_at DESC NULLS LAST')->paginate(20);
          }
          #dd($assignees_notCompleted);
-         return view('Admin.action.assigned_by_me',compact('assignees_notCompleted'))
+         return view('Admin.action.assigned_by_me', compact('assignees_notCompleted', 'includeScheduledFollowups'))
           ->with('i', (request()->input('page', 1) - 1) * 20);
     }
 
@@ -323,6 +331,7 @@ class ActionController extends Controller
     //All assigned to me task list
     public function assignedToMe(Request $request)
     {
+        $includeScheduledFollowups = $this->wantsIncludeScheduledFollowups($request);
         if(\Auth::user()->role == 1){
             $assignees_notCompleted = $this->applyFollowupAssignDateVisibilityFilter(
                 \App\Models\Note::sortable()
@@ -331,7 +340,8 @@ class ActionController extends Controller
                 ->where('assigned_to',\Auth::user()->id)
                 ->where('type','client')
                 ->whereNotNull('client_id')
-                ->where('is_action',1)
+                ->where('is_action',1),
+                $includeScheduledFollowups
             )->orderByRaw('created_at DESC NULLS LAST')->paginate(20);
 
             $assignees_completed = \App\Models\Note::sortable()
@@ -343,7 +353,8 @@ class ActionController extends Controller
                 ->where('status','<>','1')
                 ->where('assigned_to',\Auth::user()->id)
                 ->where('type','client')
-                ->where('is_action',1)
+                ->where('is_action',1),
+                $includeScheduledFollowups
             )->orderByRaw('created_at DESC NULLS LAST')->paginate(20);
 
             $assignees_completed = \App\Models\Note::sortable()
@@ -351,7 +362,7 @@ class ActionController extends Controller
         }
         //dd($assignees_notCompleted);
         //dd($assignees_completed);
-        return view('Admin.action.assigned_to_me',compact('assignees_notCompleted','assignees_completed'))
+        return view('Admin.action.assigned_to_me', compact('assignees_notCompleted', 'assignees_completed', 'includeScheduledFollowups'))
          ->with('i', (request()->input('page', 1) - 1) * 20);
     }
 
@@ -605,11 +616,32 @@ class ActionController extends Controller
     }
 
     /**
+     * Whether the request asks to show future-dated Followup actions (default off).
+     */
+    private function wantsIncludeScheduledFollowups(?Request $request = null): bool
+    {
+        $request = $request ?? request();
+        $value = $request->input('include_scheduled_followups');
+
+        return $request->boolean('include_scheduled_followups')
+            || $value === 1
+            || $value === '1'
+            || $value === true
+            || $value === 'true'
+            || $value === 'on';
+    }
+
+    /**
      * Followup actions appear on the Action page only on/after their assign date.
      * All other action types are unchanged.
+     * Pass $includeScheduledFollowups = true to list future-dated Followups too.
      */
-    private function applyFollowupAssignDateVisibilityFilter($query)
+    private function applyFollowupAssignDateVisibilityFilter($query, bool $includeScheduledFollowups = false)
     {
+        if ($includeScheduledFollowups) {
+            return $query;
+        }
+
         $today = Carbon::today(config('app.timezone'));
 
         return $query->where(function ($q) use ($today) {
@@ -620,8 +652,30 @@ class ActionController extends Controller
         });
     }
 
+    /**
+     * True when a Followup row is scheduled for a day after today (not yet in default queue).
+     */
+    private function isFutureScheduledFollowup($note): bool
+    {
+        if (!$note || strcasecmp((string) ($note->task_group ?? ''), 'Followup') !== 0) {
+            return false;
+        }
+        if (empty($note->action_assign_date)) {
+            return false;
+        }
+        try {
+            return Carbon::parse($note->action_assign_date)
+                ->timezone(config('app.timezone'))
+                ->startOfDay()
+                ->gt(Carbon::today(config('app.timezone')));
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
     public function getList(Request $request) {
         if ($request->ajax()) {
+           $includeScheduledFollowups = $this->wantsIncludeScheduledFollowups($request);
            if(\Auth::user()->role == 1)
             { //admin role
             	$data = $this->applyFollowupAssignDateVisibilityFilter(
@@ -629,7 +683,8 @@ class ActionController extends Controller
                     ->where('status','<>','1')
                     //->where('type','client')
                     ->whereIn('type', ['client', 'partner']) // Include 'client' or 'partner'
-                    ->where('is_action',1)
+                    ->where('is_action',1),
+                    $includeScheduledFollowups
                 )->orderByRaw('created_at DESC NULLS LAST')->get();
             }
             else
@@ -640,7 +695,8 @@ class ActionController extends Controller
                     ->where('assigned_to',\Auth::user()->id)
                     //->where('type','client')
                     ->whereIn('type', ['client', 'partner']) // Include 'client' or 'partner'
-                    ->where('is_action',1)
+                    ->where('is_action',1),
+                    $includeScheduledFollowups
                 )->orderByRaw('created_at DESC NULLS LAST')->get();
             }
             //dd($data);
@@ -697,6 +753,9 @@ class ActionController extends Controller
                     $assign_date =  date('d/m/Y',strtotime($data->action_assign_date)) ;
                 } else {
                     $assign_date = 'N/P';
+                }
+                if ($this->isFutureScheduledFollowup($data)) {
+                    $assign_date .= ' <span class="badge bg-info text-dark">Scheduled</span>';
                 }
                 return $assign_date;
             })
@@ -821,7 +880,7 @@ class ActionController extends Controller
                         </div>
                     </div>';
 
-                    $actionBtn .= '<button type="button" data-assignedto="'.$list->assigned_to.'" data-noteid="'.$safeDescription.'" data-taskid="'.$list->id.'" data-taskgroupid="'.$safeTaskGroup.'" data-followupdate="'.$list->action_assign_date.'" class="btn btn-primary btn-sm action-icon-btn update_task" data-bs-container="body" data-role="popover" title="" data-bs-placement="left" data-html="true" data-content="'.$content1.'">' . \App\Helpers\IconHelper::render('edit') . '</button>';
+                    $actionBtn .= '<button type="button" data-assignedto="'.$list->assigned_to.'" data-description="'.$safeDescription.'" data-taskid="'.$list->id.'" data-taskgroupid="'.$safeTaskGroup.'" data-followupdate="'.$list->action_assign_date.'" class="btn btn-primary btn-sm action-icon-btn update_task" data-bs-container="body" data-role="popover" title="" data-bs-placement="left" data-html="true" data-content="'.$content1.'">' . \App\Helpers\IconHelper::render('edit') . '</button>';
                 }
 
                 $actionBtn .= '<button type="button" class="btn btn-danger btn-sm action-icon-btn deleteNote" data-remote="'. route('action.destroy', $list->id) .'">' . \App\Helpers\IconHelper::render('trash') . '</button>';
@@ -898,81 +957,32 @@ class ActionController extends Controller
                         </div>
                     </div>';
 
-                    $actionBtn .= '<button type="button" data-assignedto="'.$list->assigned_to.'" data-noteid="'.$safeDescription.'" data-taskid="'.$list->id.'" data-taskgroupid="'.$safeTaskGroup.'" data-followupdate="'.$list->action_assign_date.'" title="" class="btn btn-primary btn-sm action-icon-btn reassign_task" data-bs-container="body" data-role="popover" data-bs-placement="auto" data-html="true" data-content="'.$content2.'">' . \App\Helpers\IconHelper::render('tasks') . '</button>';
+                    $actionBtn .= '<button type="button" data-assignedto="'.$list->assigned_to.'" data-description="'.$safeDescription.'" data-taskid="'.$list->id.'" data-taskgroupid="'.$safeTaskGroup.'" data-followupdate="'.$list->action_assign_date.'" title="" class="btn btn-primary btn-sm action-icon-btn reassign_task" data-bs-container="body" data-role="popover" data-bs-placement="auto" data-html="true" data-content="'.$content2.'">' . \App\Helpers\IconHelper::render('tasks') . '</button>';
                 }
                 $actionBtn .= '</div>';
                 return $actionBtn;
             })
-            ->rawColumns(['done_task','client_reference','note_description','action'])
+            ->rawColumns(['done_task','client_reference','assign_date','note_description','action'])
             ->make(true);
         }
     }
 
 
     /**
-     * Show the form for creating a new resource.
+     * Soft-delete an action created by me (is_action = 0).
      *
-     * @return \Illuminate\Http\Response
-     */
-    // Appointment functionality removed - tables dropped in migration
-    public function create()
-    {
-        return response('Appointment functionality has been removed', 404);
-    }
-
-    /**
-     * Store a newly created resource in storage.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\Response
-     */
-    public function store(Request $request)
-    {
-        // Appointment functionality removed - tables dropped in migration
-        return response('Appointment functionality has been removed', 404);
-    }
-
-    /**
-     * Display the specified resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
-    public function show()
-    {
-        return response('Appointment functionality has been removed', 404);
-    }
-
-    /**
-     * Show the form for editing the specified resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
-    public function edit(Request $request)
-    {
-        return response('Appointment functionality has been removed', 404);
-    }
-
-    /**
-     * Update the specified resource in storage.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\Response
-     */
-    public function update(Request $request)
-    {
-        // Appointment functionality removed - Appointment model deleted
-        return response('Appointment functionality has been removed', 404);
-    }
-
-    /**
-     * Remove the specified resource from storage.
-     *
-     * @param  \App\Models\Appointment  $appointment
+     * @param  int|string  $note_id
      * @return \Illuminate\Http\Response
      */
     public function destroyByMe($note_id)
     {
-        $appointment =Note::find($note_id);
+        $appointment = Note::find($note_id);
+
+        if (!$appointment) {
+            return redirect()->route('action.assigned_by_me')
+                ->with('error', 'Activity not found');
+        }
+
         $appointment->is_action = 0;
         if( $appointment->save() ){
             $objs = new ActivitiesLog;
@@ -1002,12 +1012,21 @@ class ActionController extends Controller
             //exit;
             return redirect()->route('action.assigned_by_me')->with('success','Activity deleted successfully');
         }
+
+        return redirect()->route('action.assigned_by_me')
+            ->with('error', 'Failed to delete activity');
     }
 
 
     public function destroyToMe($note_id)
     {
-        $appointment =Note::find($note_id);
+        $appointment = Note::find($note_id);
+
+        if (!$appointment) {
+            return redirect()->route('action.assigned_to_me')
+                ->with('error', 'Action not found');
+        }
+
         $appointment->is_action = 0;
         $appointment->save();
 
@@ -1061,6 +1080,12 @@ class ActionController extends Controller
     public function destroyCompleted($note_id)
     {
         $appointment = Note::find($note_id);
+
+        if (!$appointment) {
+            return redirect()->route('action.completed')
+                ->with('error', 'Activity not found');
+        }
+
         $appointment->is_action = 0;
         if( $appointment->save() ){
             $objs = new ActivitiesLog;
@@ -1090,357 +1115,10 @@ class ActionController extends Controller
             //exit;
             return redirect()->route('action.completed')->with('success','Activity deleted successfully');
         }
-        return redirect()->route('action.completed');
+        return redirect()->route('action.completed')
+            ->with('error', 'Failed to delete activity');
     }
 
-
-    public function assignedetail(Request $request){
-        // Appointment functionality removed - Appointment model deleted
-        return response('Appointment functionality has been removed', 404);
-        /* Original code commented out - Appointment model deleted
-        $appointmentdetail = Appointment::with(['user','clients','service','assignee_user','natureOfEnquiry'])->where('id',$request->id)->first();
-        // dd($appointmentdetail->assignee_user->id);
-    // $admin = \App\Models\Admin::where('id', $notedetail->assignee)->first();
-    // $noe = \App\Models\NatureOfEnquiry::where('id', @$appointmentdetail->noeid)->first();
-    // $addedby = \App\Models\Admin::where('id', $appointmentdetail->user_id)->first();
-    // $client = \App\Models\Admin::where('id', $appointmentdetail->client_id)->first();
-    // ?>
-    <div class="modal-header">
-            <h5 class="modal-title" id="taskModalLabel"><?php echo \App\Helpers\IconHelper::render('bag'); ?> <?php echo $appointmentdetail->title ?? $appointmentdetail->service->title; ?></h5>
-            <button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
-					<span aria-hidden="true">&times;</span>
-				</button>
-    </div>
-    <div class="modal-body">
-        <div class="row">
-            <div class="col-12 col-md-6 col-lg-6">
-                <div class="form-group">
-                    <label for="title">Status:</label>
-                    <?php
-
-                    if($appointmentdetail->status == 0){
-                        $status = '<span style="color: rgb(255, 173, 0);" class="">Pending</span>';
-                    }else if($appointmentdetail->status == 2){
-                        $status = '<span style="color: rgb(255, 173, 0); " class="">Completed</span>';
-                    }else if($appointmentdetail->status == 3){
-                        $status = '<span style="color: rgb(156, 156, 156);" class="">Rejected</span>';
-                    }else if($appointmentdetail->status == 1){
-                        $status = '<span style="color: rgb(113, 204, 83);" class="">Approved</span>';
-                    }else{
-                        $status = '<span style="color: rgb(113, 204, 83);" class="">N/P</span>';
-                    }
-                    ?>
-
-
-                    <ul class="navbar-nav navbar-right">
-                        <li class="dropdown dropdown-list-toggle">
-                            <a href="#" data-bs-toggle="dropdown" class="nav-link nav-link-lg message-toggle updatedstatus"><?php echo $status ?? 'Pending'; ?> <?php echo \App\Helpers\IconHelper::render('angle-down'); ?></a>
-                            <div class="dropdown-menu dropdown-list dropdown-menu-right pullDown">
-                                <a data-status="0" data-id="<?php echo $appointmentdetail->id; ?>" data-status-name="Pending" href="javascript:;" class="dropdown-item changestatus">
-                                    Pending
-                                </a>
-                                <a data-status="2" data-status-name="Completed" data-id="<?php echo $appointmentdetail->id; ?>" href="javascript:;" class="dropdown-item changestatus">
-                                    Completed
-                                </a>
-                                <a data-status="3" data-status-name="Rejected" data-id="<?php echo $appointmentdetail->id; ?>" href="javascript:;" class="dropdown-item changestatus">
-                                    Rejected
-                                </a>
-                                <a data-status="1" data-status-name="Approved" data-id="<?php echo $appointmentdetail->id; ?>" href="javascript:;" class="dropdown-item changestatus">
-                                    Approved
-                                </a>
-                                <a data-status="4" data-status-name="N/P" data-id="<?php echo $appointmentdetail->id; ?>" href="javascript:;" class="dropdown-item changestatus">
-                                     N/P
-                                </a>
-                            </div>
-                        </li>
-                    </ul>
-                </div>
-            </div>
-            <div class="col-12 col-md-6 col-lg-6">
-                <div class="form-group">
-                    <label for="title">Priority:</label>
-                    <ul class="navbar-nav navbar-right">
-                        <li class="dropdown dropdown-list-toggle">
-                            <a href="#" data-bs-toggle="dropdown" class="nav-link nav-link-lg message-toggle updatedpriority"><?php echo $appointmentdetail->priority ?? 'Low'; ?><?php echo \App\Helpers\IconHelper::render('angle-down'); ?></a>
-                             <div class="dropdown-menu dropdown-list dropdown-menu-right pullDown">
-                                <a data-status="Low" data-id="<?php echo $appointmentdetail->id; ?>" href="javascript:;" class="dropdown-item changepriority">
-                                    Low
-                                </a>
-                                <a data-status="Normal" data-id="<?php echo $appointmentdetail->id; ?>" href="javascript:;" class="dropdown-item changepriority">
-                                    Normal
-                                </a>
-                                <a data-status="High" data-id="<?php echo $appointmentdetail->id; ?>" href="javascript:;" class="dropdown-item changepriority">
-                                    High
-                                </a>
-                                <a data-status="Urgent" data-id="<?php echo $appointmentdetail->id; ?>" href="javascript:;" class="dropdown-item changepriority">
-                                    Urgent
-                                </a>
-                             </div>
-                        </li>
-                    </ul>
-                </div>
-            </div>
-            <div class="col-12 col-md-6 col-lg-6">
-                <div class="form-group">
-                    <label for="title">Assignee: <a class="openassignee"  href="javascript:;">Change</a></label>
-                    <br>
-                    <?php if($appointmentdetail){ ?>
-                        <div style="display: flex;">
-                            <span class="author-avtar" style="margin-left: unset;margin-right: unset;font-size: .8rem;height: 24px;line-height: 24px;width: 24px;min-width: 24px;background: rgb(3, 169, 244);"><?php echo substr($appointmentdetail->user->first_name, 0, 1); ?></span>
-                            <span style="margin-left:5px;"><?php echo $appointmentdetail->assignee_user->first_name ?? ''; ?></span>
-                        </div>
-                    <?php } ?>
-                </div>
-            </div>
-            <div class="col-12 col-md-6 col-lg-6">
-                <div class="form-group">
-                    <label for="title">Added By:</label>
-                    <br>
-                    <?php if($appointmentdetail){ ?>
-                        <div style="display: flex;">
-                            <span class="author-avtar" style="margin-left: unset;margin-right: unset;font-size: .8rem;height: 24px;line-height: 24px;width: 24px;min-width: 24px;background: rgb(3, 169, 244);"><?php echo substr($appointmentdetail->user->first_name, 0, 1); ?></span>
-                            <span style="margin-left:5px;"><?php echo $appointmentdetail->user->first_name; ?></span>
-                        </div>
-                    <?php } ?>
-                </div>
-            </div>
-                <div class="assignee" style="display:none;">
-                <div class="row">
-                    <div class="col-md-8">
-                        <select class="form-control tomselect" id="changeassignee" name="changeassignee">
-                            <?php
-                                foreach(\App\Models\Staff::with('office')->orderby('first_name','ASC')->get() as $admin){
-                                    $officeName = $admin->office ? $admin->office->office_name : '';
-                            ?>
-                                    <option value="<?php echo $admin->id; ?>"><?php echo $admin->first_name.' '.$admin->last_name.' ('.$officeName.')'; ?></option>
-                            <?php } ?>
-                        </select>
-                    </div>
-                    <div class="col-md-2">
-                        <a class="saveassignee btn btn-success" data-id="<?php echo $appointmentdetail->id; ?>" href="javascript:;">Save</a>
-                    </div>
-                    <div class="col-md-2">
-                        <a class="closeassignee" href="javascript:;"><?php echo \App\Helpers\IconHelper::render('times'); ?></a>
-                    </div>
-                </div>
-            </div>
-            <div class="col-12 col-md-12 col-lg-12">
-                <div class="form-group">
-                    <label for="title">Description:</label>
-                    <br>
-                    <?php if($appointmentdetail->description != ''){ echo '<span class="desc_click">'.$appointmentdetail->description.'</span>'; }else{ ?><textarea data-id="<?php echo $appointmentdetail->id; ?>" class="form-control tasknewdesc"  placeholder="Enter Description"><?php echo $appointmentdetail->description; ?></textarea><?php } ?>
-                    <textarea data-id="<?php echo $appointmentdetail->id; ?>" class="form-control taskdesc" style="display:none;"  placeholder="Enter Description"><?php echo $appointmentdetail->description; ?></textarea>
-                </div>
-                <p><strong>Note:</strong> <span class="badge badge-warning">Please,click on the above description text to enable the input field.</span></p>
-            </div>
-            <div class="col-12 col-md-12 col-lg-12">
-                <div class="form-group">
-                    <label for="title">Comments:</label>
-                    <textarea class="form-control taskcomment" name="comment" placeholder="Enter comment here"></textarea>
-                </div>
-            </div>
-            <div class="col-12 col-md-12 col-lg-12">
-                <div class="form-group">
-                    <button data-id="<?php echo $appointmentdetail->id; ?>" class="btn btn-primary savecomment" >Save</button>
-                </div>
-            </div>
-
-            <div class="col-md-12">
-                    <h4>Application Logs</h4>
-                    <div class="logsdata">
-                    <!-- AppointmentLog functionality removed - appointments table deleted -->
-                    <p class="text-muted">Appointment logs are no longer available.</p>
-                    <?php
-                    /*
-                    $logslist = AppointmentLog::where('appointment_id',$appointmentdetail->id)->orderby('created_at', 'DESC')->get();
-                    foreach($logslist as $llist){
-                       $admin = \App\Models\Staff::find($llist->created_by) ?? \App\Models\Admin::find($llist->created_by);
-                    ?>
-                        <div class="logsitem">
-                            <div class="row">
-                                <div class="col-md-7">
-                                    <span class="ag-avatar"><?php echo substr($admin->first_name, 0, 1); ?></span>
-                                    <span class="text_info"><span><?php echo $admin->first_name; ?></span><?php echo $llist->title; ?></span>
-                                </div>
-                                <div class="col-md-5">
-                                    <span class="logs_date"><?php echo date('d M Y h:i A', strtotime($llist->created_at)); ?></span>
-                                </div>
-                                <?php if($llist->message != ''){ ?>
-                                <div class="col-md-12 logs_comment">
-                                    <p><?php echo $llist->message; ?></p>
-                                </div>
-                                <?php } ?>
-                            </div>
-                        </div>
-                    <?php } ?>
-                    */
-                    ?>
-                    </div>
-                </div>
-        </div>
-    </div>
-    <?php
-}
-
-public function update_appointment_status(Request $request){
-    // Appointment functionality removed - Appointment model deleted
-    return response()->json(['status' => false, 'message' => 'Appointment functionality has been removed']);
-    /* Original code commented out - Appointment model deleted
-    $objs = Appointment::find($request->id);
-
-    if($objs->status == 0){
-        $status = 'Pending';
-    }else if($objs->status == 2){
-        $status = 'Completed';
-    }else if($objs->status == 3){
-        $status = 'Rejected';
-    }else if($objs->status == 1){
-        $status = 'Approved';
-    }else if($objs->status == 4){
-        $status = 'N/P';
-    }
-    $objs->status = $request->status;
-    $saved = $objs->save();
-    if($saved){
-        $objs = new AppointmentLog;
-        $objs->title = 'changed status from '.$status.' to '.$request->statusname;
-        $objs->created_by = \Auth::user()->id;
-        $objs->appointment_id = $request->id;
-
-        $saved = $objs->save();
-        $alist = Appointment::find($request->id);
-        $status = '';
-        if($alist->status == 1 ){
-                $status = '<span style="color: rgb(113, 204, 83); width: 84px;">Approved</span>';
-            }else if($alist->status == 0){
-                $status = '<span style="color: rgb(255, 173, 0); width: 84px;">Pending</span>';
-            }else if($alist->status == 2){
-                $status = '<span style="color: rgb(255, 173, 0); width: 84px;">Completed</span>';
-            }else if($alist->status == 3){
-                $status = '<span style="color: rgb(156, 156, 156); width: 84px;">Rejected</span>';
-            }else if($alist->status == 4){
-                $status = '<span style="color: rgb(156, 156, 156); width: 84px;">N/P</span>';
-            }else {
-                $status = '<span style="color: rgb(255, 173, 0); width: 84px;">N/P</span>';
-            }
-        $response['status'] 	= 	true;
-        $response['viewstatus'] 	= 	$status;
-        $response['message']	=	'saved successfully';
-    }else{
-        $response['status'] 	= 	false;
-        $response['message']	=	'Please try again';
-    }
-    echo json_encode($response);
-    */
-}
-
-public function update_appointment_priority(Request $request){
-    // Appointment functionality removed - Appointment model deleted
-    return response()->json(['status' => false, 'message' => 'Appointment functionality has been removed']);
-    /* Original code commented out - Appointment model deleted
-    $objs = Appointment::findOrFail($request->id);
-    $status = $objs->priority;
-    if($request->status == 'Low'){
-        $objs->priority_no = 1;
-    }else if($request->status == 'Normal'){
-        $objs->priority_no = 2;
-    }if($request->status == 'High'){
-        $objs->priority_no = 3;
-    }if($request->status == 'Urgent'){
-        $objs->priority_no = 4;
-    }
-    $objs->priority = $request->status;
-    $saved = $objs->save();
-
-    if($saved){
-        $objs = new AppointmentLog;
-        $objs->title = 'changed priority from '.$status.' to '.$request->status;
-        $objs->created_by = \Auth::user()->id;
-        $objs->appointment_id = $request->id;
-
-        $saved = $objs->save();
-        $response['status'] 	= 	true;
-        $response['message']	=	'saved successfully';
-    }else{
-        $response['status'] 	= 	false;
-        $response['message']	=	'Please try again';
-    }
-    echo json_encode($response);
-    */
-}
-
-public function change_assignee(Request $request){
-    // Appointment functionality removed - Appointment model deleted
-    return response()->json(['status' => false, 'message' => 'Appointment functionality has been removed']);
-    /* Original code commented out - Appointment model deleted
-    $objs = Appointment::find($request->id);
-
-    $objs->assignee = $request->assinee;
-
-    $saved = $objs->save();
-    if($saved){
-        $o = new \App\Models\Notification;
-        $o->sender_id = \Auth::user()->id;
-        $o->receiver_id = $request->assinee;
-        $o->module_id = $request->id;
-        $o->url = \URL::to('/followups');
-        $o->notification_type = 'appointment';
-        $o->message = $objs->title.' Appointments Assigned by '.\Auth::user()->first_name.' '.\Auth::user()->last_name;
-        $o->seen = 0; // Set seen to 0 (unseen) for new notifications
-        $o->save();
-        $response['status'] 	= 	true;
-        $response['message']	=	'Updated successfully';
-    }else{
-        $response['status'] 	= 	false;
-        $response['message']	=	'Please try again';
-    }
-    echo json_encode($response);
-    */
-}
-
-public function update_apppointment_comment(Request $request){
-    // Appointment functionality removed - AppointmentLog model deleted
-    return response()->json(['status' => false, 'message' => 'Appointment functionality has been removed']);
-    /* Original code commented out - AppointmentLog model deleted
-    $objs = new AppointmentLog;
-    $objs->title = 'has commented';
-    $objs->created_by = \Auth::user()->id;
-    $objs->appointment_id = $request->id;
-    $objs->message = $request->visit_comment;
-    $saved = $objs->save();
-    if($saved){
-        $response['status'] 	= 	true;
-        $response['message']	=	'saved successfully';
-    }else{
-        $response['status'] 	= 	false;
-        $response['message']	=	'Please try again';
-    }
-    echo json_encode($response);
-}
-
-public function update_apppointment_description(Request $request){
-    // Appointment functionality removed - Appointment model deleted
-    return response()->json(['status' => false, 'message' => 'Appointment functionality has been removed']);
-    /* Original code commented out - Appointment model deleted
-    $objs = Appointment::find($request->id);
-    $objs->description = $request->visit_purpose;
-    $saved = $objs->save();
-    if($saved){
-        $objs = new AppointmentLog;
-        $objs->title = 'changed description';
-        $objs->created_by = \Auth::user()->id;
-        $objs->appointment_id = $request->id;
-        $objs->message = $request->visit_purpose;
-        $saved = $objs->save();
-        $response['status'] 	= 	true;
-        $response['message']	=	'saved successfully';
-    }else{
-        $response['status'] 	= 	false;
-        $response['message']	=	'Please try again';
-    }
-    echo json_encode($response);
-    */
-}
 
     // getAssigneeList moved to StaffController::getAssigneeList
 

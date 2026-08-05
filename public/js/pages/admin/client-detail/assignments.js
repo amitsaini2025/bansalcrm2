@@ -52,7 +52,14 @@
                         var obj = typeof response === 'string' ? $.parseJSON(response) : response;
                         if(obj.success){
                             $("[data-role=popover]").each(function(){
-                                (($(this).popover('hide').data('bs.popover')||{}).inState||{}).click = false
+                                // Bootstrap 5: plain hide (no BS3 inState API)
+                                try {
+                                    if (window.bootstrap && window.bootstrap.Popover) {
+                                        var inst = window.bootstrap.Popover.getInstance(this);
+                                        if (inst) { inst.hide(); return; }
+                                    }
+                                } catch (e) {}
+                                try { $(this).popover('hide'); } catch (e2) {}
                             });
                             if(typeof getallactivities === 'function') {
                                 getallactivities();

@@ -46,7 +46,15 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 | **N-5** | **FIXED** — Bell click uses `site_url + '/all-notifications'` (subdirectory-safe) |
 | **CA-2** | Downgraded practical risk — grant create/approve always sets `ends_at` |
 | **S-1** | Added exact StaffController arg + double mismatch (values vs keys; string vs module id) |
-| **ACT-1** | Noted `FIXES_APPLIED_assigned_by_me.md` did **not** fix XSS |
+| **ACT-1** | **FIXED** — Assigned-by-me (+ completed) note column: strip tags + Utf8Helper escape; Read more popover `html=false` |
+| **ACT-2** | **FIXED** — Action popover description uses `data-description` (not misnamed `data-noteid`); JS falls back to legacy attr; `data-taskid` still the real id |
+| **ACT-3** | **FIXED** — Assigned-by-me prefill/submit scoped to button popover tip (`getTipElement` / `closest('.popover')`); removed document-global `#id` fallbacks |
+| **ACT-4** | **FIXED** — Dropped BS3 `inState` hide hack; Action + client-detail use BS5 `Popover.hide()` / jQuery `popover('hide')` |
+| **ACT-5** | **FIXED** — `destroyByMe` / `destroyCompleted` (+ `destroyToMe`) null-check `Note::find`; redirect with error flash |
+| **ACT-6** | **FIXED** — `markComplete(Request only)`; loads note from body `id` (no unused route-model `$note`) |
+| **ACT-7** | **FIXED** — `markIncomplete` uses `response()->json` + HTTP statuses; clients accept string or object |
+| **ACT-8** | **FIXED** — Create toast explains Action visibility; Action lists offer “Include scheduled follow-ups” (default off) |
+| **ACT-9** | **FIXED** — Removed dead appointment stubs from ActionController + leftover Action-page modal/JS; live Action routes unchanged |
 | **NEW** | SMS webhooks unauthenticated; Audit logs login-only (same class as Reports) |
 | **A-1** | **FIXED** — Added `use Maatwebsite\Excel\Facades\Excel;` in `AgentController` |
 | **A-2** | **FIXED** — Individual import POST handler, route, and form |
@@ -653,24 +661,48 @@ if ($invoicelist->type == 2) {
 
 ### High
 
-#### ACT-1. Assigned-by-me XSS / broken HTML via unescaped description
-- **File:** `resources/views/Admin/action/assigned_by_me.blade.php` (~112–117) — `data-content="'.$full_description.'"` and raw `echo $list->description` without `e()`.
-- **Review note:** `FIXES_APPLIED_assigned_by_me.md` fixed popover ID scoping / complete flow — **not** XSS escaping. Residual XSS still live.
+#### ~~ACT-1. Assigned-by-me XSS / broken HTML via unescaped description~~ — **FIXED**
+- **Files:** `resources/views/Admin/action/assigned_by_me.blade.php` (note column); also `completed.blade.php` (same pattern)
+- **What happens:** `echo $list->description` and unescaped `data-content` allowed stored HTML/script into staff UI; quotes could break attributes.
+- **Fix:** Display uses `strip_tags` + `Utf8Helper::sanitizeForHtml` / `sanitizeForHtmlAttribute`; long notes use Read more with `data-bs-html="false"`. Update/Reassign still prefill via Blade-escaped `data-description`. Assign-to-me already used `{{ }}`.
 
 ### Medium
 
-#### ACT-2. Action DataTable popover: `data-noteid` holds full description HTML (attribute size/escaping)
-- **Files:** `ActionController.php` (~824, 901); `action/index.blade.php` (~629)
-#### ACT-3. Assigned-by-me misleading `data-noteid` (still description text) + global-selector fallbacks remain
-#### ACT-4. Bootstrap 3 popover hide API (`inState`) on BS5 — flaky hide/reopen
-#### ACT-5. `destroyCompleted` / `destroyByMe` no null check on `Note::find`
+#### ~~ACT-2. Action DataTable popover: `data-noteid` holds full description HTML (attribute size/escaping)~~ — **FIXED**
+- **Files:** `ActionController.php` (~824, 901); `action/index.blade.php`; also `assigned_by_me.blade.php`, `completed.blade.php` (same pattern)
+- **What happens:** Update/Reassign buttons put full description in misnamed `data-noteid`; real note id was `data-taskid`. Confusing DOM, large attributes.
+- **Fix:** Description moved to `data-description` (still attribute-escaped via `Utf8Helper` / Blade `{{ }}`); `data-taskid` unchanged for `#assign_note_id` / submit; JS prefills note field from `data-description` with legacy `data-noteid` fallback.
+#### ~~ACT-3. Assigned-by-me global-selector fallbacks remain (popover field scoping)~~ — **FIXED**
+- **File:** `resources/views/Admin/action/assigned_by_me.blade.php`
+- **What happens:** Update/Reassign prefill used `$('.popover:visible').last()` then global `$('#assignnote')` / `$('#assign_note_id')`; submit fell back to `$(document)`. Duplicate row ids → wrong row fields / empty `note_id`.
+- **Fix:** Prefill resolves that button’s Bootstrap tip (`getTipElement` + short retry; toast if tip missing). No document-wide `#id` writes. Submit uses `closest('.popover')` (or active trigger tip); aborts with toast if form not found. Payloads/URLs unchanged.
+#### ~~ACT-4. Bootstrap 3 popover hide API (`inState`) on BS5 — flaky hide/reopen~~ — **FIXED**
+- **Files:** `action/index.blade.php`, `assigned_by_me.blade.php`, `assign_to_me.blade.php`; `public/js/pages/admin/client-detail/assignments.js`
+- **What happens:** Success handlers ran BS3.3.6 `inState.click = false` after `popover('hide')`. BS5 has no `inState` → hide/reopen could stick or need extra clicks.
+- **Fix:** Replaced with BS5-safe hide: `bootstrap.Popover.getInstance(el).hide()` with jQuery `popover('hide')` fallback. Same callers (`[data-role=popover]`); no init/AJAX/submit changes.
+#### ~~ACT-5. `destroyCompleted` / `destroyByMe` no null check on `Note::find`~~ — **FIXED**
+- **File:** `ActionController.php` — `destroyByMe`, `destroyCompleted` (also `destroyToMe` same crash pattern)
+- **What happens:** `Note::find($note_id)` then immediate property access; missing/stale id → null dereference / 500. Sibling `destroy` already returned JSON 404.
+- **Fix:** If note missing, redirect back to list with `error` flash (`Activity not found` / `Action not found`). Success path (`is_action = 0`, ActivitiesLog, success flash) unchanged. Save-failure on by-me/completed now also redirects with an error message.
 
 ### Low
 
-#### ACT-6. `markComplete` ignores route-model `Note $note` (overwrites from request id)
-#### ACT-7. `markIncomplete` inconsistent JSON response style
-#### ACT-8. Followup actions hidden until assign date (easy to misread as “not created”)
-#### ACT-9. Appointment endpoints still registered but return 404
+#### ~~ACT-6. `markComplete` ignores route-model `Note $note` (overwrites from request id)~~ — **FIXED**
+- **File:** `ActionController.php` `markComplete`; route `POST /action/task-complete` (no `{note}`)
+- **What happens:** Signature had unused `Note $note`; body reloaded via `$request->input('id')` and overwrote `$note`.
+- **Fix (Option A):** `markComplete(Request $request)` only; still resolves note from request `id` + existing validation/JSON. Clients and payload unchanged.
+#### ~~ACT-7. `markIncomplete` inconsistent JSON response style~~ — **FIXED**
+- **Files:** `ActionController.php` `markIncomplete`; `assigned_by_me` / `completed` / `assign_to_me` incomplete AJAX success handlers
+- **What happens:** Used `echo json_encode` with HTTP 200 for errors; unused `Note $note`; unlike `markComplete`’s `response()->json` + status codes. Callers only `$.parseJSON(response)`.
+- **Fix:** `markIncomplete(Request $request)` returns `response()->json` (400/404/200/400/500); same body `id` + success shape `{status,message}`; ActivitiesLog path unchanged. Clients parse string or already-parsed object then reload.
+#### ~~ACT-8. Followup actions hidden until assign date (easy to misread as “not created”)~~ — **FIXED**
+- **Files:** `ActionController` filter helper; Action index / assigned-by-me / assign-to-me; `ClientActionController::scheduleFollowupStore`
+- **What happens:** Followups with future `action_assign_date` stayed in DB but were filtered out of Action lists until due day → looked like create failed.
+- **Fix (A + B-toggle):** (A) Schedule success message for future dates notes when they appear on Action and the toggle. (B) Default filter unchanged; optional `include_scheduled_followups` (checkbox) shows future Followups with a **Scheduled** badge. Paginated lists keep query via `appends($_GET)`.
+#### ~~ACT-9. Appointment endpoints still registered but return 404~~ — **FIXED**
+- **Files:** `ActionController.php`; Action index / assigned-by-me / assign-to-me / completed blades
+- **What happens:** After appointments → followups, controller still had permanent-404 stubs (`create`/`store`/`show`/`edit`/`update`, `assignedetail`, `update_appointment_*`) and blades still had modal JS calling unregistered appointment URLs.
+- **Fix:** Deleted unused appointment stubs; kept all live destroy/complete/list methods. Removed dead `#openassigneview` modal + handlers. Did not change Action/followup routes or client action stores. `/appointments` redirects to followups left alone.
 
 ---
 

@@ -27,7 +27,7 @@ final class Utf8Helper
     }
 
     /**
-     * Sanitize and escape for safe use inside HTML attributes (e.g. data-noteid).
+     * Sanitize and escape for safe use inside HTML attributes (e.g. data-description).
      */
     public static function sanitizeForHtmlAttribute(?string $value): string
     {

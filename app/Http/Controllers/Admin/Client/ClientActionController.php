@@ -644,7 +644,21 @@ class ClientActionController extends Controller
 
         echo json_encode([
             'success' => true,
-            'message' => 'Follow-up scheduled successfully.',
+            'message' => (function () use ($parsedFollowup, $followupAt) {
+                $base = 'Follow-up scheduled successfully.';
+                try {
+                    $tzToday = \Carbon\Carbon::today(config('app.timezone'));
+                    $assignDay = $parsedFollowup->copy()->timezone(config('app.timezone'))->startOfDay();
+                    if ($assignDay->gt($tzToday)) {
+                        $appear = $parsedFollowup->copy()->timezone(config('app.timezone'))->format('d/m/Y');
+                        return $base.' It will appear on the Action list on '.$appear
+                            .' (or use “Include scheduled follow-ups” on Action pages to see it earlier).';
+                    }
+                } catch (\Throwable $e) {
+                    // keep short message
+                }
+                return $base;
+            })(),
             'clientID' => $data['client_id'],
         ]);
         exit;

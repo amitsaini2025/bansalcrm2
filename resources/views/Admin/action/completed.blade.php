@@ -4,7 +4,6 @@
 @section('content')
 <style>
 .fc-event-container .fc-h-event{cursor:pointer;}
-#openassigneview .modal-body ul.navbar-nav li .dropdown-menu{transform: none!important; top:40px!important;}
 .sort_col a { color: #212529 !important; font-weight: 700 !important;}
 .group_type_section a.active {color:black;}
 .countAction {background: #1f1655;padding: 0px 5px;border-radius: 50%;color: #fff;margin-left: 5px;}
@@ -185,17 +184,22 @@
                                                 <td>{{ $list->task_group??'N/P' }}</td>
                                                 <td>
                                                     <?php
-                                                    if( isset($list->description) && $list->description != "" ){
-                                                        if (strlen($list->description) > 190) {
-                                                            $full_description = $list->description;
-                                                            $new_string = substr($list->description, 0, 190) . ' <button type="button" class="btn btn-link" data-bs-toggle="popover" title="" data-content="'.$full_description.'">Read more</button>';
-                                                            echo $new_string;
+                                                    // Escaped plain text only (list/popover XSS-safe). Edit prefills still use data-description.
+                                                    $plainDescription = trim(strip_tags((string) ($list->description ?? '')));
+                                                    if ($plainDescription !== '') {
+                                                        $safeHtml = \App\Support\Utf8Helper::sanitizeForHtml($plainDescription);
+                                                        if (mb_strlen($plainDescription) > 190) {
+                                                            $preview = \App\Support\Utf8Helper::sanitizeForHtml(mb_substr($plainDescription, 0, 190));
+                                                            $safeAttr = \App\Support\Utf8Helper::sanitizeForHtmlAttribute($plainDescription);
+                                                            echo $preview . ' <button type="button" class="btn btn-link" data-bs-toggle="popover" data-bs-html="false" data-html="false" title="" data-bs-content="'.$safeAttr.'" data-content="'.$safeAttr.'">Read more</button>';
                                                         } else {
-                                                            echo $list->description;
+                                                            echo $safeHtml;
                                                         }
                                                     } else {
-                                                        echo "N/P";
-                                                    }  echo "\n";?>
+                                                        echo 'N/P';
+                                                    }
+                                                    echo "\n";
+                                                    ?>
                                                 </td>
 
                                                 <td>
@@ -259,7 +263,7 @@
                                                                 </div>
                                                             </div>
                                                          </div>
-                                                         <button type="button" data-popover-target="popover-update-{{ $list->id }}" data-noteid="{{ $list->description }}" data-taskid="{{ $list->id }}" data-taskgroupid="{{ $list->task_group }}" data-followupdate="{{ $list->action_assign_date }}" data-assignedto="{{ $list->assigned_to }}" class="btn btn-primary btn-sm update_task" data-bs-toggle="tooltip" title="Update Task">@icon('edit')</button>
+                                                         <button type="button" data-popover-target="popover-update-{{ $list->id }}" data-description="{{ $list->description }}" data-taskid="{{ $list->id }}" data-taskgroupid="{{ $list->task_group }}" data-followupdate="{{ $list->action_assign_date }}" data-assignedto="{{ $list->assigned_to }}" class="btn btn-primary btn-sm update_task" data-bs-toggle="tooltip" title="Update Task">@icon('edit')</button>
                                                          @endif
 
                                                         @csrf
@@ -324,7 +328,7 @@
                                                                 </div>
                                                             </div>
                                                         </div>
-                                                        <button type="button" data-popover-target="popover-assign-{{ $list->id }}" data-noteid="{{ $list->description }}" data-taskid="{{ $list->id }}" data-taskgroupid="{{ $list->task_group }}" data-followupdate="{{ $list->action_assign_date }}" data-assignedto="{{ $list->assigned_to }}" class="btn btn-primary btn-sm reassign_task" data-bs-toggle="tooltip" title="Assign Staff">@icon('tasks')</button>
+                                                        <button type="button" data-popover-target="popover-assign-{{ $list->id }}" data-description="{{ $list->description }}" data-taskid="{{ $list->id }}" data-taskgroupid="{{ $list->task_group }}" data-followupdate="{{ $list->action_assign_date }}" data-assignedto="{{ $list->assigned_to }}" class="btn btn-primary btn-sm reassign_task" data-bs-toggle="tooltip" title="Assign Staff">@icon('tasks')</button>
                                                         @endif
                                                         </div>
                                                     </form>
@@ -356,12 +360,7 @@
 		</div>
 	</section>
 </div>
-<!-- Assign Modal -->
-<div class="modal fade custom_modal" id="openassigneview" tabindex="-1" role="dialog" aria-labelledby="" aria-hidden="true">
-	<div class="modal-dialog modal-lg">
-		<div class="modal-content taskview"></div>
-	</div>
-</div>
+<!-- Assign Modal (legacy appointment detail — removed) -->
 
 <!-- Update Task / Assign Staff Modal (populated from template) -->
 <div class="modal fade" id="actionPopoverModal" tabindex="-1" aria-labelledby="actionPopoverModalLabel" aria-hidden="true">
@@ -402,14 +401,17 @@ jQuery(document).ready(function($){
         var $template = $('#' + targetId);
         if (!$template.length) return;
 
-        var noteId = $btn.data('noteid');
+        var noteDescription = $btn.attr('data-description');
+        if (noteDescription === undefined) {
+            noteDescription = $btn.attr('data-noteid') || '';
+        }
         var taskId = $btn.data('taskid');
         var taskgroupId = $btn.data('taskgroupid');
         var followupdate = ($btn.data('followupdate') || '').toString().split(' ')[0] || '{{ date("Y-m-d") }}';
 
         var $clone = $template.clone().removeClass('d-none');
         $clone.find('.assign_note_id').val(taskId);
-        $clone.find('.assignnote').val(noteId);
+        $clone.find('.assignnote').val(noteDescription);
         if (typeof setEnhancedSelectValue === 'function') {
             setEnhancedSelectValue($clone.find('.task_group')[0], taskgroupId);
         } else {
@@ -445,7 +447,10 @@ jQuery(document).ready(function($){
         var $template = $('#' + targetId);
         if (!$template.length) return;
 
-        var noteId = $btn.data('noteid');
+        var noteDescription = $btn.attr('data-description');
+        if (noteDescription === undefined) {
+            noteDescription = $btn.attr('data-noteid') || '';
+        }
         var taskId = $btn.data('taskid');
         var taskgroupId = $btn.data('taskgroupid');
         var followupdate = ($btn.data('followupdate') || '').toString().split(' ')[0] || '{{ date("Y-m-d") }}';
@@ -453,7 +458,7 @@ jQuery(document).ready(function($){
 
         var $clone = $template.clone().removeClass('d-none');
         $clone.find('.assign_note_id').val(taskId);
-        $clone.find('.assignnote').val(noteId);
+        $clone.find('.assignnote').val(noteDescription);
         if (typeof setEnhancedSelectValue === 'function') {
             setEnhancedSelectValue($clone.find('.task_group')[0], taskgroupId);
         } else {
@@ -500,8 +505,8 @@ jQuery(document).ready(function($){
                 headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')},
                 data: {id:row_id },
                 success: function(response){
-                    //console.log(response);
-                    var obj = $.parseJSON(response);
+                    // Handle string (legacy) or object (application/json) without breaking reload
+                    var obj = (typeof response === 'string') ? $.parseJSON(response) : response;
                     location.reload();
                 }
 			});
@@ -518,8 +523,8 @@ jQuery(document).ready(function($){
                 headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')},
                 data: {id:row_id },
                 success: function(response){
-                    //console.log(response);
-                    var obj = $.parseJSON(response);
+                    // Handle string (legacy) or object (application/json) without breaking reload
+                    var obj = (typeof response === 'string') ? $.parseJSON(response) : response;
                     location.reload();
                 }
 			});
@@ -654,182 +659,6 @@ jQuery(document).ready(function($){
 				}
 			});
 		}
-	});
-
-	$(document).delegate('.saveassignee', 'click', function(){
-        var appliid = $(this).attr('data-id');
-
-		var assinee = typeof getEnhancedSelectValue === 'function' ? getEnhancedSelectValue('#changeassignee') : $('#changeassignee').val();
-		$('.popuploader').show();
-		// console.log($('#changeassignee').val());
-		$.ajax({
-			url: site_url+'/change_assignee',
-			type:'GET',
-			data:{id: appliid,assinee: assinee},
-			success: function(response){
-				// console.log(response);
-				 var obj = $.parseJSON(response);
-				if(obj.status){
-				    showToast(obj.message, 'success');
-				location.reload();
-
-				}else{
-					showToast(obj.message, 'error');
-				}
-			}
-		});
-    });
-
-	$(document).delegate('.savecomment', 'click', function(){
-		var visitcomment = $('.taskcomment').val();
-		var appliid = $(this).attr('data-id');
-		$('.popuploader').show();
-		$.ajax({
-			url: site_url+'/update_apppointment_comment',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,visit_comment:visitcomment},
-			success: function(responses){
-				// $('.popuploader').hide();
-				$('.taskcomment').val('');
-				$.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						$('.taskview').html(responses);
-					}
-				});
-			}
-		});
-	});
-	$(document).delegate('.openassigneview', 'click', function(){
-	// $('.popuploader').hide();
-	$('#openassigneview').modal('show');
-	var v = $(this).attr('id');
-		$.ajax({
-			url: site_url+'/get-assigne-detail',
-			type:'GET',
-			data:{id:v},
-			success: function(responses){
-				$('.popuploader').hide();
-				$('.taskview').html(responses);
-			}
-		});
-	});
-
-	$(document).delegate('.changestatus', 'click', function(){
-		var appliid = $(this).attr('data-id');
-		var status = $(this).attr('data-status');
-		var statusame = $(this).attr('data-status-name');
-		$('.popuploader').show();
-
-		$.ajax({
-			url: site_url+'/update_list_status',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,statusname:statusame,status:status},
-			success: function(responses){
-				$('.popuploader').hide();
-				var obj = JSON.parse(responses);
-				if(obj.status){
-				    console.log(obj.status);
-				    $('.updatestatusview'+appliid).html(obj.viewstatus);
-				}
-				$.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						$('.taskview').html(responses);
-					}
-				});
-			}
-		});
-	});
-
-
-	$(document).delegate('.changepriority', 'click', function(){
-		var appliid = $(this).attr('data-id');
-		var status = $(this).attr('data-status');
-		$('.popuploader').show();
-
-		$.ajax({
-			url: site_url+'/update_list_priority',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,status:status},
-			success: function(responses){
-				$('.popuploader').hide();
-
-				$.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						console.log(responses);
-						$('.taskview').html(responses);
-
-					}
-				});
-			}
-		});
-	});
-
-	$(document).delegate('.desc_click', 'click', function(){
-		$(this).hide();
-		$('.taskdesc').show();
-		$('.taskdesc').focus();
-	});
-	$(document).delegate('.taskdesc', 'blur', function(){
-		$(this).hide();
-		$('.desc_click').show();
-	});
-
-	$(document).delegate('.tasknewdesc', 'blur', function(){
-		var visitpurpose = $(this).val();
-		var appliid = $(this).attr('data-id');
-		$('.popuploader').show();
-		$.ajax({
-			url: site_url+'/update_apppointment_description',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,visit_purpose:visitpurpose},
-			success: function(responses){
-				$.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						$('.taskview').html(responses);
-					}
-				});
-
-			}
-		});
-	});
-
-	$(document).delegate('.taskdesc', 'blur', function(){
-		var visitpurpose = $(this).val();
-		var appliid = $(this).attr('data-id');
-		$('.popuploader').show();
-		$.ajax({
-			url: site_url+'/update_apppointment_description',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,visit_purpose:visitpurpose},
-			success: function(responses){
-				 $.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						$('.taskview').html(responses);
-					}
-				});
-
-			}
-		});
 	});
 });
 </script>

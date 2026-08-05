@@ -4,7 +4,6 @@
 @section('content')
 <style>
 .fc-event-container .fc-h-event{cursor:pointer;}
-#openassigneview .modal-body ul.navbar-nav li .dropdown-menu{transform: none!important; top:40px!important;}
 .sort_col a { color: #212529 !important; font-weight: 700 !important;}
 .popover .popover-body { overflow: visible !important; }
 .popover .ts-wrapper { z-index: 100001 !important; width: 100% !important; }
@@ -49,7 +48,18 @@
 						</div>
 						<div class="card-body">
 							<div class="tab-content" id="quotationContent">
-							<form action="{{ route('action.index') }}" method="get">
+							<form action="{{ route('action.assigned_to_me') }}" method="get" id="assignedToMeFilters">
+								<div class="row mb-2">
+									<div class="col-md-12">
+										<label class="form-check form-check-inline" title="Future-dated Followup actions are hidden by default until their assign date">
+											<input type="checkbox" class="form-check-input" name="include_scheduled_followups" value="1"
+												{{ !empty($includeScheduledFollowups) ? 'checked' : '' }}
+												onchange="document.getElementById('assignedToMeFilters').submit();">
+											Include scheduled follow-ups
+										</label>
+										<small class="text-muted d-block">Default list shows Followups only on/after their assign date.</small>
+									</div>
+								</div>
 								<div class="row">
 									<div class="col-md-3">
 										<!-- <select  class="form-control mb-3" name="filter">
@@ -126,7 +136,21 @@
 											<td>{{ $list->assigned_user->first_name ?? ''}}  {{$list->assigned_user->last_name ?? ''}}</td>
 											<td>{{ $full_name??'N/P' }}</td>
                                             <td><a href="{{URL::to('/clients/detail/'.base64_encode(convert_uuencode(@$list->client_id)))}}" target="_blank" >{{ $list->noteClient->client_id ?? 'N/P' }}</a></td>
-											<td>{{ date('d/m/Y',strtotime($list->action_assign_date)) ?? 'N/P'}} </td>
+											<td>
+												@if(!empty($list->action_assign_date))
+													{{ date('d/m/Y', strtotime($list->action_assign_date)) }}
+													@php
+														$isFutureFollowup = strcasecmp((string) ($list->task_group ?? ''), 'Followup') === 0
+															&& \Carbon\Carbon::parse($list->action_assign_date)->timezone(config('app.timezone'))->startOfDay()
+																->gt(\Carbon\Carbon::today(config('app.timezone')));
+													@endphp
+													@if($isFutureFollowup)
+														<span class="badge bg-info text-dark">Scheduled</span>
+													@endif
+												@else
+													N/P
+												@endif
+											</td>
                                             <td>{{ $list->task_group??'N/P' }}</td>
                                             <td>{{ $list->description??'N/P' }}</td>
 
@@ -430,15 +454,7 @@
 		</div>
 	</section>
 </div>
-<!-- Assign Modal -->
-
-<div class="modal fade custom_modal" id="openassigneview" tabindex="-1" role="dialog" aria-labelledby="" aria-hidden="true">
-	<div class="modal-dialog modal-lg">
-		<div class="modal-content taskview">
-
-		</div>
-	</div>
-</div>
+<!-- Assign Modal (legacy appointment detail — removed) -->
 @endsection
 @section('scripts')
 
@@ -465,8 +481,8 @@
                 headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')},
                 data: {id:row_id },
                 success: function(response){
-                    //console.log(response);
-                    var obj = $.parseJSON(response);
+                    // Handle string (legacy) or object (application/json) without breaking reload
+                    var obj = (typeof response === 'string') ? $.parseJSON(response) : response;
                     location.reload();
                 }
 			});
@@ -484,8 +500,8 @@
                 headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')},
                 data: {id:row_id },
                 success: function(response){
-                    //console.log(response);
-                    var obj = $.parseJSON(response);
+                    // Handle string (legacy) or object (application/json) without breaking reload
+                    var obj = (typeof response === 'string') ? $.parseJSON(response) : response;
                     location.reload();
                 }
 			});
@@ -535,7 +551,14 @@
 						var obj = $.parseJSON(response);
 						if(obj.success){
 							$("[data-role=popover]").each(function(){
-									(($(this).popover('hide').data('bs.popover')||{}).inState||{}).click = false  // fix for BS 3.3.6
+								// Bootstrap 5: plain hide (no BS3 inState API)
+								try {
+									if (window.bootstrap && window.bootstrap.Popover) {
+										var inst = window.bootstrap.Popover.getInstance(this);
+										if (inst) { inst.hide(); return; }
+									}
+								} catch (e) {}
+								try { $(this).popover('hide'); } catch (e2) {}
 							});
 							location.reload();
 							getallactivities();
@@ -551,182 +574,6 @@
 		}else{
 			$("#loader").hide();
 		}
-	});
-
-	$(document).delegate('.saveassignee', 'click', function(){
-        var appliid = $(this).attr('data-id');
-
-		var assinee = typeof getEnhancedSelectValue === 'function' ? getEnhancedSelectValue('#changeassignee') : $('#changeassignee').val();
-		$('.popuploader').show();
-		// console.log($('#changeassignee').val());
-		$.ajax({
-			url: site_url+'/change_assignee',
-			type:'GET',
-			data:{id: appliid,assinee: assinee},
-			success: function(response){
-				// console.log(response);
-				 var obj = $.parseJSON(response);
-				if(obj.status){
-				    showToast(obj.message, 'success');
-				location.reload();
-
-				}else{
-					showToast(obj.message, 'error');
-				}
-			}
-		});
-    });
-
-	$(document).delegate('.savecomment', 'click', function(){
-		var visitcomment = $('.taskcomment').val();
-		var appliid = $(this).attr('data-id');
-		$('.popuploader').show();
-		$.ajax({
-			url: site_url+'/update_apppointment_comment',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,visit_comment:visitcomment},
-			success: function(responses){
-				// $('.popuploader').hide();
-				$('.taskcomment').val('');
-				$.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						$('.taskview').html(responses);
-					}
-				});
-			}
-		});
-	});
-	$(document).delegate('.openassigneview', 'click', function(){
-	// $('.popuploader').hide();
-	$('#openassigneview').modal('show');
-	var v = $(this).attr('id');
-		$.ajax({
-			url: site_url+'/get-assigne-detail',
-			type:'GET',
-			data:{id:v},
-			success: function(responses){
-				$('.popuploader').hide();
-				$('.taskview').html(responses);
-			}
-		});
-	});
-
-	$(document).delegate('.changestatus', 'click', function(){
-		var appliid = $(this).attr('data-id');
-		var status = $(this).attr('data-status');
-		var statusame = $(this).attr('data-status-name');
-		$('.popuploader').show();
-
-		$.ajax({
-			url: site_url+'/update_list_status',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,statusname:statusame,status:status},
-			success: function(responses){
-				$('.popuploader').hide();
-				var obj = JSON.parse(responses);
-				if(obj.status){
-				    console.log(obj.status);
-				    $('.updatestatusview'+appliid).html(obj.viewstatus);
-				}
-				$.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						$('.taskview').html(responses);
-					}
-				});
-			}
-		});
-	});
-
-
-	$(document).delegate('.changepriority', 'click', function(){
-		var appliid = $(this).attr('data-id');
-		var status = $(this).attr('data-status');
-		$('.popuploader').show();
-
-		$.ajax({
-			url: site_url+'/update_list_priority',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,status:status},
-			success: function(responses){
-				$('.popuploader').hide();
-
-				$.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						console.log(responses);
-						$('.taskview').html(responses);
-
-					}
-				});
-			}
-		});
-	});
-
-	$(document).delegate('.desc_click', 'click', function(){
-		$(this).hide();
-		$('.taskdesc').show();
-		$('.taskdesc').focus();
-	});
-	$(document).delegate('.taskdesc', 'blur', function(){
-		$(this).hide();
-		$('.desc_click').show();
-	});
-
-	$(document).delegate('.tasknewdesc', 'blur', function(){
-		var visitpurpose = $(this).val();
-		var appliid = $(this).attr('data-id');
-		$('.popuploader').show();
-		$.ajax({
-			url: site_url+'/update_apppointment_description',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,visit_purpose:visitpurpose},
-			success: function(responses){
-				$.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						$('.taskview').html(responses);
-					}
-				});
-
-			}
-		});
-	});
-
-	$(document).delegate('.taskdesc', 'blur', function(){
-		var visitpurpose = $(this).val();
-		var appliid = $(this).attr('data-id');
-		$('.popuploader').show();
-		$.ajax({
-			url: site_url+'/update_apppointment_description',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,visit_purpose:visitpurpose},
-			success: function(responses){
-				 $.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						$('.taskview').html(responses);
-					}
-				});
-
-			}
-		});
 	});
 });
 </script>

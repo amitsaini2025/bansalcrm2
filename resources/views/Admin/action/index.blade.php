@@ -4,7 +4,6 @@
 @section('content')
 <style>
 .fc-event-container .fc-h-event{cursor:pointer;}
-#openassigneview .modal-body ul.navbar-nav li .dropdown-menu{transform: none!important; top:40px!important;}
 .sort_col a { color: #212529 !important; font-weight: 700 !important;}
 .group_type_section a.active {color:black;}
 .countAction {background: #1f1655;padding: 0px 5px;border-radius: 50%;color: #fff;margin-left: 5px;}
@@ -133,6 +132,11 @@
                                           
                                           <div class="btn btn-light filter-checkbox" style="margin-top:5px;" data-val="partner"> @icon('flag') Partner <span class="countAction">{{ $assigneesCount_partner_type }}</span></div>
 
+                                            <label class="form-check form-check-inline ms-2 mt-2 align-middle" style="white-space: nowrap;" title="Future-dated Followup actions are hidden by default until their assign date">
+                                                <input type="checkbox" class="form-check-input" id="include_scheduled_followups" value="1">
+                                                Include scheduled follow-ups
+                                            </label>
+
 
 
                                             <button type="button" class="btn btn-primary add_my_task btn-add-action-trigger" data-bs-container="body" data-role="popover" data-bs-placement="bottom" data-html="true" data-content="<div id=&quot;popover-content11&quot;>
@@ -244,15 +248,7 @@
 		</div>
 	</section>
 </div>
-<!-- Assign Modal -->
-
-<div class="modal fade custom_modal" id="openassigneview" tabindex="-1" role="dialog" aria-labelledby="" aria-hidden="true">
-	<div class="modal-dialog modal-lg">
-		<div class="modal-content taskview">
-
-		</div>
-	</div>
-</div>
+<!-- Assign Modal (legacy appointment detail — removed) -->
 
 <!-- Complete Action Modal -->
 <div class="modal fade" id="completeActionModal" tabindex="-1" role="dialog" aria-labelledby="completeActionModalLabel" aria-hidden="true">
@@ -372,7 +368,12 @@ $(function () {
     var table = $('.yajra-datatable').DataTable({
         processing: true,
         serverSide: true,
-        ajax: "{{ route('action.list') }}",
+        ajax: {
+            url: "{{ route('action.list') }}",
+            data: function (d) {
+                d.include_scheduled_followups = $('#include_scheduled_followups').is(':checked') ? 1 : 0;
+            }
+        },
         columns: [
             {sWidth: '40px',className: "uniqueClassName", data: 'DT_RowIndex', name: 'DT_RowIndex'},
             {sWidth: '50px',className: "uniqueClassName", data: 'done_task', name: 'done_task',orderable: false,searchable: false},
@@ -407,6 +408,10 @@ $(function () {
             }
         },
         "bAutoWidth": false
+    });
+
+    $('#include_scheduled_followups').on('change', function () {
+        table.ajax.reload(null, false);
     });
 
     //filter record on bais of task group
@@ -509,7 +514,11 @@ jQuery(document).ready(function($){
             ? window.ActionPagePopovers.openRowPopover(this)
             : $(this);
         var assignedto = $btn.attr('data-assignedto');
-        var note_id = $btn.attr('data-noteid');
+        // Description text for textarea prefill (legacy data-noteid fallback if present)
+        var note_description = $btn.attr('data-description');
+        if (note_description === undefined) {
+            note_description = $btn.attr('data-noteid') || '';
+        }
         var task_id = $btn.attr('data-taskid');
         var taskgroup_id = $btn.attr('data-taskgroupid');
         var followupdate_id = $btn.attr('data-followupdate');
@@ -542,13 +551,13 @@ jQuery(document).ready(function($){
                 });
                 
                 // Set form values within the visible popover
-                $popover.find('#assignnote').val(note_id);
+                $popover.find('#assignnote').val(note_description);
                 $popover.find('#assign_note_id').val(task_id);
                 $popover.find('#task_group').val(taskgroup_id);
                 $popover.find('#popoverdatetime').val(finalDate);
             } else {
                 // Fallback: set values globally (for compatibility)
-                $('#assignnote').val(note_id);
+                $('#assignnote').val(note_description);
                 $('#assign_note_id').val(task_id);
                 $('#task_group').val(taskgroup_id);
                 $('#popoverdatetime').val(finalDate);
@@ -589,7 +598,11 @@ jQuery(document).ready(function($){
             ? window.ActionPagePopovers.openRowPopover(this)
             : $(this);
         var assignedto = $btn.attr('data-assignedto');
-        var note_id = $btn.attr('data-noteid');
+        // Description text for textarea prefill (legacy data-noteid fallback if present)
+        var note_description = $btn.attr('data-description');
+        if (note_description === undefined) {
+            note_description = $btn.attr('data-noteid') || '';
+        }
         var task_id = $btn.attr('data-taskid');
         var taskgroup_id = $btn.attr('data-taskgroupid');
         var followupdate_id = $btn.attr('data-followupdate');
@@ -626,14 +639,14 @@ jQuery(document).ready(function($){
                     });
                 });
                 
-                $popover.find('#assignnote').val(note_id);
+                $popover.find('#assignnote').val(note_description);
                 $popover.find('#assign_note_id').val(task_id);
                 $popover.find('#task_group').val(taskgroup_id);
                 $popover.find('#popoverdatetime').val(finalDate);
             } else {
                 // Fallback: set values globally (for compatibility)
                 $('#rem_cat').html(''); // Will be set by AJAX
-                $('#assignnote').val(note_id);
+                $('#assignnote').val(note_description);
                 $('#assign_note_id').val(task_id);
                 $('#task_group').val(taskgroup_id);
                 $('#popoverdatetime').val(finalDate);
@@ -971,7 +984,14 @@ jQuery(document).ready(function($){
                     var obj = $.parseJSON(response);
                     if(obj.success){
                         $("[data-role=popover]").each(function(){
-                            (($(this).popover('hide').data('bs.popover')||{}).inState||{}).click = false  // fix for BS 3.3.6
+                            // Bootstrap 5: plain hide (no BS3 inState API)
+                            try {
+                                if (window.bootstrap && window.bootstrap.Popover) {
+                                    var inst = window.bootstrap.Popover.getInstance(this);
+                                    if (inst) { inst.hide(); return; }
+                                }
+                            } catch (e) {}
+                            try { $(this).popover('hide'); } catch (e2) {}
                         });
                         //location.reload();
                         $('.yajra-datatable').DataTable().draw(false);
@@ -1041,7 +1061,14 @@ jQuery(document).ready(function($){
                     var obj = $.parseJSON(response);
                     if(obj.success){
                         $("[data-role=popover]").each(function(){
-                            (($(this).popover('hide').data('bs.popover')||{}).inState||{}).click = false  // fix for BS 3.3.6
+                            // Bootstrap 5: plain hide (no BS3 inState API)
+                            try {
+                                if (window.bootstrap && window.bootstrap.Popover) {
+                                    var inst = window.bootstrap.Popover.getInstance(this);
+                                    if (inst) { inst.hide(); return; }
+                                }
+                            } catch (e) {}
+                            try { $(this).popover('hide'); } catch (e2) {}
                         });
                         showToast(obj.message || 'Action added successfully.', 'success');
                         //location.reload();
@@ -1073,182 +1100,6 @@ jQuery(document).ready(function($){
 		}else{
 			$("#loader").hide();
 		}
-	});
-
-	$(document).delegate('.saveassignee', 'click', function(){
-        var appliid = $(this).attr('data-id');
-
-		var assinee = typeof getEnhancedSelectValue === 'function' ? getEnhancedSelectValue('#changeassignee') : $('#changeassignee').val();
-		$('.popuploader').show();
-		// console.log($('#changeassignee').val());
-		$.ajax({
-			url: site_url+'/change_assignee',
-			type:'GET',
-			data:{id: appliid,assinee: assinee},
-			success: function(response){
-				// console.log(response);
-				 var obj = $.parseJSON(response);
-				if(obj.status){
-				    showToast(obj.message, 'success');
-				location.reload();
-
-				}else{
-					showToast(obj.message, 'error');
-				}
-			}
-		});
-    });
-
-	$(document).delegate('.savecomment', 'click', function(){
-		var visitcomment = $('.taskcomment').val();
-		var appliid = $(this).attr('data-id');
-		$('.popuploader').show();
-		$.ajax({
-			url: site_url+'/update_apppointment_comment',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,visit_comment:visitcomment},
-			success: function(responses){
-				// $('.popuploader').hide();
-				$('.taskcomment').val('');
-				$.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						$('.taskview').html(responses);
-					}
-				});
-			}
-		});
-	});
-
-	$(document).delegate('.openassigneview', 'click', function(){
-	    // $('.popuploader').hide();
-	    $('#openassigneview').modal('show');
-	    var v = $(this).attr('id');
-		$.ajax({
-			url: site_url+'/get-assigne-detail',
-			type:'GET',
-			data:{id:v},
-			success: function(responses){
-				$('.popuploader').hide();
-				$('.taskview').html(responses);
-			}
-		});
-	});
-
-	$(document).delegate('.changestatus', 'click', function(){
-		var appliid = $(this).attr('data-id');
-		var status = $(this).attr('data-status');
-		var statusame = $(this).attr('data-status-name');
-		$('.popuploader').show();
-
-		$.ajax({
-			url: site_url+'/update_list_status',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,statusname:statusame,status:status},
-			success: function(responses){
-				$('.popuploader').hide();
-				var obj = JSON.parse(responses);
-				if(obj.status){
-				    console.log(obj.status);
-				    $('.updatestatusview'+appliid).html(obj.viewstatus);
-				}
-				$.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						$('.taskview').html(responses);
-					}
-				});
-			}
-		});
-	});
-
-
-	$(document).delegate('.changepriority', 'click', function(){
-		var appliid = $(this).attr('data-id');
-		var status = $(this).attr('data-status');
-		$('.popuploader').show();
-
-		$.ajax({
-			url: site_url+'/update_list_priority',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,status:status},
-			success: function(responses){
-				$('.popuploader').hide();
-
-				$.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						console.log(responses);
-						$('.taskview').html(responses);
-
-					}
-				});
-			}
-		});
-	});
-
-	$(document).delegate('.desc_click', 'click', function(){
-		$(this).hide();
-		$('.taskdesc').show();
-		$('.taskdesc').focus();
-	});
-	$(document).delegate('.taskdesc', 'blur', function(){
-		$(this).hide();
-		$('.desc_click').show();
-	});
-
-	$(document).delegate('.tasknewdesc', 'blur', function(){
-		var visitpurpose = $(this).val();
-		var appliid = $(this).attr('data-id');
-		$('.popuploader').show();
-		$.ajax({
-			url: site_url+'/update_apppointment_description',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,visit_purpose:visitpurpose},
-			success: function(responses){
-				$.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						$('.taskview').html(responses);
-					}
-				});
-
-			}
-		});
-	});
-
-	$(document).delegate('.taskdesc', 'blur', function(){
-		var visitpurpose = $(this).val();
-		var appliid = $(this).attr('data-id');
-		$('.popuploader').show();
-		$.ajax({
-			url: site_url+'/update_apppointment_description',
-			type:'POST',
-			data:{"_token":$('meta[name="csrf-token"]').attr('content'),id: appliid,visit_purpose:visitpurpose},
-			success: function(responses){
-				 $.ajax({
-					url: site_url+'/get-assigne-detail',
-					type:'GET',
-					data:{id:appliid},
-					success: function(responses){
-						$('.popuploader').hide();
-						$('.taskview').html(responses);
-					}
-				});
-            }
-		});
 	});
 
 	// Stub functions to prevent errors - these functions are called but not needed on this page
