@@ -771,26 +771,40 @@ if ($invoicelist->type == 2) {
 
 ### Critical
 
-#### AC-1. Destructive Admin Console ops: `auth:admin` only
+#### ~~AC-1. Destructive Admin Console ops: `auth:admin` only~~ — **FIXED**
 - **Files:** `routes/adminconsole.php`; `RecentlyModifiedClientsController.php` — `toggleArchive`, `bulkArchive`, `deleteDocument`, S3 upload/delete — no role/module/super-admin gate (route group and controller middleware both only `auth:admin`).
+- **What happens:** Any logged-in staff could archive clients / delete or move docs via direct POST even though Admin Console UI is super-admin only.
+- **Fix:** `ensureSuperAdminAccess()` (role `== 1`, loose compare) on every public method in `RecentlyModifiedClientsController` only — page + AJAX + destructive ops. Other `adminconsole` routes unchanged. Archive paths also require target `role = 7` (client).
 
 ### High
 
-#### AC-2. `bulkArchive` leaks debug payload to client + logs PII
+#### ~~AC-2. `bulkArchive` leaks debug payload to client + logs PII~~ — **FIXED**
 - **File:** `RecentlyModifiedClientsController.php` (~1543–1624) — response includes `debug.all_admins_with_ids`.
+- **What happens:** Success/error JSON exposed debug with admin names; `\Log::info` dumped request input + names.
+- **Fix:** Removed debug keys from responses, debug Log calls, and the extra `all_admins_with_ids` query. Response retains `success`, `message`, `archived_count` only.
 
-#### AC-3. `to_date` exclusive of most of the end day
+#### ~~AC-3. `to_date` exclusive of most of the end day~~ — **FIXED**
 - **File:** (~150–155) — `created_at <= $toDate` as `Y-m-d` → compared as midnight; rest of end day excluded.
+- **What happens:** End date filter treated `Y-m-d` as start-of-day, so almost all activity on the end day was excluded from list + storage tab counts.
+- **Fix:** Shared `activityDateEndInclusive()` uses end-of-day (`Y-m-d 23:59:59`) for `to_date` in `index` and `getStorageTabCounts`. `from_date` and UI date format unchanged.
 
 ### Medium
 
-#### AC-4. Default `doc_storage = 'local'` hides non-local clients
-#### AC-5. Case-sensitive search on PostgreSQL (`LIKE` vs `ILIKE` elsewhere)
-#### AC-6. Duplicate rows when max activity timestamps collide
+#### ~~AC-4. Default `doc_storage = 'local'` hides non-local clients~~ — **FIXED**
+- **What happens:** Empty `doc_storage` was forced to `local`, so first load (and filter "All") only showed local-only clients; AWS/both/none hidden.
+- **Fix:** Removed the force-default; `''` means no storage filter (All). Explicit `doc_storage=local|aws|both|none` tabs/dropdown values unchanged.
+#### ~~AC-5. Case-sensitive search on PostgreSQL (`LIKE` vs `ILIKE` elsewhere)~~ — **FIXED**
+- **What happens:** Search and activity-type filters used `LIKE` (case-sensitive on PostgreSQL); staff/partners already use `ILIKE`.
+- **Fix:** Switched name/email/phone/`client_id` search and activity subject/description filters to `ILIKE` in `index` and `getStorageTabCounts`. Same wildcards; UI/params unchanged.
+#### ~~AC-6. Duplicate rows when max activity timestamps collide~~ — **FIXED**
+- **What happens:** Joining only on `MAX(created_at)` returned multiple activity rows per client when timestamps tied → duplicate list rows and inflated storage counts.
+- **Fix:** Shared `latestActivityPerClientSubquery()` picks one log per client (`MAX(created_at)`, then `MAX(id)` on ties). Used in `index` and `getStorageTabCounts`.
 
 ### Low
 
-#### AC-7. Misleading `TESTING ONLY` comment above active delete path
+#### ~~AC-7. Misleading `TESTING ONLY` comment above active delete path~~ — **FIXED**
+- **What happens:** Stale comment above `$document->delete()` implied the hard delete was temporary/disabled; the call was always live.
+- **Fix:** Replaced with an accurate short comment; delete path behavior unchanged.
 
 ---
 

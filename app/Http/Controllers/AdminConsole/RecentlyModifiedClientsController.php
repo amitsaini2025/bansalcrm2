@@ -29,6 +29,57 @@ class RecentlyModifiedClientsController extends Controller
     {
         $this->middleware('auth:admin');
     }
+
+	/**
+	 * Recently Modified Clients tools are super admin only (header Admin Console is role == 1).
+	 * Use loose compare so string/int role values both work. Does not affect other adminconsole routes.
+	 */
+	private function ensureSuperAdminAccess(): void
+	{
+		if ((Auth::user()->role ?? null) != 1) {
+			abort(403, 'Unauthorized.');
+		}
+	}
+
+	/**
+	 * Inclusive end bound for a Y-m-d to_date filter against datetime created_at.
+	 * (Date-only strings compare as midnight and exclude most of the end day.)
+	 */
+	private function activityDateEndInclusive(string $toDate): string
+	{
+		try {
+			return Carbon::createFromFormat('Y-m-d', $toDate)->endOfDay()->format('Y-m-d H:i:s');
+		} catch (\Exception $e) {
+			try {
+				return Carbon::parse($toDate)->endOfDay()->format('Y-m-d H:i:s');
+			} catch (\Exception $e2) {
+				return $toDate;
+			}
+		}
+	}
+
+	/**
+	 * One latest activity per client: max(created_at), then max(id) on timestamp ties.
+	 * Avoids duplicate list/count rows when multiple logs share the same timestamp.
+	 *
+	 * @return \Illuminate\Database\Eloquent\Builder|\Illuminate\Database\Query\Builder
+	 */
+	private function latestActivityPerClientSubquery()
+	{
+		$maxCreatedAt = ActivitiesLog::select('client_id', DB::raw('MAX(created_at) as last_activity'))
+			->whereNotNull('client_id')
+			->groupBy('client_id');
+
+		return ActivitiesLog::select(
+				'activities_logs.client_id',
+				DB::raw('MAX(activities_logs.id) as last_activity_id')
+			)
+			->joinSub($maxCreatedAt, 'latest_ts', function ($join) {
+				$join->on('activities_logs.client_id', '=', 'latest_ts.client_id')
+					->on('activities_logs.created_at', '=', 'latest_ts.last_activity');
+			})
+			->groupBy('activities_logs.client_id');
+	}
 	
 	/**
      * Display recently modified clients based on activities log.
@@ -37,6 +88,8 @@ class RecentlyModifiedClientsController extends Controller
      */
 	public function index(Request $request)
 	{
+		$this->ensureSuperAdminAccess();
+
 		set_time_limit(180);
 
 		// Get filter parameters from request (normalize to scalar to avoid "Illegal operator and value combination")
@@ -55,10 +108,6 @@ class RecentlyModifiedClientsController extends Controller
 		$lastActivityYears = $request->input('last_activity_years', ''); // 1, 2, 3, 4, 5 = X+ years ago
 		$documentCount = $request->input('document_count', ''); // '', '0', '1', ... '9', '10+' = documents count filter
 		$docStorage = $request->input('doc_storage', ''); // '', 'local', 'aws', 'both', 'none' = document storage location filter
-		// Default to 'local' so the "Local Only" tab is selected by default on this page
-		if ($docStorage === '') {
-			$docStorage = 'local';
-		}
 		$noPhone = $request->input('no_phone', ''); // '' = all, '1' = only clients with no phone number
 		$noEmail = $request->input('no_email', ''); // '' = all, '1' = only clients with no email address
 
@@ -67,11 +116,8 @@ class RecentlyModifiedClientsController extends Controller
 			$fromDate = Carbon::now()->subMonths(12)->format('Y-m-d');
 		}
 		
-		// Get the most recent activity for each client
-		// Filter out NULL client_id to avoid orphaned activities
-		$subQuery = ActivitiesLog::select('client_id', DB::raw('MAX(created_at) as last_activity'))
-			->whereNotNull('client_id')
-			->groupBy('client_id');
+		// One latest activity log per client (max created_at; max id when timestamps collide)
+		$subQuery = $this->latestActivityPerClientSubquery();
 		
 		// Clients live in admins table (role = 7). Join admins twice: client info + creator info.
 		$query = ActivitiesLog::select(
@@ -90,8 +136,7 @@ class RecentlyModifiedClientsController extends Controller
 				'admins.last_name as admin_lastname'
 			)
 			->joinSub($subQuery, 'latest_activities', function($join) {
-				$join->on('activities_logs.client_id', '=', 'latest_activities.client_id')
-					 ->on('activities_logs.created_at', '=', 'latest_activities.last_activity');
+				$join->on('activities_logs.id', '=', 'latest_activities.last_activity_id');
 			})
 			// Use INNER JOIN so we only show non-archived clients (archived clients would otherwise appear with NULL client info)
 			->join('admins as client_admins', function($join) {
@@ -130,18 +175,18 @@ class RecentlyModifiedClientsController extends Controller
 		// Apply search filter (name, email, phone, client unique ID e.g. TEST105453)
 		if (!empty($search)) {
 			$query->where(function($q) use ($search) {
-				$q->where(DB::raw("CONCAT(client_admins.first_name, ' ', client_admins.last_name)"), 'LIKE', "%{$search}%")
-				  ->orWhere('client_admins.email', 'LIKE', "%{$search}%")
-				  ->orWhere('client_admins.phone', 'LIKE', "%{$search}%")
-				  ->orWhere('client_admins.client_id', 'LIKE', "%{$search}%");
+				$q->where(DB::raw("CONCAT(client_admins.first_name, ' ', client_admins.last_name)"), 'ILIKE', "%{$search}%")
+				  ->orWhere('client_admins.email', 'ILIKE', "%{$search}%")
+				  ->orWhere('client_admins.phone', 'ILIKE', "%{$search}%")
+				  ->orWhere('client_admins.client_id', 'ILIKE', "%{$search}%");
 			});
 		}
 		
 		// Apply activity type filter
 		if (!empty($activityType)) {
 			$query->where(function($q) use ($activityType) {
-				$q->where('activities_logs.subject', 'LIKE', "%{$activityType}%")
-				  ->orWhere('activities_logs.description', 'LIKE', "%{$activityType}%");
+				$q->where('activities_logs.subject', 'ILIKE', "%{$activityType}%")
+				  ->orWhere('activities_logs.description', 'ILIKE', "%{$activityType}%");
 			});
 		}
 		
@@ -151,7 +196,7 @@ class RecentlyModifiedClientsController extends Controller
 			$query->where('activities_logs.created_at', '>=', $fromDate);
 		}
 		if ($toDate !== '') {
-			$query->where('activities_logs.created_at', '<=', $toDate);
+			$query->where('activities_logs.created_at', '<=', $this->activityDateEndInclusive($toDate));
 		}
 		
 		// Filter: clients that have no applications created
@@ -299,9 +344,7 @@ class RecentlyModifiedClientsController extends Controller
 	 */
 	private function getStorageTabCounts(Request $request, $fromDate, $toDate, $search, $activityType, $hasApplications, $lastActivityYears, $documentCount, $noPhone, $noEmail): array
 	{
-		$subQuery = ActivitiesLog::select('client_id', DB::raw('MAX(created_at) as last_activity'))
-			->whereNotNull('client_id')
-			->groupBy('client_id');
+		$subQuery = $this->latestActivityPerClientSubquery();
 
 		$docStatsSubQuery = Document::select(
 				'client_id',
@@ -322,8 +365,7 @@ class RecentlyModifiedClientsController extends Controller
 
 		$query = ActivitiesLog::select('activities_logs.client_id')
 			->joinSub($subQuery, 'latest_activities', function ($join) {
-				$join->on('activities_logs.client_id', '=', 'latest_activities.client_id')
-					->on('activities_logs.created_at', '=', 'latest_activities.last_activity');
+				$join->on('activities_logs.id', '=', 'latest_activities.last_activity_id');
 			})
 			->join('admins as client_admins', function ($join) {
 				$join->on('activities_logs.client_id', '=', 'client_admins.id')
@@ -336,23 +378,23 @@ class RecentlyModifiedClientsController extends Controller
 
 		if (!empty($search)) {
 			$query->where(function ($q) use ($search) {
-				$q->where(DB::raw("CONCAT(client_admins.first_name, ' ', client_admins.last_name)"), 'LIKE', "%{$search}%")
-					->orWhere('client_admins.email', 'LIKE', "%{$search}%")
-					->orWhere('client_admins.phone', 'LIKE', "%{$search}%")
-					->orWhere('client_admins.client_id', 'LIKE', "%{$search}%");
+				$q->where(DB::raw("CONCAT(client_admins.first_name, ' ', client_admins.last_name)"), 'ILIKE', "%{$search}%")
+					->orWhere('client_admins.email', 'ILIKE', "%{$search}%")
+					->orWhere('client_admins.phone', 'ILIKE', "%{$search}%")
+					->orWhere('client_admins.client_id', 'ILIKE', "%{$search}%");
 			});
 		}
 		if (!empty($activityType)) {
 			$query->where(function ($q) use ($activityType) {
-				$q->where('activities_logs.subject', 'LIKE', "%{$activityType}%")
-					->orWhere('activities_logs.description', 'LIKE', "%{$activityType}%");
+				$q->where('activities_logs.subject', 'ILIKE', "%{$activityType}%")
+					->orWhere('activities_logs.description', 'ILIKE', "%{$activityType}%");
 			});
 		}
 		if ($fromDate !== '') {
 			$query->where('activities_logs.created_at', '>=', $fromDate);
 		}
 		if ($toDate !== '') {
-			$query->where('activities_logs.created_at', '<=', $toDate);
+			$query->where('activities_logs.created_at', '<=', $this->activityDateEndInclusive($toDate));
 		}
 		if ($hasApplications === '0') {
 			$query->whereNotIn('activities_logs.client_id', Application::select('client_id'));
@@ -405,6 +447,8 @@ class RecentlyModifiedClientsController extends Controller
      */
 	public function getClientDetails(Request $request)
 	{
+		$this->ensureSuperAdminAccess();
+
 		$clientId = (int) $request->input('client_id');
 		
 		if (!$clientId || $clientId < 1) {
@@ -598,6 +642,8 @@ class RecentlyModifiedClientsController extends Controller
 	 */
 	public function getClientDocumentsByCategory(Request $request)
 	{
+		$this->ensureSuperAdminAccess();
+
 		$clientId = (int) $request->input('client_id');
 		$category = $request->input('category'); // application, education, migration
 		$category = is_array($category) ? '' : trim((string) $category);
@@ -681,6 +727,8 @@ class RecentlyModifiedClientsController extends Controller
 	 */
 	public function uploadDocumentToS3(Request $request)
 	{
+		$this->ensureSuperAdminAccess();
+
 		$documentId = (int) $request->input('document_id');
 		if (!$documentId || $documentId < 1) {
 			return response()->json(['success' => false, 'message' => 'Document ID is required'], 400);
@@ -727,6 +775,8 @@ class RecentlyModifiedClientsController extends Controller
 	 */
 	public function uploadAllDocumentsToS3(Request $request)
 	{
+		$this->ensureSuperAdminAccess();
+
 		$clientId = (int) $request->input('client_id');
 		if (!$clientId || $clientId < 1) {
 			return response()->json(['success' => false, 'message' => 'Client ID is required'], 400);
@@ -812,6 +862,8 @@ class RecentlyModifiedClientsController extends Controller
 	 */
 	public function bulkUploadAllDocumentsToS3(Request $request)
 	{
+		$this->ensureSuperAdminAccess();
+
 		$clientIds = $request->input('client_ids', []);
 		if (empty($clientIds) || !is_array($clientIds)) {
 			return response()->json([
@@ -881,6 +933,8 @@ class RecentlyModifiedClientsController extends Controller
 	 */
 	public function bulkUploadSummary(Request $request)
 	{
+		$this->ensureSuperAdminAccess();
+
 		$clientIds = $request->input('client_ids', []);
 		if (empty($clientIds) || !is_array($clientIds)) {
 			return response()->json([
@@ -1163,6 +1217,8 @@ class RecentlyModifiedClientsController extends Controller
 	 */
 	public function deletePublicDoc(Request $request)
 	{
+		$this->ensureSuperAdminAccess();
+
 		$documentId = (int) $request->input('document_id');
 		if (!$documentId || $documentId < 1) {
 			return response()->json(['success' => false, 'message' => 'Document ID is required'], 400);
@@ -1201,6 +1257,8 @@ class RecentlyModifiedClientsController extends Controller
 	 */
 	public function deleteAllPublicDocsByCategory(Request $request)
 	{
+		$this->ensureSuperAdminAccess();
+
 		$clientId = (int) $request->input('client_id');
 		$category = $request->input('category');
 		$category = is_array($category) ? '' : trim((string) $category);
@@ -1366,6 +1424,8 @@ class RecentlyModifiedClientsController extends Controller
 	 */
 	public function deleteDocument(Request $request)
 	{
+		$this->ensureSuperAdminAccess();
+
 		$documentId = (int) $request->input('document_id');
 		if (!$documentId || $documentId < 1) {
 			return response()->json(['success' => false, 'message' => 'Document ID is required'], 400);
@@ -1421,8 +1481,8 @@ class RecentlyModifiedClientsController extends Controller
 			}
 		}
 
-		// TESTING ONLY: comment out below to test public folder delete only (record stays in documents table). Uncomment after test.
-		 $document->delete();
+		// Remove documents table row after local file unlink (local-only docs).
+		$document->delete();
 
 		return response()->json([
 			'success' => true,
@@ -1458,6 +1518,8 @@ class RecentlyModifiedClientsController extends Controller
      */
 	public function toggleArchive(Request $request)
 	{
+		$this->ensureSuperAdminAccess();
+
 		$clientId = $request->input('client_id');
 		$action = $request->input('action'); // 'archive' or 'unarchive'
 		
@@ -1468,8 +1530,8 @@ class RecentlyModifiedClientsController extends Controller
 			], 400);
 		}
 		
-		// Get client info
-		$client = Admin::where('id', $clientId)->first();
+		// Clients only (role = 7) — never archive staff/admin accounts
+		$client = Admin::where('id', $clientId)->where('role', 7)->first();
 		
 		if (!$client) {
 			return response()->json([
@@ -1538,21 +1600,14 @@ class RecentlyModifiedClientsController extends Controller
 	 */
 	public function bulkArchive(Request $request)
 	{
+		$this->ensureSuperAdminAccess();
+
 		$clientIds = $request->input('client_ids', []);
-		
-		// DEBUG: Log raw request data
-		\Log::info('[BulkArchive] Raw request input:', [
-			'client_ids_raw' => $clientIds,
-			'client_ids_type' => gettype($clientIds),
-			'is_array' => is_array($clientIds),
-			'all_input' => $request->all(),
-		]);
 		
 		if (empty($clientIds) || !is_array($clientIds)) {
 			return response()->json([
 				'success' => false,
 				'message' => 'Please select at least one client to archive.',
-				'debug' => ['client_ids_raw' => $clientIds, 'reason' => 'empty_or_not_array']
 			], 400);
 		}
 		
@@ -1562,28 +1617,17 @@ class RecentlyModifiedClientsController extends Controller
 			return response()->json([
 				'success' => false,
 				'message' => 'Please select at least one client to archive.',
-				'debug' => ['client_ids_after_filter' => $clientIds, 'reason' => 'empty_after_filter']
 			], 400);
 		}
 		
-		// Match clients that are not archived (is_archived = 0 or NULL)
+		// Clients only (role = 7), not archived (is_archived = 0 or NULL)
 		$clients = Admin::whereIn('id', $clientIds)
+			->where('role', 7)
 			->where(function ($q) {
 				$q->whereIn('is_archived', [0, '0'])
 				  ->orWhereNull('is_archived');
 			})
 			->get();
-		
-		// DEBUG: Check why clients might be empty - query admins for these IDs without archive filter
-		$allAdminsWithIds = DB::table('admins')
-			->whereIn('id', $clientIds)
-			->get(['id', 'is_archived', 'first_name', 'last_name']);
-		
-		\Log::info('[BulkArchive] Query results:', [
-			'client_ids_requested' => $clientIds,
-			'clients_found' => $clients->pluck('id')->toArray(),
-			'all_admins_with_ids' => $allAdminsWithIds->toArray(),
-		]);
 		
 		$archived = 0;
 		$updateData = [
@@ -1616,12 +1660,6 @@ class RecentlyModifiedClientsController extends Controller
 			'success' => true,
 			'message' => $message,
 			'archived_count' => $archived,
-			'debug' => [
-				'client_ids_sent' => $clientIds,
-				'clients_found_count' => $clients->count(),
-				'archived_count' => $archived,
-				'all_admins_with_ids' => $allAdminsWithIds->toArray(),
-			]
 		]);
 	}
 }
