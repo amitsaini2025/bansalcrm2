@@ -43,7 +43,6 @@ use Illuminate\Support\Facades\Log;
  * - edit
  * - clientdetail
  * - leaddetail
- * - updateclientstatus
  * - changetype
  * - change_assignee
  * - removetag
@@ -74,13 +73,10 @@ class ClientController extends Controller
 			return view($this->getClientViewPath('clients.index'), compact(['lists', 'totalData']));
 		}
 		
-		// Get base query with automatic agent filtering
-		$query = $this->getBaseClientQuery();
+		// Base + filters (default type=client when Type filter empty — C-13)
+		$query = $this->applyClientFilters($this->getBaseClientQuery(), $request);
 		$totalData = $query->count();
-		
-		// Apply filters using trait method
-		$query = $this->applyClientFilters($query, $request);
-		
+
 		// Eager-load count of applications that are in progress (status = 0) and office/branch
 		$query->withCount(['applications as in_progress_applications_count' => function ($q) {
 			$q->where('status', 0);
@@ -740,6 +736,25 @@ class ClientController extends Controller
                     return Redirect::to($this->getClientRedirectUrl('index'))->with('error', 'Client data not found');
                 }
 
+                // Clients detail is for clients only — send leads to /leads/detail (C-21)
+                if (strcasecmp((string) ($fetchedData->type ?? ''), 'lead') === 0) {
+                    $leadRouteParams = ['id' => $encodeId];
+                    if (! empty($applicationId)) {
+                        $leadRouteParams['applicationId'] = $applicationId;
+
+                        return redirect()
+                            ->route('leads.detail.application', $leadRouteParams)
+                            ->withQueryString();
+                    }
+                    if (! empty($tab)) {
+                        $leadRouteParams['tab'] = $tab;
+                    }
+
+                    return redirect()
+                        ->route('leads.detail', $leadRouteParams)
+                        ->withQueryString();
+                }
+
                 if (! $this->canViewClient($fetchedData)) {
                     return $this->redirectWhenCannotViewClientRecord($fetchedData);
                 }
@@ -833,63 +848,13 @@ class ClientController extends Controller
                     compact(['fetchedData','encodeId','showAlert','applicationId','forcedTab','clientApplications','showGoogleReviewReminderModal','followupConsultants','canEditClient'])
                 );
             }
-            // Fallback: legacy lead in leads table (unmigrated) - use DB, not Lead model
-            if (Schema::hasTable('leads')) {
-                $enqdata = Admin::where('lead_id', $id)->first();
-                if ($enqdata) {
-                    $fetchedData = Admin::find($enqdata->id);
+            // Fallback: existing admins row linked by legacy leads.id (read-only).
+            // L-10: do not INSERT on GET — residual legacy rows must use MigrateLeadsToAdminsCommand.
+            $enqdata = Admin::where('lead_id', $id)->first();
+            if ($enqdata) {
+                $fetchedData = Admin::find($enqdata->id);
+                if ($fetchedData) {
                     $encodeId = base64_encode(convert_uuencode($fetchedData->id));
-                } else {
-                    $leadRow = DB::table('leads')->where('id', $id)->first();
-                    if ($leadRow) {
-                        $staff = \App\Models\Staff::find($leadRow->assign_to ?? null);
-                        $obj = new Admin();
-                        $obj->lead_id = $leadRow->id;
-                        $obj->first_name = $leadRow->first_name ?? null;
-                        $obj->last_name = $leadRow->last_name ?? null;
-                        $obj->email = $leadRow->email ?? null;
-                        $obj->phone = $leadRow->phone ?? null;
-                        $obj->country_code = $leadRow->country_code ?? null;
-                        $obj->gender = $leadRow->gender ?? null;
-                        $obj->dob = $leadRow->dob ?? null;
-                        $obj->visa_type = $leadRow->visa_type ?? null;
-                        $obj->type = 'lead';
-                        $obj->created_at = $leadRow->created_at ?? now();
-                        $obj->updated_at = $leadRow->updated_at ?? now();
-                        $obj->is_archived = 0;
-                        $obj->status = 1;
-                        $obj->verified = 0;
-                        $obj->show_dashboard_per = 0;
-                        $obj->office_id = $staff ? $staff->office_id : null;
-                        $obj->marital_status = $leadRow->marital_status ?? null;
-                        $obj->address = $leadRow->address ?? null;
-                        $obj->city = $leadRow->city ?? null;
-                        $obj->state = $leadRow->state ?? null;
-                        $obj->zip = $leadRow->zip ?? null;
-                        $obj->country = $leadRow->country ?? null;
-                        $obj->nomi_occupation = $leadRow->nomi_occupation ?? null;
-                        if (!empty($leadRow->dob)) {
-                            $obj->age = $this->calculateAge($leadRow->dob);
-                        }
-                        $obj->password = Hash::make('LEAD_PLACEHOLDER');
-                        $obj->assignee = $leadRow->assign_to ?? null;
-                        $obj->save();
-
-                        $fetchedData = Admin::find($obj->id);
-                        if (empty($fetchedData->client_id)) {
-                            $first_name = substr($leadRow->first_name ?? 'LEAD', 0, 4);
-                            Admin::where('id', $obj->id)->update([
-                                'client_id' => strtoupper(preg_replace('/[^A-Za-z]/', '', $first_name) ?: 'LEAD') . date('ym') . $obj->id,
-                            ]);
-                            $fetchedData = Admin::find($obj->id);
-                        }
-                        if ($staff) {
-                            $fetchedData->setRelation('staffuser', $staff);
-                        }
-                        $encodeId = base64_encode(convert_uuencode($fetchedData->id));
-                    }
-                }
-                if (!empty($fetchedData)) {
                     if (! $this->canViewClient($fetchedData)) {
                         return $this->redirectWhenCannotViewClientRecord($fetchedData, 'leads.index');
                     }
@@ -920,7 +885,7 @@ class ClientController extends Controller
             return redirect()->route('leads.index')->with('error', Config::get('constants.unauthorized'));
         }
     }
-  
+
     //Calculate age
     function calculateAge($dob) {
         // Convert the DOB string to a DateTime object
@@ -959,38 +924,6 @@ class ClientController extends Controller
         }
         echo json_encode($response);
     }
-
-	public function updateclientstatus(Request $request){
-		if(Admin::where('id', $request->id)->exists()){
-			$client = Admin::where('id', $request->id)->first();
-			if (! $this->canEditClient($client)) {
-				echo json_encode(['status' => false, 'message' => 'Unauthorized']);
-				return;
-			}
-
-			$obj = Admin::find($request->id);
-			$saved = $obj->save();
-			if($saved){
-				$subject = 'has updated client status';
-				$objs = new ActivitiesLog;
-				$objs->client_id = $request->id;
-				$objs->created_by = Auth::user()->id;
-				$objs->subject = $subject;
-				$objs->task_status = 0; // Required NOT NULL field (0 = activity, 1 = task)
-				$objs->pin = 0; // Required NOT NULL field (0 = not pinned, 1 = pinned)
-				$objs->save();
-				$response['status'] 	= 	true;
-				$response['message']	=	'You\'ve successfully updated your client\'s information.';
-			}else{
-				$response['status'] 	= 	false;
-				$response['message']	=	'Please try again';
-			}
-		}else{
-			$response['status'] 	= 	false;
-			$response['message']	=	'Please try again';
-		}
-		echo json_encode($response);
-	}
 
 	public function getallclients(Request $request){
 		// Validate input

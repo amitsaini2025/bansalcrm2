@@ -226,7 +226,7 @@
     ]
   },
   "resources/js/pages/admin/client-detail-entry.js": {
-    "file": "assets/client-detail-entry-C52tbO4R.js",
+    "file": "assets/client-detail-entry-D7YeEo_E.js",
     "name": "client-detail-entry",
     "src": "resources/js/pages/admin/client-detail-entry.js",
     "isEntry": true,
@@ -261,7 +261,7 @@
     "isEntry": true
   },
   "resources/js/pages/admin/partner-detail-entry.js": {
-    "file": "assets/partner-detail-entry-CyJXCYml.js",
+    "file": "assets/partner-detail-entry-CYBRg4Ji.js",
     "name": "partner-detail-entry",
     "src": "resources/js/pages/admin/partner-detail-entry.js",
     "isEntry": true,

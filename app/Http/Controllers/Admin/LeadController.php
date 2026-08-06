@@ -402,25 +402,57 @@ class LeadController extends Controller
 	 * To edit a lead, users should now click on the lead to open the detail page.
 	 */ 
 	
+	/**
+	 * Convert a single lead to a client (menu: Leads → Convert To Client).
+	 * Replaces former migration debug dump that looped all lead_id rows and echoed IDs.
+	 */
 	public function convertoClient(Request $request, $id = null)
-	{ 
-		$requestData = $request->all();
-		// Use Admin model only: iterate migrated leads (admins with lead_id set)
-		$admins = Admin::where('type', 'lead')->whereNotNull('lead_id')->paginate(500);
-		foreach ($admins as $admin) {
-			$leadId = $admin->lead_id;
-			// Sync timestamps from leads table if it exists (using DB, not Lead model)
-			if (Schema::hasTable('leads')) {
-				$leadRow = DB::table('leads')->where('id', $leadId)->first();
-				if ($leadRow) {
-					Admin::where('id', $admin->id)->update([
-						'created_at' => $leadRow->created_at,
-						'updated_at' => $leadRow->updated_at,
-					]);
-				}
-			}
-				echo $leadId . '<br>';
+	{
+		if ($id === null || $id === '') {
+			return redirect()->route('leads.index')->with('error', 'Lead not found');
 		}
+
+		// Menu passes raw admins.id or legacy lead_id; also accept encoded ids.
+		$decoded = $this->decodeString($id);
+		$lookupId = ($decoded !== false && $decoded !== '' && $decoded !== null)
+			? $decoded
+			: $id;
+
+		if (! is_numeric($lookupId)) {
+			return redirect()->route('leads.index')->with('error', 'Lead not found');
+		}
+
+		$admin = Admin::where('lead_id', '=', $lookupId)->where('type', 'lead')->first()
+			?? Admin::where('id', '=', $lookupId)->where('type', 'lead')->first();
+
+		// Already a client with same id (e.g. double-click after convert)
+		if (! $admin) {
+			$asClient = Admin::where('id', '=', $lookupId)->where('type', 'client')->first()
+				?? Admin::where('lead_id', '=', $lookupId)->where('type', 'client')->first();
+			if ($asClient) {
+				return redirect()
+					->route('clients.detail', ['id' => base64_encode(convert_uuencode($asClient->id))])
+					->with('success', 'Already a client');
+			}
+
+			return redirect()->route('leads.index')->with('error', 'Lead not found');
+		}
+
+		if (! StaffClientVisibility::canAccessAdminRecord((int) $admin->id, Auth::user())) {
+			return redirect()->route('leads.index')->with('error', Config::get('constants.unauthorized'));
+		}
+
+		// Same type switch as clients.changetype, plus conversion markers for leads index / staff stats
+		$admin->type = 'client';
+		$admin->converted = 1;
+		if (Schema::hasColumn('admins', 'converted_date')) {
+			$admin->converted_date = date('Y-m-d');
+		}
+		$admin->save();
+
+		return redirect()
+			->route('clients.detail', ['id' => base64_encode(convert_uuencode($admin->id))])
+			->with('success', 'Lead converted to client successfully');
 	}
 	
 	//Check Email is unique or not

@@ -8,6 +8,7 @@ use App\Models\ActivitiesLog;
 use App\Models\Admin;
 use App\Models\FollowupConsultant;
 use App\Support\FollowupAvailability;
+use App\Traits\ClientAuthorization;
 use App\Traits\ClientHelpers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -30,11 +31,85 @@ use Illuminate\Validation\Rule;
  */
 class ClientActionController extends Controller
 {
-    use ClientHelpers;
+    use ClientHelpers, ClientAuthorization;
 
     public function __construct()
     {
         $this->middleware('auth:admin');
+    }
+
+    /**
+     * Resolve admins.id from encoded string or raw integer client_id.
+     */
+    private function resolveActionClientId($raw): ?int
+    {
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+
+        if (is_numeric($raw)) {
+            return (int) $raw;
+        }
+
+        $decoded = $this->decodeString($raw);
+        if ($decoded === false || $decoded === null || $decoded === '' || ! is_numeric($decoded)) {
+            return null;
+        }
+
+        return (int) $decoded;
+    }
+
+    /**
+     * Require edit access for a client-bound action (JSON APIs).
+     */
+    private function assertCanEditActionClientJson($rawClientId, $echoClientId = null): bool
+    {
+        $id = $this->resolveActionClientId($rawClientId);
+        if ($id === null) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'Invalid client.',
+                'clientID' => $echoClientId ?? $rawClientId,
+            ]);
+
+            return false;
+        }
+
+        $client = Admin::find($id);
+        if (! $client || ! $this->canEditClient($client)) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'Unauthorized',
+                'clientID' => $echoClientId ?? $rawClientId,
+            ]);
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Require edit access given a resolved numeric admins.id.
+     */
+    private function assertCanEditResolvedClientJson(?int $clientId, $echoClientId = null): bool
+    {
+        if ($clientId === null) {
+            return true; // personal / no-client tasks allowed
+        }
+
+        $client = Admin::find($clientId);
+        if (! $client || ! $this->canEditClient($client)) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'Unauthorized',
+                'clientID' => $echoClientId ?? $clientId,
+            ]);
+
+            return false;
+        }
+
+        return true;
     }
 
     // Assign action and save
@@ -49,6 +124,10 @@ class ClientActionController extends Controller
             echo json_encode(array('success' => false, 'message' => 'Lead already assigned to '.@$requestData['assignee_name'], 'clientID' => $requestData['client_id']));
             exit;
         }*/
+
+        if (! $this->assertCanEditActionClientJson(@$requestData['client_id'], @$requestData['client_id'])) {
+            exit;
+        }
 
         $action = new \App\Models\Note;
         $action->client_id = $this->decodeString(@$requestData['client_id']);
@@ -119,6 +198,16 @@ class ClientActionController extends Controller
             exit;
         }
 
+        if (! $this->assertCanEditResolvedClientJson(
+            $action->client_id !== null && $action->client_id !== '' ? (int) $action->client_id : null,
+            @$requestData['client_id']
+        )) {
+            exit;
+        }
+        if (! $this->assertCanEditActionClientJson(@$requestData['client_id'], @$requestData['client_id'])) {
+            exit;
+        }
+
         $action->id = $action->id;
         $action->client_id = $this->decodeString(@$requestData['client_id']);
         $action->user_id = Auth::user()->id;
@@ -185,6 +274,16 @@ class ClientActionController extends Controller
 
         if (! $action) {
             echo json_encode(['success' => false, 'message' => 'Note not found', 'clientID' => $requestData['client_id']]);
+            exit;
+        }
+
+        if (! $this->assertCanEditResolvedClientJson(
+            $action->client_id !== null && $action->client_id !== '' ? (int) $action->client_id : null,
+            @$requestData['client_id']
+        )) {
+            exit;
+        }
+        if (! $this->assertCanEditActionClientJson(@$requestData['client_id'], @$requestData['client_id'])) {
             exit;
         }
 
@@ -289,6 +388,10 @@ class ClientActionController extends Controller
             exit;
         }
 
+        if ($client_id !== null && $client_id !== '' && ! $this->assertCanEditResolvedClientJson((int) $client_id, $req_clientID ?: $client_id)) {
+            exit;
+        }
+
         /*if(\App\Models\Note::where('client_id',$requestData['client_id'])->where('assigned_to',$requestData['rem_cat'])->exists())
         {
             echo json_encode(array('success' => false, 'message' => 'Lead already assigned to '.@$requestData['assignee_name'], 'clientID' => $req_clientID));
@@ -368,6 +471,12 @@ class ClientActionController extends Controller
         $requestData = $request->all();
 
         //	echo '<pre>'; print_r($requestData); die;
+        $clientId = $this->resolveActionClientId(@$requestData['client_id']);
+        $client = $clientId !== null ? Admin::find($clientId) : null;
+        if (! $client || ! $this->canEditClient($client)) {
+            return redirect()->route('action.index')->with('error', config('constants.unauthorized') ?? 'Unauthorized');
+        }
+
         $action = new \App\Models\Note;
         $action->client_id = @$requestData['client_id'];
         $action->user_id = Auth::user()->id;
@@ -422,6 +531,10 @@ class ClientActionController extends Controller
         // echo "client_id==".$requestData['client_id'];
         // echo $client_decode_id = base64_encode(convert_uuencode($requestData['client_id'])); die;
         $client_decode_id = base64_encode(convert_uuencode($requestData['client_id']));
+
+        if (! $this->assertCanEditActionClientJson(@$requestData['client_id'], $client_decode_id)) {
+            exit;
+        }
 
         $action = new \App\Models\Note;
         $action->client_id = @$requestData['client_id'];
@@ -549,6 +662,11 @@ class ClientActionController extends Controller
         $admin = Admin::query()->find($decodedId);
         if (! $admin) {
             echo json_encode(['success' => false, 'message' => 'Client not found.']);
+            exit;
+        }
+
+        if (! $this->canEditClient($admin)) {
+            echo json_encode(['success' => false, 'message' => 'Unauthorized']);
             exit;
         }
 

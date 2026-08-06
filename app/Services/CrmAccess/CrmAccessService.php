@@ -94,8 +94,10 @@ class CrmAccessService
             ->where('staff_id', (int) $user->id)
             ->where('admin_id', $adminId)
             ->where('status', 'active')
-            ->whereNotNull('ends_at')
-            ->where('ends_at', '>', $now)
+            // Open-ended (null ends_at) or not yet past ends_at
+            ->where(function ($q) use ($now) {
+                $q->whereNull('ends_at')->orWhere('ends_at', '>', $now);
+            })
             ->exists();
     }
 
@@ -320,8 +322,10 @@ class CrmAccessService
             ->where('admin_id', $adminId)
             ->where('grant_type', 'quick')
             ->where('status', 'active')
-            ->whereNotNull('ends_at')
-            ->where('ends_at', '>', $now)
+            // Open-ended (null ends_at) or not yet past ends_at
+            ->where(function ($q) use ($now) {
+                $q->whereNull('ends_at')->orWhere('ends_at', '>', $now);
+            })
             ->exists();
     }
 
@@ -332,7 +336,8 @@ class CrmAccessService
             $senderName = $requester->email ?? 'Staff';
         }
         $msg = $senderName . ' requested access to record #' . $adminId;
-        $url = url('/crm/access/queue');
+        // Root-relative path so notification links follow the browser host (not APP_URL).
+        $url = route('crm.access.queue', [], false);
 
         $approverIds = array_values(array_filter(
             $this->getApproverStaffIds(),
@@ -365,7 +370,8 @@ class CrmAccessService
             ? "Your supervisor access request was approved ({$hours}h from approval)."
             : 'Your supervisor access request was rejected.';
         $senderId = (int) ($grant->approved_by_staff_id ?? 0);
-        $notifUrl = url('/crm/access/my-grants');
+        // Root-relative path so notification links follow the browser host (not APP_URL).
+        $notifUrl = route('crm.access.my-grants', [], false);
 
         try {
             Notification::query()->create([

@@ -451,28 +451,6 @@ jQuery(document).ready(function($){
         $modal.modal('show');
     });
 
-    $(document).delegate('.change_client_status', 'click', function(){
-        var v = $(this).attr('rating');
-        $('.change_client_status').removeClass('active');
-        $(this).addClass('active');
-
-        $.ajax({
-            url: App.getUrl('changeClientStatus'),
-            type:'GET',
-            datatype:'json',
-            data:{id: partnerId, rating: v},
-            success: function(response){
-                var res = JSON.parse(response);
-                if(res.status){
-                    $('.custom-error-msg').html('<span class="alert alert-success">'+res.message+'</span>');
-                    getallactivities();
-                }else{
-                    $('.custom-error-msg').html('<span class="alert alert-danger">'+response.message+'</span>');
-                }
-            }
-        });
-    });
-
     $(document).delegate('.selecttemplate', 'change', function(){
         var v = $(this).val();
         $.ajax({

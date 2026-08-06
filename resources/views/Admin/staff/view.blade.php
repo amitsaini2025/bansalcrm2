@@ -229,7 +229,7 @@ use App\Http\Controllers\Controller;
 												$list = DateTimeZone::listIdentifiers();
 												
 												?>
-												<form name="usertimezone" action="{{URL::to('staff/savezone')}}" method="POST" enctype="multipart/form-data">
+												<form name="usertimezone" action="{{ route('staff.savezone') }}" method="POST" enctype="multipart/form-data">
 											@csrf
 											<input type="hidden" name="user_id" value="{{$fetchedData->id}}">
 											<div class="row">
@@ -786,30 +786,6 @@ function getallactivities(){
 		'Client',
 		{ dropdownParent: '#emailmodal' }
 	);
-});
-$(document).delegate('.change_client_status', 'click', function(e){
-	
-	var v = $(this).attr('rating');
-	$('.change_client_status').removeClass('active');
-	$(this).addClass('active');
-	
-	 $.ajax({
-		url: '{{URL::to('/change-client-status')}}',
-		type:'GET',
-		datatype:'json',
-		data:{id:'{{$fetchedData->id}}',rating:v},
-		success: function(response){
-			var res = JSON.parse(response);
-			if(res.status){
-				
-				$('.custom-error-msg').html('<span class="alert alert-success">'+res.message+'</span>');
-				getallactivities();
-			}else{
-				$('.custom-error-msg').html('<span class="alert alert-danger">'+response.message+'</span>');
-			}
-			
-		}
-	}); 
 });
 $(document).delegate('.selecttemplate', 'change', function(){
 	var v = $(this).val();

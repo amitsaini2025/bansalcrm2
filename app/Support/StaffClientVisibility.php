@@ -209,8 +209,10 @@ class StaffClientVisibility
                         ->whereColumn('cag.admin_id', $adminsIdColumn)
                         ->where('cag.staff_id', $staffId)
                         ->where('cag.status', 'active')
-                        ->whereNotNull('cag.ends_at')
-                        ->where('cag.ends_at', '>', $now);
+                        // Open-ended (null ends_at) or not yet past ends_at
+                        ->where(function ($w) use ($now) {
+                            $w->whereNull('cag.ends_at')->orWhere('cag.ends_at', '>', $now);
+                        });
                 });
         });
     }

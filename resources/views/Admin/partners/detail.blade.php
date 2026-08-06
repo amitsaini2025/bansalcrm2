@@ -1830,7 +1830,6 @@ use App\Http\Controllers\Controller;
         changePromotionStatus: '{{ url("/change-promotion-status") }}',
         getPromotionEditForm: '{{ url("/getpromotioneditform") }}',
         getPromotions: '{{ url("/get-promotions") }}',
-        changeClientStatus: '{{ url("/change-client-status") }}',
         getApplicationsLogs: '{{ url("/get-applications-logs") }}',
         getApplicationDetail: '{{ url("/getapplicationdetail") }}',
         updateApplicationEnrolmentType: '{{ url("/application/update-enrolment-type") }}',

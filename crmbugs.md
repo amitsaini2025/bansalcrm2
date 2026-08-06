@@ -3,7 +3,7 @@
 **Date:** 2026-07-26  
 **Last deep review:** 2026-07-26 (code-verified; false positives retracted; wording corrected)  
 **Scope:** Full CRM audit by area (Clients, Leads, Partners, Agents, Applications, Invoices/Receipts, Email/Messaging, Documents, Followups, Actions, Staff/Roles/Teams/Branches, Reports, Admin Console, Auth/CRM Access, Ongoing Sheet, Notifications, Shared Frontend/Config, SMS Webhooks).  
-**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4, L-2, L-3, L-4, L-5, L-7, L-8, L-9, L-11, L-13, OS-1, OS-2, OS-3, N-1, N-2, N-3, N-4, N-5, E-1–E-5, E-7, E-8, E-10–E-18, **APP-1–APP-12**, **C-15**, **C-16**, **C-17**, **C-22**, **C-23**, **C-24**, **C-25**, **C-26**, **C-27**).  
+**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4, **L-1–L-13** (L-6 retracted), OS-1, OS-2, OS-3, N-1, N-2, N-3, N-4, N-5, E-1–E-5, E-7, E-8, E-10–E-18, **APP-1–APP-12**, **C-1–C-21**, **C-22**, **C-23**, **C-24**, **C-25**, **C-26**, **C-27**, **CA-1–CA-3**).  
 **Stack note:** Laravel **13.x** (route parameters bind **by position** after DI, not by PHP parameter name).
 
 Severity: **Critical** (crash / data corruption / money wrong / security) · **High** (major feature broken or serious auth hole) · **Medium** (incorrect behavior) · **Low** (edge case / UX / maintenance risk)
@@ -12,7 +12,7 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 
 | ID | Change |
 |----|--------|
-| **C-6** | **Retracted** — `$slug` still receives `{type}` via positional binding on Laravel 13 |
+| **C-6** | **FIXED** (retracted claim) — no code change; Laravel 13 binds `{type}` → `$slug` by position; Client/Lead toggle works |
 | **C-1 / C-7+** | Clarified: login (`auth:admin`) exists; missing piece is **visibility / canEditClient** |
 | **C-12** | Corrected: merge `is_deleted=1` **is** excluded by `whereNull`; real mismatch is `is_deleted=0` handling |
 | **C-15** | **FIXED** — `deletenote` logs activity when `$data->type == 'client'` (was comparing Note object to string) |
@@ -24,6 +24,15 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 | **C-25** | **FIXED** — `GET /checkclientexist` throttled `60,1`; still returns plain `1`/`0` |
 | **C-26** | **FIXED** — removed dead `address_auto_populate` route + method; Places autocomplete unchanged |
 | **C-27** | **FIXED** — clients index uses relative `route(..., false)` instead of `URL::to` |
+| **C-1** | **FIXED** — merge requires `canEditClient` on both IDs; transactional reassign then soft-delete |
+| **C-5** | **FIXED** — removed dead client rating status AJAX (route, no-op controller, orphan handlers); `admins.rating` already dropped |
+| **C-7** | **FIXED** — note create/read/list/delete/pin + app note view gated with `canViewClient`/`canEditClient` |
+| **C-8** | **FIXED** — `updateemailverified` / `emailVerify` / `fetchClientContactNo` gated with `canEditClient`/`canViewClient` |
+| **C-9** | **FIXED** — action create/reassign/update/personal/retag/schedule/app-stage gated with `canEditClient` |
+| **C-10** | **FIXED** — activity list/delete/pin + not-picked SMS gated with `canViewClient`/`canEditClient` |
+| **C-2** | **FIXED** — document upload/delete/rename/download/preview/pdf gate on `canViewClient`/`canEditClient` |
+| **C-3** | **FIXED** — removed orphan `GET /convertapplication` + `GET /deleteservices` routes (no callers; methods never existed) |
+| **C-4** | **FIXED** — legacy phone verify `client_id` rule: `exists:clients,id` → `exists:admins,id` |
 | **INV-1** | Corrected: `else` overwrites **type 1 only**, not type 2 |
 | **APP-3** | **FIXED** — Split was correct; checklist counts now use bound `?` + `(int)` (`ApplicationsController`) |
 | **APP-1** | **FIXED** — Finalize title/heading “finalized” (not overdue copy) |
@@ -44,7 +53,9 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 | **N-3** | **FIXED** — In Person waiting badge scoped: admin + reception see all; others see own assignee queue (list pages unchanged) |
 | **N-4** | **FIXED** — Office-visit toast text escaped + safe same-origin URL for View Details (`admin.blade.php`) |
 | **N-5** | **FIXED** — Bell click uses `site_url + '/all-notifications'` (subdirectory-safe) |
-| **CA-2** | Downgraded practical risk — grant create/approve always sets `ends_at` |
+| **CA-1** | **FIXED** — `quick()` uses same `ensureStaffMayOpenCrossAccessOrSupervisorEligible` as supervisor/requestForm |
+| **CA-2** | **FIXED** — active grants in force when `ends_at` null or future (visibility + hasActiveGrant + dup quick) |
+| **CA-3** | **FIXED** — access notifications store root-relative `route(..., false)` not `url()` / APP_URL |
 | **S-1** | Added exact StaffController arg + double mismatch (values vs keys; string vs module id) |
 | **ACT-1** | **FIXED** — Assigned-by-me (+ completed) note column: strip tags + Utf8Helper escape; Read more popover `html=false` |
 | **ACT-2** | **FIXED** — Action popover description uses `data-description` (not misnamed `data-noteid`); JS falls back to legacy attr; `data-taskid` still the real id |
@@ -96,77 +107,91 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 
 ### Critical
 
-#### C-1. Client merge with no visibility check or transaction
-- **Files:** `app/Http/Controllers/Admin/Client/ClientMergeController.php` (~25–157); `routes/clients.php` (~219)
+#### C-1. ~~Client merge with no visibility check or transaction~~ — **FIXED**
+- **Files:** `app/Http/Controllers/Admin/Client/ClientMergeController.php`; `routes/clients.php`
 - **What happens:** Any **logged-in** staff (`auth:admin`) can POST `merge_from` / `merge_into`, re-point activities/notes/applications/documents/invoices, and soft-delete one admin row. No `canEditClient` / `StaffClientVisibility` check. No `DB::transaction` — partial merge on failure.
 - **Reproduce:** As restricted staff, POST `/merge_records` with two arbitrary client IDs.
 - **Root cause:** Merge moved from legacy without authorization or transactional safety.
 - **Review note:** Not “unauthenticated” — login middleware is present.
+- **Fix:** `canEditClient` on both source and target; reassign related tables then soft-delete inside `DB::transaction`; invalid/same/archived IDs return `status:false`. Route keys and table set unchanged.
 
-#### C-2. Document endpoints lack client visibility checks (IDOR)
-- **Files:** `app/Http/Controllers/Admin/Client/ClientDocumentController.php` — `uploaddocument` (~1673), `deletedocs` (~1846), `download_document` (~697), `preview_document` (~727)
+#### C-2. ~~Document endpoints lack client visibility checks (IDOR)~~ — **FIXED**
+- **Files:** `app/Http/Controllers/Admin/Client/ClientDocumentController.php` — `uploaddocument`, `deletedocs`, `renamedoc`, `download_document`, `preview_document`, `downloadpdf`
 - **What happens:** Upload/delete/download/preview operate on any `client_id` / document without verifying staff may access that client. `ClientAuthorization` may be imported but is unused on these paths.
 - **Reproduce:** Staff A (not allocated to client B) POSTs upload or GETs download for client B’s document.
 - **Root cause:** No `canViewClient` / `canEditClient` on document endpoints.
+- **Fix:** Shared helpers `assertCanAccessDocumentClient` / `resolveAccessibleDocumentClientForJson` use existing `ClientAuthorization` (allocation + grants). Applied on download/preview path, upload, rename, delete, and PDF. S3/filelink checks and public document routes unchanged.
 
-#### C-3. Missing controller methods for registered routes
-- **Files:** `routes/clients.php` (111–112); `app/Http/Controllers/Admin/Client/ClientApplicationController.php` (methods absent)
+#### C-3. ~~Missing controller methods for registered routes~~ — **FIXED**
+- **Files:** `routes/clients.php`; `app/Http/Controllers/Admin/Client/ClientApplicationController.php`
 - **What happens:** `GET /convertapplication` and `GET /deleteservices` resolve to methods that **do not exist** → 500 / “method does not exist”.
 - **Reproduce:** Hit those URLs from client detail application UI (if wired).
 - **Root cause:** Routes registered during refactor; methods never migrated. Controller only has `saveapplication` + `getapplicationlists`.
+- **Fix:** Removed orphan routes (no blade/JS callers; methods never existed). Live app routes `saveapplication` / `getapplicationlists` / `savetoapplication` unchanged.
 
-#### C-4. Legacy phone verification validates against non-existent `clients` table
-- **Files:** `app/Http/Controllers/Admin/Client/PhoneVerificationController.php` (~26–27, 45–46)
+#### C-4. ~~Legacy phone verification validates against non-existent `clients` table~~ — **FIXED**
+- **Files:** `app/Http/Controllers/Admin/Client/PhoneVerificationController.php` (`sendCodeLegacy`, `verifyCodeLegacy`)
 - **What happens:** `sendCodeLegacy` / `verifyCodeLegacy` use `exists:clients,id`. Records live in `admins` — validation fails; legacy verify modal cannot send/check codes.
 - **Reproduce:** Use legacy verify flow from client edit with `client_id` = admins.id.
 - **Root cause:** Schema name not updated after leads→admins migration.
+- **Fix:** Both methods validate `client_id` with `exists:admins,id`. Routes, UI, phone lookup, and modern OTP endpoints unchanged.
 
 ### High
 
-#### C-5. Client status/rating AJAX is a no-op (targets removed column)
-- **Files:** `public/js/pages/admin/client-detail/client-status.js` (~45–55); `ClientController.php` `updateclientstatus` (~964–993); migration `2026_02_10_120000_drop_marked_columns_from_admins_table.php` (drops `rating`)
+#### C-5. ~~Client status/rating AJAX is a no-op (targets removed column)~~ — **FIXED**
+- **Files:** `public/js/pages/admin/client-detail/client-status.js`; `ClientController.php` `updateclientstatus`; migration `2026_02_10_120000_drop_marked_columns_from_admins_table.php` (drops `rating`)
 - **What happens:** UI sends `rating`; controller never reads request fields, saves unchanged row, logs fake “updated client status”, returns success. Column no longer exists anyway.
 - **Reproduce:** Click status/rating on client detail → success toast, no DB change.
+- **Fix:** Removed dead path — route `/change-client-status`, `updateclientstatus`, `client-status.js` (+ entry import), orphan handlers on partner/product/agent/staff, and unused URL config keys. Did not re-add `admins.rating`.
 
-#### C-6. ~~Client/Lead type toggle broken (route param not bound)~~ — **RETRACTED**
+#### C-6. ~~Client/Lead type toggle broken (route param not bound)~~ — **FIXED** (retracted — not a real bug)
 - **Original claim:** Route `{type}` vs method param `$slug` → `$slug` stays null → type cleared.
 - **Why wrong:** On Laravel 13, after `Request` DI, remaining route params are passed **by position** (`array_values`). For `changetype(Request $request, $id, $slug)`, `{id}` → `$id` and `{type}` → `$slug`. Toggle works; rename is clarity-only.
-- **Evidence:** `routes/clients.php` (~80); `ClientController.php` `changetype` (~1215); live positional bind behaviour.
+- **Evidence:** `routes/clients.php` (`/clients/changetype/{id}/{type}`); `ClientController.php` `changetype`; live positional bind behaviour.
+- **Fix:** None required — closed as false positive. Optional rename `$slug` → `$type` only if desired for readability.
 
-#### C-7. Notes CRUD without client visibility checks (IDOR)
-- **Files:** `ClientNoteController.php` — `createnote`, `getnotedetail`, `viewnotedetail`, `deletenote`, `pinnote`, `getnotes`
+#### C-7. ~~Notes CRUD without client visibility checks (IDOR)~~ — **FIXED**
+- **Files:** `ClientNoteController.php` — `createnote`, `getnotedetail`, `viewnotedetail`, `viewapplicationnote`, `deletenote`, `pinnote`, `getnotes`
 - **What happens:** Any **logged-in** staff can create/read/delete/pin notes for any `client_id` / `note_id` (login auth present; no `canViewClient` / `canEditClient`).
+- **Fix:** `ClientAuthorization` + `resolveAccessibleNoteClient` (allocation/grants same as client detail). View on list/detail/app-note; edit on create/update/delete/pin. Update also requires edit on existing note’s client. Routes and note payload shape unchanged.
 
-#### C-8. Email verification & contact fetch bypass allocation (IDOR)
+#### C-8. ~~Email verification & contact fetch bypass allocation (IDOR)~~ — **FIXED**
 - **Files:** `ClientMessagingController.php` — `updateemailverified`, `emailVerify`, `fetchClientContactNo`
 - **What happens:** Update verification, send verify email, or fetch phones for any `client_id` without visibility check.
+- **Fix:** `ClientAuthorization` + `resolveAccessibleMessagingClient`. Edit on verify flag/email send; view on contact fetch. Public `emailVerifyToken` / `thankyou` unchanged.
 
-#### C-9. Client actions/tasks without visibility checks (IDOR)
-- **Files:** `ClientActionController.php` — `actionstore`, `reassignactionstore`, `updateaction`, etc.
+#### C-9. ~~Client actions/tasks without visibility checks (IDOR)~~ — **FIXED**
+- **Files:** `ClientActionController.php` — `actionstore`, `reassignactionstore`, `updateaction`, `personalaction`, `retagaction`, `actionstore_application`, `scheduleFollowupStore`
 - **What happens:** Create/reassign tasks and activity logs for any decoded `client_id`.
+- **Fix:** `ClientAuthorization` + resolve encoded/raw client id then `canEditClient`. Reassign/update also check existing note’s client. Personal actions with no client unchanged. Slot-list endpoint unchanged (no client id).
 
-#### C-10. Activity log & “not picked call” without authorization (IDOR + SMS)
-- **Files:** `ClientActivityController.php` — `notpickedcall`, `deleteactivitylog`, `pinactivitylog`
+#### C-10. ~~Activity log & “not picked call” without authorization (IDOR + SMS)~~ — **FIXED**
+- **Files:** `ClientActivityController.php` — `notpickedcall`, `deleteactivitylog`, `pinactivitylog`, `activities`
 - **What happens:** Send SMS / update `not_picked_call` / delete/pin activity for any admin ID.
+- **Fix:** `ClientAuthorization` + `resolveAccessibleActivityClient`. Edit on not-picked/SMS and delete/pin (via activity `client_id`); view on activity list. SMS/query behaviour unchanged for allowed staff.
 
-#### C-11. Application create/list without authorization; fragile partner_branch parse
+#### C-11. ~~Application create/list without authorization; fragile partner_branch parse~~ — **FIXED**
 - **Files:** `ClientApplicationController.php` — `saveapplication`, `getapplicationlists`
 - **What happens:** Create applications for any `client_id`; `explode('_', partner_branch)` can undefined-index; missing workflow stage → null deref on `$workflowstage->name`.
+- **Fix:** `ClientAuthorization` + `resolveAccessibleApplicationClient` (edit on create, view on list — same visibility as notes/activity). `parsePartnerBranch` validates `branchId_partnerId` and branch↔partner; missing workflow stages return a JSON error instead of crashing. Success payload / UI format unchanged for allowed staff.
 
-#### C-12. Soft-delete filter semantics inconsistent with LeadController
+#### C-12. ~~Soft-delete filter semantics inconsistent with LeadController~~ — **FIXED**
 - **Files:** `app/Traits/ClientQueries.php` (`whereNull('is_deleted')` only); `ClientMergeController` sets `is_deleted => 1`; LeadController uses `whereNull OR = 0`
 - **Corrected behaviour:**
   - Merge sets `is_deleted = 1` → **excluded** by `whereNull` (merged rows do **not** still appear solely because of `=1`).
   - Real bug: ClientQueries also excludes rows with `is_deleted = 0` (treated as “deleted” incorrectly), while LeadController keeps them. Permanent-delete / timestamp semantics may still diverge.
 - **Root cause:** Inconsistent `is_deleted` null/`0`/`1`/timestamp conventions across modules.
+- **Fix:** `getBaseClientQuery` / `getArchivedClientQuery` now use `whereNull('is_deleted')->orWhere('is_deleted', 0)` (same as LeadController / SearchService). Still excludes merge (`1`) and permanent-delete timestamps.
 
-#### C-13. Clients index includes leads (no default type filter)
+#### C-13. ~~Clients index includes leads (no default type filter)~~ — **FIXED**
 - **Files:** `ClientQueries.php` `getBaseClientQuery()`; `clients/index.blade.php` shows type badge
 - **What happens:** Active leads appear on Clients list unless user filters Type manually.
+- **Fix:** `applyClientFilters` defaults to `type = client` when Type is empty; explicit Type=Lead/Client still works. Index counts after filters (matches list/export). Filter UI preselects Client.
 
-#### C-14. Phone OTP endpoints lack allocation checks
+#### C-14. ~~Phone OTP endpoints lack allocation checks~~ — **FIXED**
 - **Files:** `PhoneVerificationController.php` — `sendOTP`, `verifyOTP`, `getStatus`
 - **What happens:** Any staff with a `client_phone_id` can OTP-verify phones for clients they cannot otherwise access.
+- **Fix:** `resolveAccessibleClientPhone` / `denyUnlessCanAccessClientId` use `StaffClientVisibility::canAccessAdminRecord` (same as lead OTP / client detail). Wired on `sendOTP`, `verifyOTP`, `resendOTP`, `getStatus`, and legacy send/check-code. OTP service + success JSON unchanged for allowed staff.
 
 ### Medium
 
@@ -185,17 +210,20 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 - **What happens:** Only applied assignee when value was an array; scalar/`''` left `assignee` unchanged but returned success.
 - **Fix:** Normalize to id list when `assignee`/`assinee` present (array, scalar, empty clear, comma-separated). Storage still one id / comma list / `""`; notify only when ≥1 assignee; missing keys leave field unchanged.
 
-#### C-18. Client import duplicate phone check inefficient / incomplete
+#### C-18. ~~Client import duplicate phone check inefficient / incomplete~~ — **FIXED**
 - **File:** `ClientImportService.php` (~72–135) — loads all phones per country; can miss `admins.phone` vs `client_phones` mismatch.
-
-#### C-19. Client import may assign wrong `user_id` on phone rows
+- **Fix:** `findExistingClientByPhone` uses narrow LIKE/suffix candidate queries (no full-table loads). One `isSameLogicalPhone` rule: digit match + country when stored has a code (else phone-only like legacy `admins.phone`). Still covers `client_phones` and primary `admins.phone`. Skip-duplicate messages/flow unchanged.
+#### C-19. ~~Client import may assign wrong `user_id` on phone rows~~ — **FIXED**
 - **File:** `ClientImportService.php` (~277) — `'user_id' => Auth::id()` may not match staff FK semantics.
+- **Fix:** `resolveImportingStaff()` uses `Auth::guard('admin')->user()` as `Staff`; `client_phones.user_id` = that staff id (null only if no admin staff session). Office fallback + activity `created_by` default use the same staff identity. Payload phones/contacts unchanged.
 
-#### C-20. `leaddetail` legacy migration creates duplicate admin rows (race)
+#### C-20. ~~`leaddetail` legacy migration creates duplicate admin rows (race)~~ — **FIXED**
 - **File:** `ClientController.php` (~837–877) — lazy create on GET without lock/upsert.
+- **Fix:** `migrateLegacyLeadToAdminIfNeeded()` runs in a DB transaction with `leads` `lockForUpdate`, rechecks `admins.lead_id`, then creates only if still missing. Same field mapping / detail view / auth as before.
 
-#### C-21. `clientdetail` does not enforce `type=client`
+#### C-21. ~~`clientdetail` does not enforce `type=client`~~ — **FIXED**
 - **File:** `ClientController.php` (~734–776) — lead IDs open on `/clients/detail/{id}`.
+- **Fix:** If record `type` is `lead`, redirect to `leads.detail` / `leads.detail.application` (same encoded id, tab, applicationId, query string). Non-lead records (client / legacy) unchanged; auth still enforced on the lead detail path.
 
 #### ~~C-22. Archived list may include archived leads~~ — **FIXED** (Option A — intentional shared list)
 - **File:** `archived/index.blade.php` (query still shared via `getArchivedClientQuery`)
@@ -233,13 +261,16 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 
 ## 2. Leads
 
+**Section status:** **L-1–L-13 closed** — L-1–L-5, L-7–L-13 **FIXED**; L-6 **RETRACTED** (by design, not a defect).
+
 ### Critical
 
-#### L-1. “Convert To Client” runs debug migration script, not conversion
-- **Files:** `leads/index.blade.php` (~180); `routes/web.php` (~258); `LeadController.php` `convertoClient` (~363–382)
-- **What happens:** Menu action loops migrated leads and **echoes HTML lead IDs** — no conversion, no redirect, no `converted` flag.
+#### ~~L-1. “Convert To Client” runs debug migration script, not conversion~~ — **FIXED**
+- **Files:** `leads/index.blade.php`; `routes/web.php`; `LeadController.php` `convertoClient`
+- **What happens:** Menu action looped migrated leads and **echoed HTML lead IDs** — no conversion, no redirect, no `converted` flag.
 - **Reproduce:** Leads index → Options → Convert To Client.
 - **Root cause:** Leftover one-off migration endpoint exposed as user-facing action.
+- **Fix:** `convertoClient` now converts **one** lead from the URL id (raw or encoded; resolve by `lead_id` then `admins.id`). Gate with `StaffClientVisibility::canAccessAdminRecord`. Sets `type=client`, `converted=1`, `converted_date` (if column). Redirect to client detail (same type switch idea as `clients.changetype`). Idempotent if already client. Menu/route unchanged. Migration dump/timestamp sync removed.
 
 ### High
 
@@ -263,7 +294,7 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 - **What happens:** archived leads still appeared on `/leads`.
 - **Fix:** Base query includes `where('is_archived', 0)` (list + CSV export). Archived leads remain on `/archived` (type badge shows lead/client).
 
-#### L-6. ~~Lead uniqueness AJAX / store ignore `client_phones`~~ — **RETRACTED**
+#### ~~L-6. Lead uniqueness AJAX / store ignore `client_phones`~~ — **RETRACTED**
 - **Original claim:** `is_contactno_unique` / store only check `admins.phone`; should also unique-check `client_phones`.
 - **Why wrong (by design):** `client_phones` stores multi/related contact numbers (e.g. sister of Lead 1). That same person can later be created as Lead 2 with the same number. Enforcing uniqueness on `client_phones` would block valid lead creates.
 - **Correct behavior:** Keep uniqueness on primary `admins.phone` + existing AJAX only; do **not** apply uniqueness across `client_phones`.
@@ -285,11 +316,19 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 - **What happens:** create form multi-select `assign_to[]` was accepted, but only `assign_to[0]` was written to `admins.assignee`.
 - **Fix:** Same as clients — multiple ids → comma-separated string; single id → one value; `office_id` still from the first selected staff only.
 
-#### L-10. `leaddetail` auto-migration side effect on GET
+#### ~~L-10. `leaddetail` auto-migration side effect on GET~~ — **FIXED**
+- **File:** `ClientController.php` `leaddetail`
+- **What happens:** GET `/leads/detail/{id}` could INSERT a new `admins` row when the id only existed in the legacy `leads` table (`migrateLegacyLeadToAdminIfNeeded`).
+- **Fix:** Lead detail is read-only. Resolve existing `admins` by `id` / `lead_id` only; no create on GET. Residual unmigrated rows require offline `MigrateLeadsToAdminsCommand`. Removed dead GET-migrate helper. Normal admin-only / already-migrated leads unchanged.
+
 #### ~~L-11. Duplicate `leads.detail` route registration (`web.php` + `clients.php`)~~ — **FIXED**
 - **What happens:** same `GET /leads/detail/{id}/{tab?}` + name `leads.detail` registered twice (`web.php` outside `auth:admin` group; `clients.php` inside).
 - **Fix:** Removed duplicate from `web.php`. Kept `leads.detail` (+ `leads.detail.application`) only in `clients.php` under `auth:admin`.
-#### L-12. Lead import inherits client import duplicate-check gaps
+#### ~~L-12. Lead import inherits client import duplicate-check gaps~~ — **FIXED**
+- **Files:** `LeadController.php` `import`; `ClientImportService.php`
+- **What happens:** Lead import forces `type=lead` then calls `ClientImportService::importClient`, so client-side duplicate-check gaps (C-18) also applied to leads; skip/success messages always said “Client”.
+- **Fix:** Keep one shared importer (no lead fork). Phone/email skip-duplicates use C-18 rules (`admins.email` + `findExistingClientByPhone` over `admins.phone` / `client_phones`). Type-aware messages (“Lead” / “Client”). Lead imports set `converted=0` so they appear on leads index. Client import path unchanged aside from message label when type=client.
+
 #### ~~L-13. `convertoClient` route outside auth group (relies on controller middleware only)~~ — **FIXED**
 - **File:** `routes/web.php` (leads block)
 - **What happens:** `/leads/convert/{id?}` (and sibling lead routes in `web.php`) sat outside the `auth:admin` group; auth only on `LeadController` constructor.
@@ -708,34 +747,51 @@ if ($invoicelist->type == 2) {
 
 ## 11. Staff / Roles / Teams / Branches
 
+**Status: S-1 through S-7 — all FIXED** (auth helper, staff list/IDOR, teams/branches gates, role validation, null-safe edit, assignee XSS, staff named routes).
+
 ### Critical
 
-#### S-1. `checkAuthorizationAction` incompatible with Staff Role UI
-- **Files:** `Controller.php` (~236–256); `StaffController` / `StaffroleController`
+#### ~~S-1. `checkAuthorizationAction` incompatible with Staff Role UI~~ — **FIXED**
+- **Files:** `Controller.php` (`checkAuthorizationAction`); `StaffController` / `StaffroleController` call sites
 - **What happens (double mismatch):**
   1. Roles UI stores `module_access` as JSON object keys → values like `{"3":"on","20":"on"}`.
-  2. StaffController calls `$this->checkAuthorizationAction('user_management', …)`.
-  3. Check does `in_array($controller, $decoded)` on **values** (`"on"`), never keys, and never maps `'user_management'` → module id **3**.
-  4. Result: every **non–role-1** user is treated unauthorized for Staff create/edit and Staff Role CRUD (role 1 bypasses).
-- **Contrast:** `ClientAuthorization` correctly uses `array_key_exists($moduleId, …)`.
+  2. StaffController called `$this->checkAuthorizationAction('user_management', …)`.
+  3. Check did `in_array($controller, $decoded)` on **values** (`"on"`), never keys, and never mapped `'user_management'` → module id **3**.
+  4. Result: every **non–role-1** user was treated unauthorized for Staff create/edit and Staff Role CRUD (role 1 bypasses).
+- **Fix:** `checkAuthorizationAction` now matches Roles UI / `ClientAuthorization`: decode as assoc array, `array_key_exists` on module ids. Slug map `user_management`→**3**, `user_role`→**6**; numeric id pass-through; role `== 1` still always allowed. Return semantics unchanged (truthy = deny). Unmapped slugs (e.g. `api_key`) stay deny for non–role-1. Legacy list-of-slug formats still accepted as fallback. Call sites untouched.
 
 ### High
 
-#### S-2. Staff list/view/AJAX/timezone lack module authorization
+#### ~~S-2. Staff list/view/AJAX/timezone lack module authorization~~ — **FIXED**
 - **File:** `StaffController.php` — `active`/`inactive`/`view`/`savezone`/`getassigneeajax`/`getAssigneeList` — IDOR on timezone (`savezone` updates any `user_id`).
+- **Fix:** `active`/`inactive` require role 1 or Roles UI module **3** (manage) or **4** (view list/details). `view` same for other profiles; **own** profile still allowed without 3/4 (self timezone / deep links). `savezone` only **self**, role 1, or module **3**, plus target-exists null-safe. `getassigneeajax` / `getAssigneeList` intentionally remain `auth:admin` only so Actions/Applications assign UIs keep working for staff without 3/4.
 
-#### S-3. Teams & Branches authorization commented out
-- **Files:** `TeamController.php` (~36–41); `BranchesController.php` (~34–39) — any logged-in staff can create/edit.
+#### ~~S-3. Teams & Branches authorization commented out~~ — **FIXED**
+- **Files:** `TeamController.php`; `BranchesController.php` — any logged-in staff could create/edit.
+- **Fix:** Branch list/create/store/edit require role 1 or Roles UI module **1** (create/edit offices; matches Admin Console Branches menu). Branch **`view` / `viewclient`** stay `auth:admin` only so staff/client/office-visit office deep links keep working. Team index/store/edit require role 1 or module **4** (matches Admin Console Teams under Staff). Replaces dead commented `$check` stubs. Null-safe `find` on branch/team edit POST (related to S-5) included on those save paths only.
 
 ### Medium
 
-#### S-4. StaffRole store/edit validation disabled + null-unsafe edit
-#### S-5. Team/Branch edit null dereference on bad id
-#### S-6. `getAssigneeList` HTML injection (office names into `<option>` unescaped)
+#### ~~S-4. StaffRole store/edit validation disabled + null-unsafe edit~~ — **FIXED**
+- **File:** `StaffroleController.php` `store` / `edit`
+- **What happens:** Validate rules commented out / empty (stale `usertype` field); empty or garbage roles could save; edit POST used `StaffRole::find` with no null check → 500 on bad id; `json_encode(null)` when no modules selected.
+- **Fix:** Validate current form fields (`name` required max 255, `description` nullable, `module_access` nullable array, edit also requires `id`). Null-safe find → friendly redirect if role missing. Encode modules as JSON object keys or `[]` if none (no unique on name so legacy duplicates still editable). Auth unchanged (module 6 / `user_role`).
+
+#### ~~S-5. Team/Branch edit null dereference on bad id~~ — **FIXED**
+- **Files:** `TeamController.php` / `BranchesController.php` `edit` POST
+- **What happens:** `$obj = Team::find` / `Branch::find` then `$obj->…` with no null check → 500 on missing/bad `id`.
+- **Fix:** Null check after `find` with friendly “Not Exist” redirect (landed with S-3). POST also validates `id` as `required|integer` before load. GET edit still uses `exists()` (already safe). Hidden form `id` fields unchanged.
+
+#### ~~S-6. `getAssigneeList` HTML injection (office names into `<option>` unescaped)~~ — **FIXED**
+- **File:** `StaffController.php` `getAssigneeList`
+- **What happens:** Built `<option>` HTML with raw first/last name and `office_name`; Action popovers inject via `.html(obj.message)` → stored XSS if names contain markup.
+- **Fix:** Escape option **label** with `e()`; cast staff id to `(int)` for `value`. Response shape unchanged (`status` + `message` array of option HTML strings) so Action blades / TomSelect keep working. `getassigneeajax` left as JSON (separate path).
 
 ### Low
 
-#### S-7. Staff URL encoding inconsistency + widespread `URL::to`
+#### ~~S-7. Staff URL encoding inconsistency + widespread `URL::to`~~ — **FIXED**
+- **What happens:** Edit used `base64_encode(convert_uuencode(...))` + `decodeString`; view used plain numeric id; staff blades mixed hard-coded `URL::to('/staff/…')` with `route()`.
+- **Fix (approach A — no deep-link breaks):** Keep **view = raw id**, **edit = encoded** intentionally. Staff index: `route('staff.create|active|inactive|view|edit')`; office link `route('branch.userview')`. Named `staff.savezone` for timezone form. Left non-staff `URL::to` on staff view (clients/email/app AJAX) unchanged — out of scope. Controllers unchanged for id handling.
 
 ---
 
@@ -812,19 +868,25 @@ if ($invoicelist->type == 2) {
 
 ### High
 
-#### CA-1. Quick grant POST does not re-check cross-access eligibility
-- **Files:** `AccessGrantController.php` `quick` (~358–402); `CrmAccessService.php` (~102–108)
-- **What happens:** Staff with `quick_access_enabled` can POST grant for any `admins.id` without the eligibility check used by `supervisor()`.
+#### ~~CA-1. Quick grant POST does not re-check cross-access eligibility~~ — **FIXED**
+- **Files:** `AccessGrantController.php` `quick`; `CrmAccessService.php` `requestQuickGrant`
+- **What happens:** Staff with `quick_access_enabled` could POST grant for any `admins.id` without the eligibility check used by `supervisor()`.
+- **Fix:** `quick()` now calls the same `ensureStaffMayOpenCrossAccessOrSupervisorEligible()` as `requestForm` / `supervisor()` before `requestQuickGrant`. Service still only checks flag/reason/dup/office (no `canRequestCrossAccessGrant` hard block — preserves assignee audit grants).
 
 ### Medium
 
-#### CA-3. Notification URLs depend on `APP_URL` (`CrmAccessService` uses `url('/crm/access/...')`)
+#### ~~CA-3. Notification URLs depend on `APP_URL` (`CrmAccessService` uses `url('/crm/access/...')`)~~ — **FIXED**
+- **Files:** `CrmAccessService.php` `notifyApproversOfPendingGrant`, `notifyRequesterGrantProcessed`
+- **What happens:** Access-request notifications stored absolute URLs from `url()`, so links could miss when browser host ≠ `APP_URL`.
+- **Fix:** Store root-relative paths via `route('crm.access.queue|my-grants', [], false)`. Destinations unchanged; host follows the open tab.
 
 ### Low
 
-#### CA-2. Active grants require `ends_at` not null — **low practical risk**
-- **File:** `StaffClientVisibility.php` (~212–213) — `whereNotNull('cag.ends_at')->where('cag.ends_at', '>', $now)`
-- **Review note:** Quick grant + approve paths **always set** `ends_at`. Pending grants with null `ends_at` are correctly excluded until approved. Only hurts manually inserted open-ended rows. Downgraded from High.
+#### ~~CA-2. Active grants require `ends_at` not null~~ — **FIXED**
+- **Files:** `StaffClientVisibility.php` `restrictAdminsQueryForStaff`; `CrmAccessService.php` `hasActiveGrant`, `hasDuplicateActiveQuickGrant`
+- **What happens:** Visibility only counted `status=active` grants with non-null future `ends_at`, so open-ended rows (`ends_at` null) never granted access.
+- **Review note:** Product quick/approve paths always set `ends_at`. Pending keeps null until approved (still excluded via `status`).
+- **Fix:** Treat active as in force when `ends_at` is null **or** `ends_at > now`. Expire job unchanged (still only expires past non-null `ends_at`).
 
 ---
 
@@ -959,7 +1021,8 @@ if ($invoicelist->type == 2) {
 | P-11 | **Retracted** — OR is grouped on partner Invoice tab |
 | INV-1 “overwrites type 1 & 2” | **Partial** — overwrites type 1 only |
 | FE-4 “generic initTomSelect still vulnerable” | **Overstated** — defaults already emit HTML |
-| CA-2 as High | **Downgraded** — grants always get `ends_at` in current paths |
+| CA-1–CA-3 | **FIXED** — quick eligibility gate; open-ended `ends_at`; root-relative notif URLs |
+| CA-2 as High | **Was downgraded** then **FIXED** — open-ended `ends_at` null now counts as active |
 
 ---
 

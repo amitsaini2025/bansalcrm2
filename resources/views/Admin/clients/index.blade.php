@@ -161,8 +161,8 @@
 												<label for="type" class="col-form-label">Type</label>
 												<select class="form-control" name="type">
 												<option value="">Select</option>
-												<option value="client">Client</option>
-												<option value="lead">Lead</option>
+												<option value="client" @selected(request('type', 'client') === 'client')>Client</option>
+												<option value="lead" @selected(request('type') === 'lead')>Lead</option>
 												</select>
 											</div>
 										</div>

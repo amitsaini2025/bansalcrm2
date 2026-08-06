@@ -220,7 +220,7 @@ Route::post('/staff/store', [StaffController::class, 'store'])->name('staff.stor
 Route::get('/staff/edit/{id}', [StaffController::class, 'edit'])->name('staff.edit');
 Route::get('/staff/view/{id}', [StaffController::class, 'view'])->name('staff.view');
 Route::post('/staff/edit', [StaffController::class, 'edit'])->name('staff.update');
-Route::post('/staff/savezone', [StaffController::class, 'savezone']);
+Route::post('/staff/savezone', [StaffController::class, 'savezone'])->name('staff.savezone');
 
 Route::get('/staff/active', [StaffController::class, 'active'])->name('staff.active');
 Route::get('/staff/inactive', [StaffController::class, 'inactive'])->name('staff.inactive');

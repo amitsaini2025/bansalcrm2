@@ -621,30 +621,6 @@ jQuery(document).ready(function($){
 		{ dropdownParent: '#emailmodal' }
 	);
 });
- $(document).delegate('.change_client_status', 'click', function(e){
-	
-	var v = $(this).attr('rating');
-	$('.change_client_status').removeClass('active');
-	$(this).addClass('active');
-	
-	 $.ajax({
-		url: '{{URL::to('/change-client-status')}}',
-		type:'GET',
-		datatype:'json',
-		data:{id:'{{$fetchedData->id}}',rating:v},
-		success: function(response){
-			var res = JSON.parse(response);
-			if(res.status){
-				
-				$('.custom-error-msg').html('<span class="alert alert-success">'+res.message+'</span>');
-				getallactivities();
-			}else{
-				$('.custom-error-msg').html('<span class="alert alert-danger">'+response.message+'</span>');
-			}
-			
-		}
-	}); 
-}); 
 $(document).delegate('.selecttemplate', 'change', function(){
 	var v = $(this).val();
 	$.ajax({

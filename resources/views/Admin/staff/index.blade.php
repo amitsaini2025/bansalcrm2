@@ -17,17 +17,17 @@
 							<h4>Staff</h4>
 							<div class="card-header-action">
 								@if(isset($viewType) && $viewType == 'active')
-								<a href="{{URL::to('staff/create')}}" class="btn btn-primary">Add Staff</a>
+								<a href="{{ route('staff.create') }}" class="btn btn-primary">Add Staff</a>
 								@endif
 							</div>
 						</div>
 						<div class="card-body">
 							<ul class="nav nav-pills" id="staff_tabs" role="tablist">
 								<li class="nav-item">
-									<a class="nav-link {{ (isset($viewType) && $viewType == 'active') ? 'active' : '' }}" id="active-tab"  href="{{URL::to('/staff/active')}}" >Active</a>
+									<a class="nav-link {{ (isset($viewType) && $viewType == 'active') ? 'active' : '' }}" id="active-tab"  href="{{ route('staff.active') }}" >Active</a>
 								</li>
 								<li class="nav-item">
-									<a class="nav-link {{ (isset($viewType) && $viewType == 'inactive') ? 'active' : '' }}" id="inactive-tab"  href="{{URL::to('/staff/inactive')}}" >Inactive</a>
+									<a class="nav-link {{ (isset($viewType) && $viewType == 'inactive') ? 'active' : '' }}" id="inactive-tab"  href="{{ route('staff.inactive') }}" >Inactive</a>
 								</li>
 								
 								@if(isset($viewType) && $viewType == 'active')
@@ -63,9 +63,10 @@
 											<tbody class="tdata">
 											@foreach (@$lists as $list)
 												<tr id="id_{{@$list->id}}"> 
-													<td><a href="{{URL::to('/staff/view')}}/{{$list->id}}">{{@$list->first_name}}</a><br>{{@$list->email}}</td> 
+													{{-- View: plain numeric id (deep-link compatible). Edit: encoded id via decodeString. --}}
+													<td><a href="{{ route('staff.view', ['id' => $list->id]) }}">{{@$list->first_name}}</a><br>{{@$list->email}}</td> 
 													<td>{{@$list->position}}</td>
-													<td>@if($list->office)<a href="{{URL::to('/branch/view/')}}/{{$list->office->id}}">{{$list->office->office_name}}</a>@else{{ config('constants.empty') }}@endif</td>
+													<td>@if($list->office)<a href="{{ route('branch.userview', ['id' => $list->office->id]) }}">{{$list->office->office_name}}</a>@else{{ config('constants.empty') }}@endif</td>
 													<td>{{ @$list->usertype->name == "" ? config('constants.empty') : str_limit(@$list->usertype->name, '50', '...') }}</td>  
 													@if(isset($viewType) && ($viewType == 'active' || $viewType == 'inactive'))
 													<td>

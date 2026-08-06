@@ -80,7 +80,6 @@ Route::middleware(['auth:admin'])->group(function() {
     Route::get('/clients/changetype/{id}/{type}', [ClientController::class, 'changetype'])->name('clients.changetype');
     Route::get('/clients/removetag', [ClientController::class, 'removetag'])->name('clients.removetag');
     Route::get('/clients/change_assignee', [ClientController::class, 'change_assignee'])->name('clients.change_assignee');
-    Route::get('/change-client-status', [ClientController::class, 'updateclientstatus'])->name('clients.updateclientstatus');
     Route::post('/save_tag', [ClientController::class, 'save_tag'])->name('clients.save_tag');
     
     // AJAX routes - recipient/search
@@ -108,8 +107,6 @@ Route::middleware(['auth:admin'])->group(function() {
     // AJAX routes - applications
     Route::get('/get-application-lists', [ClientApplicationController::class, 'getapplicationlists'])->name('clients.getapplicationlists');
     Route::post('/saveapplication', [ClientApplicationController::class, 'saveapplication'])->name('clients.saveapplication');
-    Route::get('/convertapplication', [ClientApplicationController::class, 'convertapplication'])->name('clients.convertapplication');
-    Route::get('/deleteservices', [ClientApplicationController::class, 'deleteservices'])->name('clients.deleteservices');
     Route::post('/savetoapplication', [ClientServiceController::class, 'savetoapplication'])->name('clients.savetoapplication');
     
     // AJAX routes - documents

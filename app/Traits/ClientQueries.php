@@ -27,8 +27,11 @@ trait ClientQueries
     protected function getBaseClientQuery(): Builder
     {
         $query = Admin::where('is_archived', '=', '0')
-            ->whereNull('is_deleted');
-            
+            ->where(function ($q) {
+                // Align with LeadController / SearchService: null and 0 = active; 1 / timestamp = deleted
+                $q->whereNull('is_deleted')->orWhere('is_deleted', 0);
+            });
+
         // Agent filtering - agents can only see their own clients
         if ($this->isAgentContext()) {
             $query->where('agent_id', Auth::user()->id);
@@ -36,17 +39,19 @@ trait ClientQueries
 
         return $this->applyStaffRowVisibilityIfNeeded($query);
     }
-    
+
     /**
      * Get archived client query
-     * 
+     *
      * @return Builder
      */
     protected function getArchivedClientQuery(): Builder
     {
         $query = Admin::where('is_archived', '=', '1')
-            ->whereNull('is_deleted');
-            
+            ->where(function ($q) {
+                $q->whereNull('is_deleted')->orWhere('is_deleted', 0);
+            });
+
         // Agent filtering
         if ($this->isAgentContext()) {
             $query->where('agent_id', Auth::user()->id);
@@ -85,11 +90,14 @@ trait ClientQueries
             }
         }
         
-        // Type filter (admin only - agents don't have this)
-        if (!$this->isAgentContext() && $request->has('type')) {
-            $type = $request->input('type');
-            if (trim($type) != '') {
+        // Type filter (admin only). Default clients-only so leads stay on Leads module (C-13).
+        // Explicit Type=Lead / Type=Client still honoured via filter UI.
+        if (! $this->isAgentContext()) {
+            $type = trim((string) $request->input('type', ''));
+            if ($type !== '') {
                 $query->where('type', 'ilike', $type);
+            } else {
+                $query->where('type', 'ilike', 'client');
             }
         }
         

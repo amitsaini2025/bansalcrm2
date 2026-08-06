@@ -816,9 +816,51 @@ class ClientDocumentController extends Controller
     }
 
     /**
+     * Ensure staff may view/edit the client that owns a document (same rules as client detail).
+     */
+    private function assertCanAccessDocumentClient($clientId, bool $forEdit = false): Admin
+    {
+        if ($clientId === null || $clientId === '' || ! is_numeric($clientId)) {
+            abort(404, 'Client not found');
+        }
+
+        $client = Admin::find((int) $clientId);
+        if (! $client) {
+            abort(404, 'Client not found');
+        }
+
+        $allowed = $forEdit ? $this->canEditClient($client) : $this->canViewClient($client);
+        if (! $allowed) {
+            abort(403, 'Unauthorized');
+        }
+
+        return $client;
+    }
+
+    /**
+     * JSON document endpoints: null when client missing or staff not allowed.
+     */
+    private function resolveAccessibleDocumentClientForJson($clientId, bool $forEdit = false): ?Admin
+    {
+        if ($clientId === null || $clientId === '' || ! is_numeric($clientId)) {
+            return null;
+        }
+
+        $client = Admin::find((int) $clientId);
+        if (! $client) {
+            return null;
+        }
+
+        $allowed = $forEdit ? $this->canEditClient($client) : $this->canViewClient($client);
+
+        return $allowed ? $client : null;
+    }
+
+    /**
      * Authorize download/preview of a file URL for an authenticated admin.
      * filelink must belong to a documents row (myfile / signed_doc_link / derived S3 key).
      * Optional document_id pins the row. Existing clients keep sending only filelink.
+     * Staff must be able to view the document's client (allocation / grants).
      *
      * @return string Canonical file URL to presign/serve
      */
@@ -855,6 +897,7 @@ class ClientDocumentController extends Controller
                 ]);
                 abort(403, 'File access denied');
             }
+            $this->assertCanAccessDocumentClient($doc->client_id ?? null, false);
             if ($fileUrl !== '') {
                 return $this->canonicalDocumentFileUrl($doc, $fileUrl);
             }
@@ -884,6 +927,8 @@ class ClientDocumentController extends Controller
             ]);
             abort(403, 'File access denied');
         }
+
+        $this->assertCanAccessDocumentClient($doc->client_id ?? null, false);
 
         return $this->canonicalDocumentFileUrl($doc, $fileUrl);
     }
@@ -2115,6 +2160,12 @@ class ClientDocumentController extends Controller
         $response = ['status' => false, 'message' => 'Please try again'];
 
 		if ($request->hasfile('document_upload')) {
+            if (! $this->resolveAccessibleDocumentClientForJson($id, true)) {
+                $response['message'] = 'Unauthorized';
+                echo json_encode($response);
+
+                return;
+            }
 
 			if(!is_array($request->file('document_upload'))){
 				$files[] = $request->file('document_upload');
@@ -2354,6 +2405,13 @@ class ClientDocumentController extends Controller
 		$filename = $request->filename;
 		if(Document::where('id',$id)->exists()){
 			$doc = Document::where('id',$id)->first();
+            if (! $this->resolveAccessibleDocumentClientForJson($doc->client_id ?? null, true)) {
+                $response['status'] = false;
+                $response['message'] = 'Unauthorized';
+                echo json_encode($response);
+
+                return;
+            }
 			$res = DB::table('documents')->where('id', @$id)->update(['file_name' => $filename]);
 			if($res){
 				$response['status'] 	= 	true;
@@ -2381,6 +2439,13 @@ class ClientDocumentController extends Controller
 		if(Document::where('id',$note_id)->exists()){
 
 			$data = DB::table('documents')->where('id', @$note_id)->first();
+            if (! $data || ! $this->resolveAccessibleDocumentClientForJson($data->client_id ?? null, true)) {
+                $response['status'] = false;
+                $response['message'] = 'Unauthorized';
+                echo json_encode($response);
+
+                return;
+            }
 
             // Best-effort storage cleanup before DB delete
             if ($data) {
@@ -2430,6 +2495,7 @@ class ClientDocumentController extends Controller
             if (! $fetchd) {
                 abort(404, 'Document not found');
             }
+            $this->assertCanAccessDocumentClient($fetchd->client_id ?? null, false);
             // Conversion view expects a local filename under img/documents
             if (! $this->documentIsLegacyLocalFile($fetchd)) {
                 abort(400, 'PDF conversion is only available for local image documents.');

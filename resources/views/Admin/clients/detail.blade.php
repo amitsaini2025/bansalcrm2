@@ -2783,7 +2783,6 @@ use App\Http\Controllers\Controller;
         getPartner: '{{ url("/getpartner") }}',
         getProduct: '{{ url("/getproduct") }}',
         clientGetRecipients: '{{ url("/clients/get-recipients") }}',
-        changeClientStatus: '{{ url("/change-client-status") }}',
         getTemplates: '{{ url("/get-templates") }}',
         uploadDocument: '{{ url("/upload-document") }}',
         uploadAllDocument: '{{ url("/upload-alldocument") }}',

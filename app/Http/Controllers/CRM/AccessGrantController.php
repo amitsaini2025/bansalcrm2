@@ -365,15 +365,16 @@ class AccessGrantController extends Controller
 
         /** @var Staff|null $user */
         $user = Auth::guard('admin')->user();
-        if (! $user instanceof Staff) {
-            return response()->json(['ok' => false, 'message' => 'Unauthorized'], 403);
-        }
-
         $adminId = (int) $request->input('admin_id');
+        // Same eligibility as requestForm + supervisor(): clients module / cross-access rules, or non-exempt supervisor path.
+        $this->ensureStaffMayOpenCrossAccessOrSupervisorEligible($user instanceof Staff ? $user : null, $adminId);
+        /** @var Staff $user */
+        $user = Auth::guard('admin')->user();
 
         // Align with migrationmanager2: POST /quick always persists an active quick grant when checks pass
         // (quick_access_enabled, valid reason, no duplicate active quick grant, valid office). No short-circuit
         // for users who already pass canAccessAdminRecord — grants table is the audit trail.
+        // Do not gate on canRequestCrossAccessGrant alone (would block assignee audit grants).
 
         $admin = Admin::query()
             ->where(function ($q) {

@@ -110,8 +110,6 @@ jQuery(document).ready(function($){
 
     // Email and template handlers moved to email-handlers.js module
 
-    // Client status change handler moved to client-status.js module
-
     // Email template handlers moved to email-handlers.js module
 
     // Interested product handler moved to application-handlers.js module

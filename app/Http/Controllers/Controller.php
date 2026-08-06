@@ -233,26 +233,109 @@ class Controller extends BaseController
 		
 	}
 	
+	/**
+	 * Gate an admin action against StaffRole.module_access.
+	 *
+	 * Return semantics (unchanged for callers): truthy = unauthorized, falsy/null = allowed.
+	 * Role 1 always allowed. Roles UI stores module_access as object keys → e.g. {"3":"on","20":"on"}.
+	 * Slugs used by controllers map to those keys (see roles form module_access[N]).
+	 *
+	 * @param  string|int|null  $controller  Slug (e.g. user_management) or numeric module id
+	 * @param  string|null      $action      Unused (kept for call-site compatibility)
+	 * @param  int|string|null  $role        staff.role / user_roles.id
+	 * @return true|null  true = deny, null = allow
+	 */
 	public function checkAuthorizationAction($controller = NULL, $action = NULL, $role = NULL)
-	{	
-		
-		$staffRole = StaffRole::where('id', $role)->first();
-		if($staffRole && $role != 1){
-			 $module_access  = $staffRole->module_access; 
-			 //for test series vendor & organizations & professors authentication
+	{
+		// Super-admin bypass (loose compare for string/int role)
+		if ($role == 1) {
+			return null;
+		}
 
-				$noAccessController = json_decode($module_access);
-				// Ensure we have an array: json_decode returns stdClass for JSON objects, array for JSON arrays
-				if (!is_array($noAccessController)) {
-					$noAccessController = $noAccessController ? (array) $noAccessController : [];
+		$staffRole = StaffRole::where('id', $role)->first();
+		// Preserve legacy behaviour: missing role row → do not block
+		if (!$staffRole) {
+			return null;
+		}
+
+		$raw = $staffRole->module_access;
+		$moduleAccess = json_decode($raw ?? '', true);
+		if (!is_array($moduleAccess)) {
+			$decoded = json_decode($raw ?? '');
+			if (is_object($decoded)) {
+				$moduleAccess = (array) $decoded;
+			} elseif (is_array($decoded)) {
+				$moduleAccess = $decoded;
+			} else {
+				$moduleAccess = [];
+			}
+		}
+
+		// Slugs used by live call sites → Roles UI module ids
+		// 3 = invite/edit staff; 6 = manage roles (resources/views/Admin/staffrole/*)
+		// api_key has no module checkbox — stays deny for non–role-1 (same as before this fix)
+		$slugToModules = [
+			'user_management' => ['3'],
+			'user_role' => ['6'],
+		];
+
+		$controllerKey = $controller === null ? '' : (string) $controller;
+
+		if (isset($slugToModules[$controllerKey])) {
+			$moduleIds = $slugToModules[$controllerKey];
+		} elseif ($controllerKey !== '' && ctype_digit($controllerKey)) {
+			// Allow callers to pass module id directly
+			$moduleIds = [$controllerKey];
+		} else {
+			// Unknown slug (e.g. api_key): legacy allow only if stored as list of controller names
+			if ($this->moduleAccessListContains($moduleAccess, $controllerKey)) {
+				return null;
+			}
+			return true;
+		}
+
+		foreach ($moduleIds as $moduleId) {
+			if (array_key_exists((string) $moduleId, $moduleAccess)
+				|| array_key_exists((int) $moduleId, $moduleAccess)) {
+				return null;
+			}
+		}
+
+		// Legacy fallback: module_access as list of slug or id strings (not object keys)
+		if ($this->moduleAccessListContains($moduleAccess, $controllerKey)) {
+			return null;
+		}
+		foreach ($moduleIds as $moduleId) {
+			if ($this->moduleAccessListContains($moduleAccess, (string) $moduleId)) {
+				return null;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * True when module_access is a list (or values) containing the given token.
+	 * Used only for legacy formats; modern format uses array_key_exists on keys.
+	 */
+	private function moduleAccessListContains(array $moduleAccess, string $token): bool
+	{
+		if ($token === '') {
+			return false;
+		}
+		// Pure list of allowed slugs/ids
+		if (function_exists('array_is_list') && array_is_list($moduleAccess)) {
+			return in_array($token, array_map('strval', $moduleAccess), true);
+		}
+		// Values may be legacy tokens (not checkbox "on")
+		foreach ($moduleAccess as $value) {
+			if (is_string($value) || is_numeric($value)) {
+				if ((string) $value === $token && $value !== 'on' && $value !== '1' && $value !== 1) {
+					return true;
 				}
-				
-					if (!in_array($controller, $noAccessController))
-					{
-						return true;
-					}
-							
-		}	
+			}
+		}
+		return false;
 	}
 	
 	public function curlRequest($url,$type="PUT",$data){

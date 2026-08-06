@@ -9,6 +9,7 @@ use App\Models\ClientPhone; // bansalcrm2 uses ClientPhone
 use App\Models\ActivitiesLog;
 use App\Models\clientServiceTaken; // bansalcrm2 has client_service_takens table
 use App\Models\Country;
+use App\Models\Staff;
 use App\Models\State;
 use App\Models\VisaType;
 use App\Helpers\PhoneHelper;
@@ -42,15 +43,18 @@ class ClientImportService
             }
 
             $clientData = $importData['client'];
+            // Lead import sets type=lead before calling this service (L-12); same duplicate rules for both.
+            $entityLabel = $this->importEntityLabel($clientData['type'] ?? null);
 
             // Check for duplicate email and phone number if skip_duplicates is enabled
+            // Shared with lead import (L-12): primary admins.email + C-18 phone match (admins + client_phones).
             if ($skipDuplicates) {
                 $emailMatch = false;
                 $phoneMatch = false;
                 $matchedClient = null;
                 $matchedPhoneNumbers = [];
 
-                // Check for duplicate email
+                // Check for duplicate email (shared uniqueness space: clients and leads use admins.email)
                 if (!empty($clientData['email'])) {
                     $existingClientByEmail = Admin::where('email', $clientData['email'])->first();
 
@@ -60,79 +64,39 @@ class ClientImportService
                     }
                 }
 
-                // Check for duplicate phone numbers
+                // Check for duplicate phone numbers (efficient candidate queries + normalized compare)
                 $importPhoneNumbers = $this->extractPhoneNumbersFromImport($importData);
-                
-                if (!empty($importPhoneNumbers)) {
+
+                if (! empty($importPhoneNumbers)) {
                     foreach ($importPhoneNumbers as $importPhone) {
                         $normalizedCountryCode = PhoneHelper::normalizeCountryCode($importPhone['country_code'] ?? '');
                         $normalizedPhone = $this->normalizePhoneNumber($importPhone['phone'] ?? '');
-                        
-                        if (!empty($normalizedPhone)) {
-                            // Check ClientPhone table
-                            $existingPhones = ClientPhone::where('client_country_code', $normalizedCountryCode)->get();
-                            
-                            foreach ($existingPhones as $existingPhone) {
-                                // Normalize both sides for comparison
-                                $existingCountryCode = PhoneHelper::normalizeCountryCode($existingPhone->getAttributes()['client_country_code'] ?? '');
-                                $existingPhoneNumber = $this->normalizePhoneNumber($existingPhone->getAttributes()['client_phone'] ?? '');
-                                
-                                // Check if country code and phone number match (both normalized)
-                                if ($normalizedCountryCode === $existingCountryCode && 
-                                    $normalizedPhone === $existingPhoneNumber && 
-                                    !empty($existingPhoneNumber)) {
-                                    
-                                    // Get the client that owns this phone number
-                                    $existingClientByPhone = Admin::where('id', $existingPhone->client_id)->first();
 
-                                    if ($existingClientByPhone) {
-                                        $phoneMatch = true;
-                                        if (!$matchedClient) {
-                                            $matchedClient = $existingClientByPhone;
-                                        }
-                                        
-                                        // Format for display (use original phone format from import)
-                                        $displayPhone = PhoneHelper::formatPhoneNumber(
-                                            $normalizedCountryCode,
-                                            $importPhone['phone'] ?? $normalizedPhone
-                                        );
-                                        
-                                        // Avoid duplicates in matched phone numbers array
-                                        if (!in_array($displayPhone, $matchedPhoneNumbers)) {
-                                            $matchedPhoneNumbers[] = $displayPhone;
-                                        }
-                                        
-                                        // Break inner loop since we found a match
-                                        break 2; // Break both loops
-                                    }
-                                }
+                        if ($normalizedPhone === '') {
+                            continue;
+                        }
+
+                        $existingClientByPhone = $this->findExistingClientByPhone(
+                            $normalizedCountryCode,
+                            $normalizedPhone
+                        );
+
+                        if ($existingClientByPhone) {
+                            $phoneMatch = true;
+                            if (! $matchedClient) {
+                                $matchedClient = $existingClientByPhone;
                             }
-                            
-                            // Also check Admin table phone field
-                            $clientsWithPhone = Admin::whereNotNull('phone')->get();
-                            
-                            foreach ($clientsWithPhone as $client) {
-                                // Check main phone field
-                                if (!empty($client->phone)) {
-                                    $clientPhoneNormalized = $this->normalizePhoneNumber($client->phone);
-                                    if ($normalizedPhone === $clientPhoneNormalized && !empty($clientPhoneNormalized)) {
-                                        $phoneMatch = true;
-                                        if (!$matchedClient) {
-                                            $matchedClient = $client;
-                                        }
-                                        
-                                        $displayPhone = PhoneHelper::formatPhoneNumber(
-                                            $normalizedCountryCode,
-                                            $importPhone['phone'] ?? $normalizedPhone
-                                        );
-                                        
-                                        if (!in_array($displayPhone, $matchedPhoneNumbers)) {
-                                            $matchedPhoneNumbers[] = $displayPhone;
-                                        }
-                                        break 2; // Break both loops
-                                    }
-                                }
+
+                            $displayPhone = PhoneHelper::formatPhoneNumber(
+                                $normalizedCountryCode,
+                                $importPhone['phone'] ?? $normalizedPhone
+                            );
+
+                            if (! in_array($displayPhone, $matchedPhoneNumbers, true)) {
+                                $matchedPhoneNumbers[] = $displayPhone;
                             }
+
+                            break;
                         }
                     }
                 }
@@ -153,7 +117,7 @@ class ClientImportService
                         }
                     }
                     
-                    $message = 'Client with ' . implode(' and ', $messages) . ' already exists. Import skipped.';
+                    $message = $entityLabel . ' with ' . implode(' and ', $messages) . ' already exists. Import skipped.';
                     
                     return [
                         'success' => false,
@@ -219,6 +183,10 @@ class ClientImportService
             $client->source = $clientData['source'] ?? null;
             $client->contact_type = $clientData['contact_type'] ?? null;
             $client->type = $clientData['type'] ?? 'client';
+            // Lead list filters converted=0; set explicitly so lead imports appear on /leads
+            if (strtolower((string) $client->type) === 'lead') {
+                $client->converted = 0;
+            }
             // Ensure status is an integer (handle string "1" from JSON)
             $client->status = is_numeric($clientData['status'] ?? 1) ? (int)$clientData['status'] : 1;
             $client->agent_id = $clientData['agent_id'] ?? null;
@@ -233,8 +201,9 @@ class ClientImportService
             $client->password = Hash::make('CLIENT_IMPORT_' . time()); // Temporary password
             // Status already set above, don't override
             
-            // System Fields
-            $client->office_id = $clientData['office_id'] ?? Auth::user()->office_id ?? null;
+            // System Fields — staff office from authenticated admin guard only
+            $importingStaff = $this->resolveImportingStaff();
+            $client->office_id = $clientData['office_id'] ?? $importingStaff?->office_id ?? null;
             // Fix: Use null coalescing operator consistently to avoid "Undefined array key" error
             $verifiedValue = $clientData['verified'] ?? 0;
             $client->verified = is_numeric($verifiedValue) ? (int)$verifiedValue : 0;
@@ -269,16 +238,17 @@ class ClientImportService
             // }
 
             // Import contacts (phone numbers) - Use ClientPhone for bansalcrm2
+            // user_id = staff who imported (staff.id), same semantics as client create/edit phones
+            $staffUserId = $importingStaff?->id;
             if (isset($importData['contacts']) && is_array($importData['contacts'])) {
                 foreach ($importData['contacts'] as $contactData) {
                     if (class_exists(\App\Models\ClientPhone::class)) {
                         \App\Models\ClientPhone::create([
                             'client_id' => $newClientId,
-                            'user_id' => Auth::id(), // Note: client_phones table uses user_id, not admin_id
+                            'user_id' => $staffUserId,
                             'contact_type' => $contactData['contact_type'] ?? null,
                             'client_country_code' => $contactData['country_code'] ?? null,
                             'client_phone' => $contactData['phone'] ?? null,
-                            // Note: is_verified and verified_at columns don't exist in client_phones table
                         ]);
                     }
                 }
@@ -392,7 +362,7 @@ class ClientImportService
                     
                     $activityRecord = [
                         'client_id' => $newClientId,
-                        'created_by' => $activityData['created_by'] ?? Auth::id(),
+                        'created_by' => $activityData['created_by'] ?? $staffUserId,
                         'subject' => $activityData['subject'] ?? 'Imported Activity',
                         'description' => $activityData['description'] ?? null,
                         'use_for' => $activityData['use_for'] ?? null,
@@ -415,7 +385,7 @@ class ClientImportService
                 'success' => true,
                 'client_id' => $newClientId,
                 'client_id_reference' => $client->client_id,
-                'message' => 'Client imported successfully. Client ID: ' . $client->client_id
+                'message' => $entityLabel . ' imported successfully. Client ID: ' . $client->client_id
             ];
 
         } catch (\Exception $e) {
@@ -682,6 +652,134 @@ class ClientImportService
         }
 
         return null;
+    }
+
+    /**
+     * Logged-in admin staff performing the import (auth:admin / Staff model).
+     * client_phones.user_id and similar columns store staff.id, not client admins.id.
+     */
+    private function resolveImportingStaff(): ?Staff
+    {
+        $user = Auth::guard('admin')->user();
+        if ($user instanceof Staff) {
+            return $user;
+        }
+
+        return null;
+    }
+
+    /**
+     * Human label for import messages (client vs lead share this service).
+     */
+    private function importEntityLabel($type): string
+    {
+        return strtolower((string) ($type ?? 'client')) === 'lead' ? 'Lead' : 'Client';
+    }
+
+    /**
+     * Find an existing admin who already owns this logical phone
+     * (client_phones or admins.primary phone). Candidate-narrowed queries, then normalize in PHP.
+     */
+    private function findExistingClientByPhone(string $normalizedCountryCode, string $normalizedPhone): ?Admin
+    {
+        if ($normalizedPhone === '') {
+            return null;
+        }
+
+        $suffix = $this->phoneCandidateSuffix($normalizedPhone);
+
+        // client_phones: narrow by national number fragments (country formats differ in DB)
+        $phoneRows = ClientPhone::query()
+            ->where(function ($q) use ($normalizedPhone, $suffix) {
+                $q->where('client_phone', $normalizedPhone)
+                    ->orWhere('client_phone', 'like', '%'.$suffix);
+            })
+            ->limit(100)
+            ->get(['id', 'client_id', 'client_country_code', 'client_phone']);
+
+        foreach ($phoneRows as $existingPhone) {
+            $attrs = $existingPhone->getAttributes();
+            if (! $this->isSameLogicalPhone(
+                $normalizedCountryCode,
+                $normalizedPhone,
+                $attrs['client_country_code'] ?? null,
+                $attrs['client_phone'] ?? null
+            )) {
+                continue;
+            }
+
+            $owner = Admin::find($existingPhone->client_id);
+            if ($owner) {
+                return $owner;
+            }
+        }
+
+        // admins.phone (+ country_code when present)
+        $admins = Admin::query()
+            ->whereNotNull('phone')
+            ->where('phone', '!=', '')
+            ->where(function ($q) use ($normalizedPhone, $suffix) {
+                $q->where('phone', $normalizedPhone)
+                    ->orWhere('phone', 'like', '%'.$suffix);
+            })
+            ->limit(100)
+            ->get(['id', 'phone', 'country_code']);
+
+        foreach ($admins as $client) {
+            if ($this->isSameLogicalPhone(
+                $normalizedCountryCode,
+                $normalizedPhone,
+                $client->country_code ?? null,
+                $client->phone ?? null
+            )) {
+                return $client;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Digits must match; country matches when stored has a country, else phone-only (legacy admins).
+     */
+    private function isSameLogicalPhone(
+        string $importCountryNormalized,
+        string $importPhoneNormalized,
+        $storedCountry,
+        $storedPhone
+    ): bool {
+        $storedPhoneNormalized = $this->normalizePhoneNumber(
+            $storedPhone === null ? null : (string) $storedPhone
+        );
+
+        if ($importPhoneNormalized === '' || $storedPhoneNormalized === '') {
+            return false;
+        }
+
+        if ($importPhoneNormalized !== $storedPhoneNormalized) {
+            return false;
+        }
+
+        $storedCountryRaw = trim((string) ($storedCountry ?? ''));
+        if ($storedCountryRaw === '') {
+            // Preserve former admins.phone behaviour: digits-only when no country stored
+            return true;
+        }
+
+        return $importCountryNormalized === PhoneHelper::normalizeCountryCode($storedCountryRaw);
+    }
+
+    /**
+     * Last 9 digits (or full number if shorter) for LIKE candidate window.
+     */
+    private function phoneCandidateSuffix(string $digits): string
+    {
+        $digits = preg_replace('/\D/', '', $digits) ?? '';
+        if ($digits === '') {
+            return '';
+        }
+
+        return strlen($digits) <= 9 ? $digits : substr($digits, -9);
     }
 
     /**

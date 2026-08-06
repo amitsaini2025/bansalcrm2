@@ -14,6 +14,7 @@ use App\Models\Note;
 use App\Models\ClientPhone;
 use App\Mail\ClientVerifyMail;
 use App\Mail\GoogleReviewMail;
+use App\Traits\ClientAuthorization;
 
 use GuzzleHttp\Client;
 
@@ -35,6 +36,8 @@ use GuzzleHttp\Client;
  */
 class ClientMessagingController extends Controller
 {
+    use ClientAuthorization;
+
     protected $openAiClient;
 
     public function __construct()
@@ -51,11 +54,36 @@ class ClientMessagingController extends Controller
     }
 
     /**
+     * Resolve Admin and ensure staff may view/edit (allocation + grants).
+     */
+    private function resolveAccessibleMessagingClient($clientId, bool $forEdit = false): ?Admin
+    {
+        if ($clientId === null || $clientId === '' || ! is_numeric($clientId)) {
+            return null;
+        }
+
+        $client = Admin::find((int) $clientId);
+        if (! $client) {
+            return null;
+        }
+
+        $allowed = $forEdit ? $this->canEditClient($client) : $this->canViewClient($client);
+
+        return $allowed ? $client : null;
+    }
+
+    /**
      * Update email to be verified wrt client id
      */
     public function updateemailverified(Request $request)
     {
         $data = $request->all();
+        if (! $this->resolveAccessibleMessagingClient($data['client_id'] ?? null, true)) {
+            echo json_encode(['status' => false, 'message' => 'Unauthorized']);
+
+            return;
+        }
+
         $recExist = Admin::where('id', $data['client_id'])
         ->update(['manual_email_phone_verified' => $data['manual_email_phone_verified']]);
          if($recExist){
@@ -88,6 +116,13 @@ class ClientMessagingController extends Controller
                     'status' => false,
                     'message' => 'Client not found.'
                 ], 404);
+            }
+
+            if (! $this->canEditClient($client)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Unauthorized',
+                ], 403);
             }
             
             // Prepare email details
@@ -183,7 +218,17 @@ class ClientMessagingController extends Controller
     /**
      * Fetch all contact list of any client at create note popup
      */
-    public function fetchClientContactNo(Request $request){ 
+    public function fetchClientContactNo(Request $request){
+        if (! $this->resolveAccessibleMessagingClient($request->client_id, false)) {
+            echo json_encode([
+                'status' => false,
+                'message' => 'Unauthorized',
+                'clientContacts' => [],
+            ]);
+
+            return;
+        }
+
         if( ClientPhone::where('client_id', $request->client_id)->exists())
         { 
             //Fetch All client contacts (include NULL contact_type so Send SMS dropdown shows all phones)
