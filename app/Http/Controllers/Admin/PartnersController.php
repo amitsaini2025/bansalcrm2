@@ -4693,46 +4693,54 @@ class PartnersController extends Controller
   
   
   
-    //Update student application overall status
+    //Update student application overall status (Active tab ↔ Inactive tab)
     public function updateStudentApplicationOverallStatus(Request $request)
 	{
-        //dd($request->all());
 		$response = [];
+		$applicationId = (int) $request->input('application_student_id');
 
-		if (!isset($request->application_overall_status)) {
+		if ($applicationId < 1) {
 			$response['status'] = false;
 			$response['message'] = 'No changes made or student application overall not found.Please try again';
 			echo json_encode($response);
 			return;
 		}
 
-        if( (int) $request->application_overall_status === 0){
-            $application_overall_status = 1;
-        } else if( (int) $request->application_overall_status === 1){
-            $application_overall_status = 0;
-        } else {
+		$app = DB::table('applications')
+			->select('id', 'partner_id', 'overall_status')
+			->where('id', $applicationId)
+			->first();
+
+		if (!$app) {
 			$response['status'] = false;
 			$response['message'] = 'No changes made or student application overall not found.Please try again';
 			echo json_encode($response);
 			return;
 		}
-        $updatedRows = DB::table('applications')->where('id', $request->application_student_id)->update(['overall_status' => $application_overall_status]);
-        // Check if the update was successful
-        if ($updatedRows > 0) {
-            // Bust student tab cache — active/inactive split has changed.
-            $app = DB::table('applications')->select('partner_id')->where('id', $request->application_student_id)->first();
-            if ($app && $app->partner_id) {
-                $this->clearStudentTabCache((int) $app->partner_id);
-            }
 
-            $response['status'] 	= 	true;
-            $response['message']	=	'Student application overall status updated successfully.';
-        } else {
-            $response['status'] 	= 	false;
-            $response['message']	=	'No changes made or student application overall not found.Please try again';
-        }
-        echo json_encode($response);
-    }
+		// Active = 0 or NULL; Inactive = 1. Toggle from DB so NULL/legacy rows work reliably.
+		$currentIsActive = $app->overall_status === null || (int) $app->overall_status === 0;
+		$newOverallStatus = $currentIsActive ? 1 : 0;
+
+		DB::table('applications')->where('id', $applicationId)->update([
+			'overall_status' => $newOverallStatus,
+		]);
+
+		$after = DB::table('applications')->where('id', $applicationId)->value('overall_status');
+		if ((int) $after === $newOverallStatus) {
+			if ($app->partner_id) {
+				$this->clearStudentTabCache((int) $app->partner_id);
+			}
+
+			$response['status'] = true;
+			$response['message'] = 'Student application overall status updated successfully.';
+		} else {
+			$response['status'] = false;
+			$response['message'] = 'No changes made or student application overall not found.Please try again';
+		}
+
+		echo json_encode($response);
+	}
   
   
     //Add Note To Student
