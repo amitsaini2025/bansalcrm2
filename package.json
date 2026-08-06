@@ -38,7 +38,7 @@
         "izitoast": "^1.4.0",
         "lucide": "^1.21.0",
         "signature_pad": "^4.2.0",
-        "tinymce": "7.4.0",
+        "tinymce": "^7.9.3",
         "tom-select": "2.4.3"
     }
 }
