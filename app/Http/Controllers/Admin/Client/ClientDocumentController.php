@@ -725,10 +725,13 @@ class ClientDocumentController extends Controller
     public function preview_document(Request $request)
     {
         $fileUrl = $this->authorizeDocumentFileAccess($request);
-        $filename = $this->sanitizeDownloadFilename((string) $request->input('filename', 'preview.pdf'));
+        $rawFilename = trim((string) $request->input('filename', ''));
+        $filename = $this->sanitizeDownloadFilename($rawFilename !== '' ? $rawFilename : 'preview.pdf');
 
         try {
-            $contentType = $this->resolvePreviewContentType($filename);
+            // Prefer caller filename when specific; if missing/default preview.pdf, use S3 key/URL ext
+            // so images are not forced to application/pdf (breaks <img> preview).
+            $contentType = $this->resolvePreviewContentTypeForFile($filename, $fileUrl);
             $presignOptions = [
                 'ResponseContentDisposition' => 'inline; filename="' . $filename . '"',
             ];
@@ -1301,8 +1304,55 @@ class ClientDocumentController extends Controller
             'gif' => 'image/gif',
             'webp' => 'image/webp',
             'bmp' => 'image/bmp',
+            'doc' => 'application/msword',
+            'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'xls' => 'application/vnd.ms-excel',
+            'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'ppt' => 'application/vnd.ms-powerpoint',
+            'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
             default => null,
         };
+    }
+
+    /**
+     * Resolve ResponseContentType for preview presign.
+     * When filename is the generic default (preview.pdf) or has an unknown ext,
+     * fall back to the stored S3 object URL/key extension so PNG/JPG are not
+     * incorrectly served as application/pdf.
+     */
+    private function resolvePreviewContentTypeForFile(string $filename, string $fileUrl): ?string
+    {
+        $fromName = $this->resolvePreviewContentType($filename);
+        $isGenericDefault = strcasecmp($filename, 'preview.pdf') === 0;
+
+        $fromUrl = null;
+        $urlBasename = $this->basenameFromFileUrl($fileUrl);
+        if ($urlBasename !== null) {
+            $fromUrl = $this->resolvePreviewContentType($urlBasename);
+        }
+
+        if ($fromName !== null && ! $isGenericDefault) {
+            return $fromName;
+        }
+        if ($fromUrl !== null) {
+            return $fromUrl;
+        }
+
+        return $fromName;
+    }
+
+    private function basenameFromFileUrl(string $fileUrl): ?string
+    {
+        $path = parse_url($fileUrl, PHP_URL_PATH);
+        if (! is_string($path) || $path === '' || $path === '/') {
+            return null;
+        }
+        $base = basename(rawurldecode($path));
+        if ($base === '' || $base === '.' || $base === '..') {
+            return null;
+        }
+
+        return $base;
     }
 
     private function isS3FileUrl(string $url): bool

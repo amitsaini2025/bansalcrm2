@@ -151,20 +151,48 @@ function isLocalPreviewUrl(fileUrl) {
     );
 }
 
-function resolvePreviewSourceUrl(fileUrl) {
+/**
+ * Build a safe preview filename so /preview-document sets the correct S3 Content-Type.
+ * Prefer known fileType (png, pdf, …); else basename from URL; else preview.pdf.
+ */
+function buildPreviewFilename(fileType, fileUrl) {
+    const ext = String(fileType || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (ext) {
+        return 'preview.' + ext;
+    }
+    try {
+        const path = String(fileUrl || '').split('?')[0];
+        const base = decodeURIComponent(path.substring(path.lastIndexOf('/') + 1) || '');
+        if (base && base.indexOf('.') !== -1 && base.indexOf('..') === -1) {
+            return base.length > 200 ? base.slice(0, 200) : base;
+        }
+    } catch (e) {
+        // ignore
+    }
+    return 'preview.pdf';
+}
+
+function resolvePreviewSourceUrl(fileUrl, filename) {
     if (!fileUrl || fileUrl.indexOf('/preview-document') !== -1) {
         return fileUrl;
     }
     if (isPrivateRemoteStorageUrl(fileUrl)) {
-        return getPreviewDocumentBaseUrl() + '?filelink=' + encodeURIComponent(fileUrl);
+        let url = getPreviewDocumentBaseUrl() + '?filelink=' + encodeURIComponent(fileUrl);
+        if (filename) {
+            url += '&filename=' + encodeURIComponent(filename);
+        }
+        return url;
     }
     return fileUrl;
 }
 
-function fetchPresignedPreviewUrl(fileUrl) {
-    const url = getPreviewDocumentBaseUrl()
+function fetchPresignedPreviewUrl(fileUrl, filename) {
+    let url = getPreviewDocumentBaseUrl()
         + '?filelink=' + encodeURIComponent(fileUrl)
         + '&format=json';
+    if (filename) {
+        url += '&filename=' + encodeURIComponent(filename);
+    }
 
     return fetch(url, {
         credentials: 'same-origin',
@@ -397,7 +425,8 @@ function previewFile(fileType, fileUrl, containerClass) {
 
     const normalizedType = (fileType || '').toLowerCase();
     const isS3Url = isPrivateRemoteStorageUrl(fileUrl);
-    const previewSourceUrl = resolvePreviewSourceUrl(fileUrl);
+    const previewFilename = buildPreviewFilename(normalizedType, fileUrl);
+    const previewSourceUrl = resolvePreviewSourceUrl(fileUrl, previewFilename);
 
     switch (normalizedType) {
         case 'jpg':
@@ -447,7 +476,7 @@ function previewFile(fileType, fileUrl, containerClass) {
             if (isLocalPreviewUrl(fileUrl)) {
                 officeViewer.src = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl.startsWith('/') ? (window.location.origin + fileUrl) : fileUrl)}`;
             } else if (isS3Url) {
-                fetchPresignedPreviewUrl(fileUrl)
+                fetchPresignedPreviewUrl(fileUrl, previewFilename)
                     .then(function(presignedUrl) {
                         officeViewer.src = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(presignedUrl)}`;
                     })
