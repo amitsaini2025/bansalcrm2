@@ -1712,10 +1712,15 @@ use App\Http\Controllers\Controller;
                                                         <a target="_blank" class="link-primary client-receipt-action" href="{{URL::to('/clients/printpreview')}}/{{$rec_val->id}}" title="Print receipt">{!! \App\Helpers\IconHelper::render('print') !!}</a>
                                                        <?php
                                                         if($rec_val->receipt_type == 1){
+                                                            // Validated receipts must not be editable; print/refund stay available
+                                                            if((int)($rec_val->validate_receipt ?? 0) !== 1){
                                                         ?>
                                               			<a class="link-primary client-receipt-action updateclientreceipt" href="javascript:;" data-id="<?php echo $rec_val->id;?>" title="Edit receipt">
                                                           @icon('pencil-alt')
                                                         </a>
+                                                       <?php
+                                                            }
+                                                        ?>
                                                         <a class="link-primary client-receipt-action createclientrefund" href="javascript:;" data-id="<?php echo $rec_val->id;?>" data-trans-no="<?php echo e($rec_val->trans_no);?>" data-amount="<?php echo $rec_val->deposit_amount;?>" data-application-id="<?php echo $rec_val->application_id ?? '';?>" title="Create Refund">
                                                           @icon('undo')
                                                         </a>

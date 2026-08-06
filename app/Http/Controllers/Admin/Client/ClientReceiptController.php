@@ -223,6 +223,23 @@ class ClientReceiptController extends Controller
 
         if ($requestData['function_type'] == 'edit')
         {
+            $editIds = array_values(array_filter((array)($requestData['id'] ?? [])));
+            if (!empty($editIds)) {
+                $hasValidated = DB::table('account_client_receipts')
+                    ->whereIn('id', $editIds)
+                    ->where('validate_receipt', 1)
+                    ->exists();
+                if ($hasValidated) {
+                    $response['status'] = false;
+                    $response['message'] = 'Validated client receipts cannot be edited.';
+                    $response['function_type'] = $requestData['function_type'];
+                    $response['requestData'] = '';
+                    $response['validate_receipt'] = 1;
+                    echo json_encode($response);
+                    return;
+                }
+            }
+
              if ($request->hasfile('document_upload'))
             {
                 if(!is_array($request->file('document_upload'))){
@@ -716,7 +733,18 @@ class ClientReceiptController extends Controller
         $requestData = 	$request->all();
         $id = $requestData['id'];
         $record_get = DB::table('account_client_receipts')->where('receipt_type',1)->where('id',$id)->get();
-        if(!empty($record_get)) {
+        if(!empty($record_get) && $record_get->count() > 0) {
+            $first = $record_get->first();
+            if ((int)($first->validate_receipt ?? 0) === 1) {
+                $response['record_get'] = array();
+                $response['requestData'] = array();
+                $response['status'] = false;
+                $response['message'] = 'Validated client receipts cannot be edited.';
+                $response['last_record_id'] = 0;
+                $response['validate_receipt'] = 1;
+                echo json_encode($response);
+                return;
+            }
             // Return data in consistent format with both property names for backward compatibility
             $response['record_get'] = $record_get;
             $response['requestData'] = $record_get; // Add this for consistency with frontend expectations

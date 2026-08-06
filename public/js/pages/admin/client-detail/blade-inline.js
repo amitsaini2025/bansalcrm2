@@ -822,12 +822,17 @@ $(document).on('click', '.updateclientreceipt', function(e) {
             var obj = typeof response === 'string' ? JSON.parse(response) : response;
             
             if (obj.status) {
-                // Clear existing rows
-                $('.productitem').html('');
-                
                 // Populate form with fetched data - Backend returns 'record_get', not 'requestData'
                 var receiptData = obj.record_get || obj.requestData || [];
                 var firstRecord = receiptData[0] || {};
+                if (parseInt(firstRecord.validate_receipt, 10) === 1) {
+                    toastMsg('Validated client receipts cannot be edited.', 'error');
+                    return;
+                }
+
+                // Clear existing rows
+                $('.productitem').html('');
+
                 $('#receipt_application_id').val(firstRecord.application_id || '');
                 $('#create_client_receipt').data('original-application-id', firstRecord.application_id || '');
                 $('#reassignment_reason').val(firstRecord.reassignment_reason || '').removeAttr('data-valid');
