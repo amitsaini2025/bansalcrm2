@@ -11,6 +11,7 @@ use Yajra\DataTables\Facades\DataTables;
 use Barryvdh\DomPDF\Facade\Pdf as PDF;
 
 use App\Models\Admin;
+use App\Models\Staff;
 use App\Models\ActivitiesLog;
 use App\Models\AccountClientReceipt;
 use App\Models\Document;
@@ -651,13 +652,29 @@ class ClientReceiptController extends Controller
                     $objs->save();
                 }
 
-                $record_data = DB::table('account_client_receipts')
-                ->leftJoin('admins', 'admins.id', '=', 'account_client_receipts.voided_or_validated_by')
-                ->select('account_client_receipts.id','account_client_receipts.voided_or_validated_by','admins.first_name','admins.last_name')
-                ->where('account_client_receipts.receipt_type', $request->receipt_type)
-                ->whereIn('account_client_receipts.receipt_id', $request->clickedReceiptIds)
-                ->where('account_client_receipts.validate_receipt', 1)
-                ->get();
+                // Same resolver as clientreceiptlist blade: Staff first, then Admin
+                $validatedRows = DB::table('account_client_receipts')
+                    ->select('id', 'voided_or_validated_by')
+                    ->where('receipt_type', $request->receipt_type)
+                    ->whereIn('receipt_id', $request->clickedReceiptIds)
+                    ->where('validate_receipt', 1)
+                    ->get();
+
+                $record_data = $validatedRows->map(function ($row) {
+                    $validator = null;
+                    if (!empty($row->voided_or_validated_by)) {
+                        $validator = Staff::select('id', 'first_name', 'last_name')->find($row->voided_or_validated_by)
+                            ?? Admin::select('id', 'first_name', 'last_name')->find($row->voided_or_validated_by);
+                    }
+
+                    return [
+                        'id' => $row->id,
+                        'voided_or_validated_by' => $row->voided_or_validated_by,
+                        'first_name' => $validator->first_name ?? '',
+                        'last_name' => $validator->last_name ?? '',
+                    ];
+                })->values();
+
                 $response['record_data'] = 	$record_data;
                 $response['status'] 	= 	true;
                 $response['message']	=	'Record updated successfully.';

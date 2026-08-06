@@ -332,11 +332,9 @@ jQuery(document).ready(function($){
                             //console.log('subArray=='+subArray.id);
                             $('#validate_'+subArray.id).text("Yes");
                             $('#validate_'+subArray.id).css("color",'blue');
-                            if(subArray.first_name != ""){
-                                var validateby_full_name = subArray.first_name+" "+subArray.last_name;
-                            } else {
-                                var validateby_full_name = "-";
-                            }
+                            var firstName = (subArray.first_name == null ? '' : String(subArray.first_name)).trim();
+                            var lastName = (subArray.last_name == null ? '' : String(subArray.last_name)).trim();
+                            var validateby_full_name = (firstName || lastName) ? (firstName + ' ' + lastName).trim() : '-';
                             $('#validateby_'+subArray.id).text(validateby_full_name);
                         });
                     }
