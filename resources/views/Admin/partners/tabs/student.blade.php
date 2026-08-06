@@ -104,6 +104,7 @@
                                                                     'admins.first_name',
                                                                     'admins.last_name',
                                                                     'admins.dob',
+                                                                    'admins.type as person_type',
                                                                     'partners.partner_name',
                                                                     'products.name as coursename',
                                                                     'application_fee_options.total_course_fee_amount',
@@ -138,8 +139,12 @@
                                                                         <td>
                                                                             <?php
                                                                             if($data->client_reference){
-                                                                                $client_encoded_id = base64_encode(convert_uuencode(@$data->client_id)) ;
-                                                                                echo $client_reference = '<a href="'.url('/clients/detail/'.$client_encoded_id.'/application/'.$data->id).'" target="_blank">'.$data->client_reference.'</a>';
+                                                                                $client_encoded_id = base64_encode(convert_uuencode(@$data->client_id));
+                                                                                $isLeadType = strtolower((string) ($data->person_type ?? '')) === 'lead';
+                                                                                $detailUrl = $isLeadType
+                                                                                    ? route('leads.detail.application', ['id' => $client_encoded_id, 'applicationId' => $data->id])
+                                                                                    : route('clients.detail.application', ['id' => $client_encoded_id, 'applicationId' => $data->id]);
+                                                                                echo $client_reference = '<a href="'.$detailUrl.'" target="_blank">'.$data->client_reference.'</a>';
                                                                             } else {
                                                                                 echo $client_reference = 'N/P';
                                                                             }?>
@@ -182,7 +187,11 @@
                                                                             <?php
                                                                             if($data->coursename != ""){
                                                                                 $client_encoded_id_course = base64_encode(convert_uuencode(@$data->client_id));
-                                                                                echo '<a href="'.url('/clients/detail/'.$client_encoded_id_course.'/application/'.$data->id).'" target="_blank">'.$data->coursename.'</a>';
+                                                                                $isLeadTypeCourse = strtolower((string) ($data->person_type ?? '')) === 'lead';
+                                                                                $courseDetailUrl = $isLeadTypeCourse
+                                                                                    ? route('leads.detail.application', ['id' => $client_encoded_id_course, 'applicationId' => $data->id])
+                                                                                    : route('clients.detail.application', ['id' => $client_encoded_id_course, 'applicationId' => $data->id]);
+                                                                                echo '<a href="'.$courseDetailUrl.'" target="_blank">'.$data->coursename.'</a>';
                                                                             } else {
                                                                                 echo $coursename = 'N/P';
                                                                             } ?>
@@ -475,6 +484,7 @@
                                                                 'admins.first_name',
                                                                 'admins.last_name',
                                                                 'admins.dob',
+                                                                'admins.type as person_type',
                                                                 'partners.partner_name',
                                                                 'products.name as coursename',
                                                                 'application_fee_options.total_course_fee_amount',
@@ -508,8 +518,12 @@
                                                                     <td>
                                                                         <?php
                                                                         if($data1->client_reference){
-                                                                            $client_encoded_id1 = base64_encode(convert_uuencode(@$data1->client_id)) ;
-                                                                           echo $client_reference1 = '<a href="'.url('/clients/detail/'.$client_encoded_id1.'/application/'.$data1->id).'" target="_blank">'.$data1->client_reference.'</a>';
+                                                                            $client_encoded_id1 = base64_encode(convert_uuencode(@$data1->client_id));
+                                                                            $isLeadType1 = strtolower((string) ($data1->person_type ?? '')) === 'lead';
+                                                                            $detailUrl1 = $isLeadType1
+                                                                                ? route('leads.detail.application', ['id' => $client_encoded_id1, 'applicationId' => $data1->id])
+                                                                                : route('clients.detail.application', ['id' => $client_encoded_id1, 'applicationId' => $data1->id]);
+                                                                           echo $client_reference1 = '<a href="'.$detailUrl1.'" target="_blank">'.$data1->client_reference.'</a>';
                                                                         } else {
                                                                             echo $client_reference1 = 'N/P';
                                                                         }?>
@@ -552,7 +566,11 @@
                                                                         <?php
                                                                         if($data1->coursename != ""){
                                                                             $client_encoded_id_course1 = base64_encode(convert_uuencode(@$data1->client_id));
-                                                                            echo '<a href="'.url('/clients/detail/'.$client_encoded_id_course1.'/application/'.$data1->id).'" target="_blank">'.$data1->coursename.'</a>';
+                                                                            $isLeadTypeCourse1 = strtolower((string) ($data1->person_type ?? '')) === 'lead';
+                                                                            $courseDetailUrl1 = $isLeadTypeCourse1
+                                                                                ? route('leads.detail.application', ['id' => $client_encoded_id_course1, 'applicationId' => $data1->id])
+                                                                                : route('clients.detail.application', ['id' => $client_encoded_id_course1, 'applicationId' => $data1->id]);
+                                                                            echo '<a href="'.$courseDetailUrl1.'" target="_blank">'.$data1->coursename.'</a>';
                                                                         } else {
                                                                             echo $coursename1 = 'N/P';
                                                                         } ?>

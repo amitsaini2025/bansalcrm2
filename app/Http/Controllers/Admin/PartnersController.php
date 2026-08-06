@@ -959,7 +959,7 @@ class PartnersController extends Controller
 
 		$applications = $query
 			->with([
-				'client:id,first_name,last_name',
+				'client:id,first_name,last_name,type',
 				'product:id,name',
 				'workflow:id,name',
 			])
@@ -1467,6 +1467,34 @@ class PartnersController extends Controller
 		}
 	}
 
+	/**
+	 * Partner tabs link people who may be clients or leads (admins.type).
+	 * Only type=lead uses leads.detail; all other types keep clients.detail.
+	 */
+	private function partnerLinkedPersonDetailUrl(string $encodedId, $personType = null, ?int $applicationId = null, bool $useApplicationPath = false): string
+	{
+		$isLead = strtolower((string) ($personType ?? '')) === 'lead';
+
+		if ($applicationId !== null && $applicationId > 0) {
+			if ($useApplicationPath) {
+				return $isLead
+					? route('leads.detail.application', ['id' => $encodedId, 'applicationId' => $applicationId])
+					: route('clients.detail.application', ['id' => $encodedId, 'applicationId' => $applicationId]);
+			}
+
+			// Keep existing Applications-tab query-string deep-link shape
+			$base = $isLead
+				? route('leads.detail', $encodedId)
+				: route('clients.detail', $encodedId);
+
+			return $base.'?tab=application&appid='.$applicationId;
+		}
+
+		return $isLead
+			? route('leads.detail', $encodedId)
+			: route('clients.detail', $encodedId);
+	}
+
 	private function formatPartnerApplicationTabRow(Application $alist): array
 	{
 		$client   = $alist->client;
@@ -1478,11 +1506,11 @@ class PartnersController extends Controller
 			: '';
 
 		$nameHtml = $client
-			? '<a href="'.url('/clients/detail/'.$clientEncodedId).'">'.e(trim($client->first_name.' '.$client->last_name)).'</a>'
+			? '<a href="'.$this->partnerLinkedPersonDetailUrl($clientEncodedId, $client->type ?? null).'">'.e(trim($client->first_name.' '.$client->last_name)).'</a>'
 			: '';
 
 		$productHtml = ($product && $clientEncodedId !== '')
-			? '<a href="'.url('clients/detail/'.$clientEncodedId.'?tab=application&appid='.$alist->id).'">'.e($product->name).'</a>'
+			? '<a href="'.$this->partnerLinkedPersonDetailUrl($clientEncodedId, $client->type ?? null, (int) $alist->id).'">'.e($product->name).'</a>'
 			: '';
 
 		$enrolmentLabel = Application::enrolmentTypeLabel($alist->enrolment_type ?? null) ?: '—';
@@ -1959,9 +1987,13 @@ class PartnersController extends Controller
 		$clientEncodedId = !empty($data->client_id)
 			? base64_encode(convert_uuencode((string) $data->client_id))
 			: '';
+		$personType = $data->person_type ?? $data->type ?? null;
+		$appDetailUrl = $clientEncodedId !== ''
+			? $this->partnerLinkedPersonDetailUrl($clientEncodedId, $personType, (int) $data->id, true)
+			: '';
 
 		$crmRef = !empty($data->client_reference)
-			? '<a href="'.url('/clients/detail/'.$clientEncodedId.'/application/'.$data->id).'" target="_blank">'.e($data->client_reference).'</a>'
+			? '<a href="'.$appDetailUrl.'" target="_blank">'.e($data->client_reference).'</a>'
 			: 'N/P';
 
 		$dob = 'N/P';
@@ -1972,7 +2004,7 @@ class PartnersController extends Controller
 
 		$coursename = 'N/P';
 		if (!empty($data->coursename)) {
-			$coursename = '<a href="'.url('/clients/detail/'.$clientEncodedId.'/application/'.$data->id).'" target="_blank">'.e($data->coursename).'</a>';
+			$coursename = '<a href="'.$appDetailUrl.'" target="_blank">'.e($data->coursename).'</a>';
 		}
 
 		$overallStatusBtn = $isActive
@@ -2121,6 +2153,7 @@ class PartnersController extends Controller
 				admins.first_name,
 				admins.last_name,
 				admins.dob,
+				admins.type               AS person_type,
 				products.name             AS coursename,
 				afo.total_course_fee_amount,
 				afo.enrolment_fee_amount,
@@ -2232,6 +2265,7 @@ class PartnersController extends Controller
 						'admins.first_name',
 						'admins.last_name',
 						'admins.dob',
+						'admins.type as person_type',
 						'products.name as coursename'
 					)
 					->get()
@@ -2482,6 +2516,7 @@ class PartnersController extends Controller
 						'admins.first_name',
 						'admins.last_name',
 						'admins.dob',
+						'admins.type as person_type',
 						'products.name as coursename'
 					)
 					->orderBy('applications.id')
@@ -4728,8 +4763,9 @@ class PartnersController extends Controller
 		if($saved){
             //In Partner activity log
             if($request->vtype == 'partner'){
-                $client_encoded_id = base64_encode(convert_uuencode(@$request->student_id)) ;
-                $client_reference = '<a href="'.route('clients.detail', $client_encoded_id).'" target="_blank" >'.$request->student_ref_no.'</a>';
+                $client_encoded_id = base64_encode(convert_uuencode(@$request->student_id));
+                $studentType = \App\Models\Admin::where('id', $request->student_id)->value('type');
+                $client_reference = '<a href="'.$this->partnerLinkedPersonDetailUrl($client_encoded_id, $studentType).'" target="_blank" >'.$request->student_ref_no.'</a>';
 
                 $subject = 'added a note for '.$client_reference;
                 if(isset($request->noteid) && $request->noteid != ''){
