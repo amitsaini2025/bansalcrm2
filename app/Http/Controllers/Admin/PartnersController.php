@@ -1654,7 +1654,8 @@ class PartnersController extends Controller
 
 	private static function partnerStudentTabCountCacheKey(int $partnerId, string $list): string
 	{
-		return "partner_student_count_v6_{$partnerId}_{$list}";
+		// v7: Active list excludes overall_status = 1 (inactive)
+		return "partner_student_count_v7_{$partnerId}_{$list}";
 	}
 
 	private function peekCachedPartnerStudentTabCount(int $partnerId, string $list): ?int
@@ -1725,6 +1726,12 @@ class PartnersController extends Controller
 
 		if ($list === 'inactive') {
 			$query->where('applications.overall_status', 1);
+		} else {
+			// Active = not inactive. Treat NULL as active so legacy rows stay visible.
+			$query->where(function ($q) {
+				$q->where('applications.overall_status', 0)
+					->orWhereNull('applications.overall_status');
+			});
 		}
 
 		return $query;
@@ -2097,7 +2104,8 @@ class PartnersController extends Controller
 			return $this->computePartnerStudentTabTotals($partnerId, $list, $searchValue, $statusFilter);
 		}
 
-		$cacheKey = "partner_students_totals_v7_{$partnerId}_{$list}";
+		// v8: Active totals exclude overall_status = 1 (inactive)
+		$cacheKey = "partner_students_totals_v8_{$partnerId}_{$list}";
 
 		try {
 			return Cache::remember($cacheKey, self::PARTNER_STUDENT_TAB_CACHE_SECONDS, function () use ($partnerId, $list) {
@@ -2667,6 +2675,10 @@ class PartnersController extends Controller
 			Cache::forget("partner_students_totals_v5_{$partnerId}_inactive");
 			Cache::forget("partner_students_totals_v7_{$partnerId}_active");
 			Cache::forget("partner_students_totals_v7_{$partnerId}_inactive");
+			Cache::forget("partner_students_totals_v8_{$partnerId}_active");
+			Cache::forget("partner_students_totals_v8_{$partnerId}_inactive");
+			Cache::forget("partner_student_count_v6_{$partnerId}_active");
+			Cache::forget("partner_student_count_v6_{$partnerId}_inactive");
 			Cache::forget(self::partnerStudentTabCountCacheKey($partnerId, 'active'));
 			Cache::forget(self::partnerStudentTabCountCacheKey($partnerId, 'inactive'));
 		} catch (\Throwable $e) {

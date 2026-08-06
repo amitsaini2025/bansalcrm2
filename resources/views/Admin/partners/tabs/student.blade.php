@@ -121,7 +121,11 @@
                                                                     'application_fee_options.commission_pending'
                                                                 )
                                                                 ->where('applications.partner_id', $fetchedData->id)
-                                                                //->where('applications.overall_status', 0) //overall status = Active
+                                                                // Active = not inactive; NULL treated as active (legacy rows)
+                                                                ->where(function ($query) {
+                                                                    $query->where('applications.overall_status', 0)
+                                                                          ->orWhereNull('applications.overall_status');
+                                                                })
                                                                 ->where(function ($query) {
                                                                     $query->where('applications.stage', 'Coe issued')
                                                                           ->orWhere('applications.stage', 'Enrolled')
