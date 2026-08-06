@@ -114,6 +114,55 @@
         return wrapPlainTextForTomSelect(data && data.text ? data.text : '', escape);
     }
 
+    /**
+     * Mark render callbacks that already normalize plain text so we do not
+     * wrap/escape them again (avoids double-escaping &amp; etc.).
+     */
+    function markRenderSafe(fn) {
+        if (typeof fn === 'function') {
+            fn._tomSelectPlainTextSafe = true;
+        }
+        return fn;
+    }
+
+    /**
+     * Wrap a custom render.option/item so plain-text labels (e.g. "New .")
+     * become HTML. HTML-containing output is left unchanged.
+     */
+    function wrapRenderCallback(fn) {
+        if (typeof fn !== 'function' || fn._tomSelectPlainTextSafe) {
+            return fn;
+        }
+        return markRenderSafe(function (data, escape) {
+            return normalizeTemplateOutput(fn(data, escape), escape, data);
+        });
+    }
+
+    /**
+     * Harden any custom option/item render on the final config.
+     * Default Tom Select templates are untouched when render is absent.
+     * Shallow-clones `render` when wrapping so caller option objects are not mutated.
+     */
+    function ensureSafeRenderOutput(config) {
+        if (!config || !config.render || typeof config.render !== 'object') {
+            return;
+        }
+        var optionFn = config.render.option;
+        var itemFn = config.render.item;
+        var wrapOption = typeof optionFn === 'function' && !optionFn._tomSelectPlainTextSafe;
+        var wrapItem = typeof itemFn === 'function' && !itemFn._tomSelectPlainTextSafe;
+        if (!wrapOption && !wrapItem) {
+            return;
+        }
+        config.render = Object.assign({}, config.render);
+        if (wrapOption) {
+            config.render.option = wrapRenderCallback(optionFn);
+        }
+        if (wrapItem) {
+            config.render.item = wrapRenderCallback(itemFn);
+        }
+    }
+
     function stripLegacyOptionKeys(config) {
         Object.keys(LEGACY_OPTION_KEYS).forEach(function (key) {
             delete config[key];
@@ -165,15 +214,15 @@
                     break;
                 case 'templateResult':
                     mapped.render = mapped.render || {};
-                    mapped.render.option = function (data, escape) {
+                    mapped.render.option = markRenderSafe(function (data, escape) {
                         return normalizeTemplateOutput(options.templateResult(data), escape, data);
-                    };
+                    });
                     break;
                 case 'templateSelection':
                     mapped.render = mapped.render || {};
-                    mapped.render.item = function (data, escape) {
+                    mapped.render.item = markRenderSafe(function (data, escape) {
                         return normalizeTemplateOutput(options.templateSelection(data), escape, data);
-                    };
+                    });
                     break;
                 case 'width':
                     mapped._compatWidth = options.width;
@@ -181,18 +230,18 @@
                 case 'escapeMarkup':
                     if (typeof options.escapeMarkup === 'function' && !options.templateResult) {
                         mapped.render = mapped.render || {};
-                        mapped.render.option = function (data, escape) {
+                        mapped.render.option = markRenderSafe(function (data, escape) {
                             return wrapPlainTextForTomSelect(
                                 options.escapeMarkup(data.text || ''),
                                 escape
                             );
-                        };
-                        mapped.render.item = function (data, escape) {
+                        });
+                        mapped.render.item = markRenderSafe(function (data, escape) {
                             return wrapPlainTextForTomSelect(
                                 options.escapeMarkup(data.text || ''),
                                 escape
                             );
-                        };
+                        });
                     }
                     break;
                 case 'containerCssClass':
@@ -248,6 +297,79 @@
         element.insertBefore(option, element.firstChild);
     }
 
+    function deliverAjaxResults(ajax, response, query, callback) {
+        var processed = ajax.processResults
+            ? ajax.processResults(response, { term: query, page: 1 })
+            : response;
+        var results = processed && processed.results ? processed.results : processed;
+        callback(Array.isArray(results) ? results : []);
+    }
+
+    function buildAjaxQueryString(data) {
+        if (data == null) {
+            return '';
+        }
+        if (typeof data === 'string') {
+            return data;
+        }
+        if (typeof data !== 'object') {
+            return '';
+        }
+        var parts = [];
+        Object.keys(data).forEach(function (key) {
+            var value = data[key];
+            if (value == null) {
+                return;
+            }
+            parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value)));
+        });
+        return parts.join('&');
+    }
+
+    function loadAjaxViaFetch(ajax, requestData, query, callback) {
+        var method = String(ajax.type || ajax.method || 'GET').toUpperCase();
+        var url = ajax.url || '';
+        var headers = Object.assign({}, ajax.headers || {});
+        var fetchOpts = {
+            method: method,
+            credentials: 'same-origin',
+            headers: headers
+        };
+
+        if (method === 'GET' || method === 'HEAD') {
+            var qs = buildAjaxQueryString(requestData);
+            if (qs) {
+                url += (url.indexOf('?') === -1 ? '?' : '&') + qs;
+            }
+        } else {
+            if (!headers['Content-Type'] && !headers['content-type']) {
+                headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
+                fetchOpts.headers = headers;
+            }
+            fetchOpts.body = typeof requestData === 'string'
+                ? requestData
+                : buildAjaxQueryString(requestData);
+        }
+
+        fetch(url, fetchOpts)
+            .then(function (response) {
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+                var dataType = (ajax.dataType || 'json').toLowerCase();
+                if (dataType === 'json') {
+                    return response.json();
+                }
+                return response.text();
+            })
+            .then(function (response) {
+                deliverAjaxResults(ajax, response, query, callback);
+            })
+            .catch(function () {
+                callback();
+            });
+    }
+
     function buildAjaxLoader(ajax, minimumInputLength) {
         var $ = window.jQuery;
 
@@ -261,33 +383,38 @@
                 ? ajax.data({ term: query, page: 1 })
                 : { q: query };
 
-            if (!$ || !$.ajax) {
-                console.warn('[initTomSelect] jQuery.ajax required for ajax option mapping');
-                callback();
+            if ($ && $.ajax) {
+                var ajaxSettings = {
+                    url: ajax.url,
+                    dataType: ajax.dataType || 'json',
+                    data: requestData,
+                    success: function (response) {
+                        deliverAjaxResults(ajax, response, query, callback);
+                    },
+                    error: function () {
+                        callback();
+                    }
+                };
+
+                if (ajax.type || ajax.method) {
+                    ajaxSettings.type = ajax.type || ajax.method;
+                }
+
+                if (ajax.headers) {
+                    ajaxSettings.headers = ajax.headers;
+                }
+
+                $.ajax(ajaxSettings);
                 return;
             }
 
-            var ajaxSettings = {
-                url: ajax.url,
-                dataType: ajax.dataType || 'json',
-                data: requestData,
-                success: function (response) {
-                    var processed = ajax.processResults
-                        ? ajax.processResults(response, { term: query, page: 1 })
-                        : response;
-                    var results = processed && processed.results ? processed.results : processed;
-                    callback(Array.isArray(results) ? results : []);
-                },
-                error: function () {
-                    callback();
-                }
-            };
-
-            if (ajax.headers) {
-                ajaxSettings.headers = ajax.headers;
+            if (typeof fetch === 'function') {
+                loadAjaxViaFetch(ajax, requestData, query, callback);
+                return;
             }
 
-            $.ajax(ajaxSettings);
+            console.warn('[initTomSelect] jQuery.ajax or fetch required for ajax option mapping');
+            callback();
         };
     }
 
@@ -385,6 +512,7 @@
         delete config._disableSearch;
 
         stripLegacyOptionKeys(config);
+        ensureSafeRenderOutput(config);
 
         try {
             var instance = new TomSelect(element, config);

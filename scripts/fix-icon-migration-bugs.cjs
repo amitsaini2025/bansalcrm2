@@ -1,11 +1,38 @@
 /**
  * Fix corrupted icon migration artifacts.
+ *
+ * Default: report-only (no writes). Re-running is safe on healthy files.
+ * Apply:    node scripts/fix-icon-migration-bugs.cjs --write
  */
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
+const WRITE = process.argv.includes('--write') || process.argv.includes('--fix');
+
+const stats = { checked: 0, wouldFix: 0, fixed: 0, skipped: 0 };
+
+function logSkip(label, reason) {
+    stats.skipped += 1;
+    console.log(`skip  ${label} — ${reason}`);
+}
+
+function logAction(label, detail) {
+    stats.wouldFix += 1;
+    if (WRITE) {
+        stats.fixed += 1;
+        console.log(`fixed ${label}${detail ? ' — ' + detail : ''}`);
+    } else {
+        console.log(`would-fix ${label}${detail ? ' — ' + detail : ''}`);
+    }
+}
+
+function writeIfAllowed(file, content) {
+    if (WRITE) {
+        fs.writeFileSync(file, content);
+    }
+}
 
 function gitShow(rev, file) {
     return execSync(`git show ${rev}:${file}`, { cwd: root, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
@@ -23,39 +50,83 @@ function migrateJsTailIcons(text) {
         .replace(/sendBtn\.innerHTML = '<i class="fas fa-paper-plane"><\/i> Send'/g, "sendBtn.innerHTML = crmIcon('paper-plane') + ' Send'");
 }
 
+/** Elite inbox: only restore from old rev when clear corruption / pre-migration icons remain. */
+function eliteInboxNeedsFix(content) {
+    if (content.includes("crmIconSpinner(' }}')")) {
+        return 'corruption marker crmIconSpinner(\' }}\')';
+    }
+    if (content.includes("@icon('{{")) {
+        return 'corruption marker @icon(\'{{';
+    }
+    // Pre-migration Font Awesome HTML still in inbox JS (script intended to migrate these)
+    if (
+        content.includes('<i class="fas fa-sync-alt"></i> Get Emails') ||
+        content.includes('<i class="fas fa-sync-alt"></i> Get Drafts') ||
+        content.includes('<i class="fas fa-spinner fa-spin"></i> Loading...') ||
+        content.includes('<i class="fas fa-paper-plane"></i> Send')
+    ) {
+        return 'legacy <i class="fas …"> icon HTML in inbox JS';
+    }
+    return null;
+}
+
 function fixEliteInbox() {
-    const file = path.join(root, 'resources/views/elite/emails-inbox.blade.php');
-    const current = fs.readFileSync(file, 'utf8').split(/\r?\n/);
-    let original;
-    try {
-        original = gitShow('5dbe73a9', 'resources/views/elite/emails-inbox.blade.php').split(/\r?\n/);
-    } catch (e) {
-        console.warn('Could not load elite inbox from git:', e.message);
+    const rel = 'resources/views/elite/emails-inbox.blade.php';
+    const file = path.join(root, rel);
+    stats.checked += 1;
+
+    if (!fs.existsSync(file)) {
+        logSkip(rel, 'file missing');
         return;
     }
 
+    const currentText = fs.readFileSync(file, 'utf8');
+    const reason = eliteInboxNeedsFix(currentText);
+    if (!reason) {
+        logSkip(rel, 'healthy (no corruption / legacy FA markers)');
+        return;
+    }
+
+    let original;
+    try {
+        original = gitShow('5dbe73a9', rel).split(/\r?\n/);
+    } catch (e) {
+        console.warn(`warn  ${rel} — could not load git rev: ${e.message}`);
+        return;
+    }
+
+    const current = currentText.split(/\r?\n/);
     const head = current.slice(0, 1211); // through params.push('sync=1');
     head.push("        if (!silent && btn) { btn.disabled = true; btn.innerHTML = crmIconSpinner(' Syncing...'); }");
     let tail = original.slice(1213, 1990).join('\n'); // if (silent) inboxFetchInFlight ... through }());
     tail = migrateJsTailIcons(tail);
     const restored = [...head, tail, ''].join('\n');
-    fs.writeFileSync(file, restored);
-    console.log('Fixed elite/emails-inbox.blade.php');
+
+    writeIfAllowed(file, restored);
+    logAction(rel, reason);
 }
 
 function fixRecentClients() {
-    const file = path.join(root, 'resources/views/AdminConsole/recent_clients/index.blade.php');
+    const rel = 'resources/views/AdminConsole/recent_clients/index.blade.php';
+    const file = path.join(root, rel);
+    stats.checked += 1;
+
+    if (!fs.existsSync(file)) {
+        logSkip(rel, 'file missing');
+        return;
+    }
+
     const current = fs.readFileSync(file, 'utf8');
     if (!current.includes("html += crmIconSpinner(' }}')")) {
-        console.log('recent_clients: corruption marker not found, skip');
+        logSkip(rel, 'healthy (corruption marker not found)');
         return;
     }
 
     let original;
     try {
-        original = gitShow('b2e4679e', 'resources/views/AdminConsole/recent_clients/index.blade.php');
+        original = gitShow('b2e4679e', rel);
     } catch (e) {
-        console.warn('Could not load recent_clients from git:', e.message);
+        console.warn(`warn  ${rel} — could not load git rev: ${e.message}`);
         return;
     }
 
@@ -101,28 +172,39 @@ function fixRecentClients() {
     const marker = "\t\t\t\t\t\thtml += '<div class=\"text-muted small\">';\n\t\t\t\t\t\thtml += crmIconSpinner(' }}'),";
     const replacement = "\t\t\t\t\t\thtml += '<div class=\"text-muted small\">';\n" + restoredBlock.split('\n').slice(1).join('\n');
 
+    let fixed;
     if (!current.includes(marker.split('\n')[0])) {
-        // try alternate corruption start
         const start = current.indexOf("\t\t\t\t\t\thtml += '<div class=\"text-muted small\">';");
         const end = current.indexOf('\t\t\t\t\t\t$container.html(html);');
         if (start === -1 || end === -1) {
-            console.warn('recent_clients: could not locate block boundaries');
+            console.warn(`warn  ${rel} — could not locate block boundaries`);
             return;
         }
-        const fixed = current.slice(0, start) + restoredBlock + current.slice(end);
-        fs.writeFileSync(file, fixed);
+        fixed = current.slice(0, start) + restoredBlock + current.slice(end);
     } else {
-        fs.writeFileSync(file, current.replace(marker, replacement));
+        fixed = current.replace(marker, replacement);
     }
-    console.log('Fixed AdminConsole/recent_clients/index.blade.php');
+
+    writeIfAllowed(file, fixed);
+    logAction(rel, 'corruption marker crmIconSpinner(\' }}\')');
 }
 
-/** In backtick template literals, ' + crmIcon(...) + ' is literal text — use ${crmIcon(...)} */
+/** In backtick template literals, ' + crmIcon(...) + ' is literal text — use ${crmIcon(...)}.
+ *  Applied per line so we never rewrite normal string concatenation outside backticks.
+ */
 function fixTemplateLiteralCrmIcons(content) {
-    return content.replace(
-        /(`(?:\\`|[^`])*)' \+ crmIcon\(([^)]+(?:\([^)]*\)[^)]*)*)\) \+ '((?:\\`|[^`])*)`/g,
-        (match, before, args, after) => `${before}\${crmIcon(${args})}${after}\``
-    );
+    const re = /(`(?:\\`|[^`])*)' \+ crmIcon\(([^)]+(?:\([^)]*\)[^)]*)*)\) \+ '((?:\\`|[^`])*)`/g;
+    return content.split('\n').map(function (line) {
+        if (line.indexOf('`') === -1 || line.indexOf("' + crmIcon(") === -1) {
+            return line;
+        }
+        return line.replace(
+            re,
+            function (match, before, args, after) {
+                return before + '${crmIcon(' + args + ')}' + after + '`';
+            }
+        );
+    }).join('\n');
 }
 
 function fixJsTemplateLiterals() {
@@ -138,7 +220,11 @@ function fixJsTemplateLiterals() {
 
     for (const rel of files) {
         const file = path.join(root, rel);
-        if (!fs.existsSync(file)) continue;
+        stats.checked += 1;
+        if (!fs.existsSync(file)) {
+            logSkip(rel, 'file missing');
+            continue;
+        }
         const original = fs.readFileSync(file, 'utf8');
         let content = fixTemplateLiteralCrmIcons(original);
 
@@ -153,17 +239,33 @@ function fixJsTemplateLiterals() {
             );
         }
 
-        if (content !== original) {
-            fs.writeFileSync(file, content);
-            console.log('Fixed template literals:', rel);
+        if (content === original) {
+            logSkip(rel, 'healthy (no template-literal crmIcon issues)');
+            continue;
         }
+
+        writeIfAllowed(file, content);
+        logAction(rel, 'template-literal crmIcon patterns');
     }
 }
 
 function fixSignaturesShow() {
-    const file = path.join(root, 'resources/views/crm/signatures/show.blade.php');
-    let content = fs.readFileSync(file, 'utf8');
-    content = content.replace(
+    const rel = 'resources/views/crm/signatures/show.blade.php';
+    const file = path.join(root, rel);
+    stats.checked += 1;
+
+    if (!fs.existsSync(file)) {
+        logSkip(rel, 'file missing');
+        return;
+    }
+
+    const original = fs.readFileSync(file, 'utf8');
+    if (!original.includes("@icon('{{")) {
+        logSkip(rel, 'healthy (no @icon(\'{{ corruption)');
+        return;
+    }
+
+    let content = original.replace(
         /@icon\('\{\{', 'solid', \['class' => '\$signer->status === 'pending' \? 'clock' : \(\$signer->status === 'signed' \? 'check' : 'times'\) }}'\]\)/,
         "@icon($signer->status === 'pending' ? 'clock' : ($signer->status === 'signed' ? 'check' : 'times'))"
     );
@@ -171,8 +273,14 @@ function fixSignaturesShow() {
         /@icon\('\{\{', 'solid', \['class' => '\$icon }}'\]\)/,
         '@icon($icon)'
     );
-    fs.writeFileSync(file, content);
-    console.log('Fixed crm/signatures/show.blade.php');
+
+    if (content === original) {
+        logSkip(rel, 'corruption pattern present but no known replace matched');
+        return;
+    }
+
+    writeIfAllowed(file, content);
+    logAction(rel, '@icon(\'{{ corruption');
 }
 
 function fixExplanationCircle() {
@@ -183,15 +291,38 @@ function fixExplanationCircle() {
     ];
     for (const rel of files) {
         const file = path.join(root, rel);
-        if (!fs.existsSync(file)) continue;
-        const content = fs.readFileSync(file, 'utf8').replace(/@icon\('explanation-circle'\)/g, "@icon('info-circle')");
-        fs.writeFileSync(file, content);
-        console.log('Fixed explanation-circle in', rel);
+        stats.checked += 1;
+        if (!fs.existsSync(file)) {
+            logSkip(rel, 'file missing');
+            continue;
+        }
+        const original = fs.readFileSync(file, 'utf8');
+        if (!original.includes("@icon('explanation-circle')")) {
+            logSkip(rel, 'healthy (no explanation-circle)');
+            continue;
+        }
+        const content = original.replace(/@icon\('explanation-circle'\)/g, "@icon('info-circle')");
+        writeIfAllowed(file, content);
+        logAction(rel, "replace @icon('explanation-circle')");
     }
 }
 
 function fixMinimalLayoutScripts() {
-    const file = path.join(root, 'resources/js/minimal-layout-scripts.js');
+    const rel = 'resources/js/minimal-layout-scripts.js';
+    const file = path.join(root, rel);
+    stats.checked += 1;
+
+    if (!fs.existsSync(file)) {
+        logSkip(rel, 'file missing');
+        return;
+    }
+
+    const original = fs.readFileSync(file, 'utf8');
+    if (original.includes("@legacy/common/crm-icon.js")) {
+        logSkip(rel, 'healthy (crm-icon.js already imported)');
+        return;
+    }
+
     const content = `/**
  * Minimal layout scripts (login, outlook) — Vite entry (Phase 2f).
  */
@@ -201,9 +332,13 @@ import '@legacy/common/crm-icon.js';
 import '@legacy/scripts.js';
 import '@legacy/custom.js';
 `;
-    fs.writeFileSync(file, content);
-    console.log('Added crm-icon.js to minimal-layout-scripts.js');
+    writeIfAllowed(file, content);
+    logAction(rel, 'add crm-icon.js import');
 }
+
+console.log(WRITE
+    ? 'Mode: WRITE (--write). Applying fixes where corruption is detected.\n'
+    : 'Mode: REPORT (default). No files will be modified. Pass --write to apply.\n');
 
 fixEliteInbox();
 fixRecentClients();
@@ -211,3 +346,9 @@ fixSignaturesShow();
 fixExplanationCircle();
 fixMinimalLayoutScripts();
 fixJsTemplateLiterals();
+
+console.log(`\nSummary: checked=${stats.checked} skipped=${stats.skipped} wouldFix=${stats.wouldFix}` +
+    (WRITE ? ` fixed=${stats.fixed}` : ' (dry-run)'));
+if (!WRITE && stats.wouldFix > 0) {
+    console.log('Re-run with --write to apply the reported fixes.');
+}

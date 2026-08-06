@@ -36,6 +36,38 @@
         return null;
     }
 
+    function trimTrailingSlash(url) {
+        return String(url || '').replace(/\/+$/, '');
+    }
+
+    /** App base URL for subdirectory-safe absolute paths (falls back to '' at domain root). */
+    function getSiteBaseUrl() {
+        if (typeof App !== 'undefined' && typeof App.getUrl === 'function') {
+            var fromApp = App.getUrl('siteUrl');
+            if (fromApp) {
+                return trimTrailingSlash(fromApp);
+            }
+        }
+        if (window.AppConfig && window.AppConfig.urls && window.AppConfig.urls.siteUrl) {
+            return trimTrailingSlash(window.AppConfig.urls.siteUrl);
+        }
+        if (typeof window.site_url === 'string' && window.site_url) {
+            return trimTrailingSlash(window.site_url);
+        }
+        var meta = document.querySelector('script[data-site-url]');
+        if (meta) {
+            var attr = meta.getAttribute('data-site-url');
+            if (attr) {
+                return trimTrailingSlash(attr);
+            }
+        }
+        return '';
+    }
+
+    function defaultRecipientsUrl() {
+        return getSiteBaseUrl() + '/clients/get-recipients';
+    }
+
     function resolveUrl(options) {
         options = options || {};
         if (options.url) {
@@ -45,7 +77,7 @@
             return App.getUrl('clientGetRecipients')
                 || App.getUrl('clientsGetRecipients')
                 || App.getUrl('getRecipients')
-                || ((App.getUrl('siteUrl') || '') + '/clients/get-recipients');
+                || defaultRecipientsUrl();
         }
         if (window.AppConfig && window.AppConfig.urls) {
             if (window.AppConfig.urls.getRecipients) {
@@ -54,8 +86,11 @@
             if (window.AppConfig.urls.clientsGetRecipients) {
                 return window.AppConfig.urls.clientsGetRecipients;
             }
+            if (window.AppConfig.urls.clientGetRecipients) {
+                return window.AppConfig.urls.clientGetRecipients;
+            }
         }
-        return '/clients/get-recipients';
+        return defaultRecipientsUrl();
     }
 
     function statusBadgeClass(status) {

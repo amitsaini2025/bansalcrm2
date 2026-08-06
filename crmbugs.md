@@ -47,7 +47,14 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 | **APP-11** | **FIXED** — `updateintake` failure returns `status: false` |
 | **APP-12** | **FIXED** — Partner stage AJAX sends application `id` only (dropped `client_id: partnerId`) |
 | **P-3 / P-11** | Removed false “ungrouped OR” on partner Invoice tab (OR **is** grouped); fee-join inflation remains |
-| **FE-4** | Narrowed residual: default Tom Select templates already emit HTML; risk is custom plain-text `render` |
+| **FE-1** | **FIXED** — production `.env` `APP_DEBUG=false` |
+| **FE-2** | **FIXED** — production `.env` `APP_URL` correct; absolute links use live host |
+| **FE-3** | **FIXED** — icon migration script report-by-default; `--write` + corruption gates |
+| **FE-4** | **FIXED** — `ensureSafeRenderOutput` wraps custom `render.option`/`item` plain text (e.g. `"New ."`) |
+| **FE-6** | **FIXED** — `modern-search.js` `siteBase()` falls back beyond global `site_url` |
+| **FE-7** | **FIXED** — `buildAjaxLoader` keeps `$.ajax`, falls back to `fetch` when jQuery missing |
+| **FE-8** | **FIXED** — `RecipientSelect.resolveUrl` last resort uses site base + `/clients/get-recipients` |
+| **FE-9** | **FIXED** — invoice report client link uses `/clients/detail/{id}` slash |
 | **N-1** | **FIXED** — `fetchnotification` counts `receiver_status = 0` only; `legacy-init.js` always syncs badge (clears at 0) |
 | **N-2** | **FIXED** — `fetchmessages` no longer marks `seen` on poll; client marks after toast via `/notifications/mark-toast-seen` |
 | **N-3** | **FIXED** — In Person waiting badge scoped: admin + reception see all; others see own assignee queue (list pages unchanged) |
@@ -943,37 +950,46 @@ if ($invoicelist->type == 2) {
 
 ### Critical
 
-#### FE-1. `APP_DEBUG` defaults to `true`
-- **File:** `config/app.php` (~42) — `'debug' => env('APP_DEBUG', true)` — missing env exposes stack traces / sensitive data.
-- **Review note:** No `.env.example` in repo to force a safe default; Laravel convention is default `false`.
+#### ~~FE-1. `APP_DEBUG` defaults to `true`~~ — **FIXED**
+- **File:** `config/app.php` (~42) — `'debug' => env('APP_DEBUG', true)`
+- **Status:** Production `.env` has `APP_DEBUG=false`; debug/stack traces not exposed live.
+- **Note:** Config default remains `true` if env key missing (local/misconfig risk only). Marked fixed per production verification. (2026-08-06)
 
 ### High
 
-#### FE-2. `APP_URL` default `http://localhost` + widespread `URL::to` / `site_url`
-- Affects staff pages, modern search AJAX, notification links, CRM access URLs, print/receipt links across many areas.
-- **Related prior fixes:** Some detail edit pencils already moved to relative `route(..., false)`; many list/dropdown links still use `URL::to`.
+#### ~~FE-2. `APP_URL` default `http://localhost` + widespread `URL::to` / `site_url`~~ — **FIXED**
+- **Status:** Production `.env` has correct `APP_URL`; absolute `URL::to` / `site_url` resolve to the live host.
+- **Note:** Config default remains `http://localhost` for missing env (local/misconfig risk only). Marked fixed per production verification. (2026-08-06)
 
-#### FE-3. `scripts/fix-icon-migration-bugs.cjs` is a mutator, not a safe reporter
-- Re-running can overwrite healthy blades (e.g. elite inbox) from an old git rev even when “healthy.”
+#### ~~FE-3. `scripts/fix-icon-migration-bugs.cjs` is a mutator, not a safe reporter~~ — **FIXED**
+- **Was:** Script always wrote files; `fixEliteInbox()` restored from old git rev even when healthy.
+- **Fix:** Default is report-only (no writes). Each fixer skips unless a corruption/legacy marker is present. Pass `--write` (or `--fix`) to apply. (2026-08-06)
 
 ### Medium
 
-#### FE-4. Tom Select `querySelector` crash for names like `"New ."` — **mostly mitigated**
-- **Fixed:** `tomselect-init.js` `normalizeTemplateOutput` / `wrapPlainTextForTomSelect` when legacy `templateResult` / `templateSelection` are mapped; RecipientSelect uses `wrapTomSelectLabel`.
-- **Default path safe:** Tom Select 2.4.x built-in `option`/`item` templates already return HTML containing `<`, so plain `initTomSelect(el)` / `initModalTomSelects` are **not** generally vulnerable to `"New ."`.
-- **Residual risk:** Custom `render` callbacks that return **plain text without `<`** and bypass `normalizeTemplateOutput` (e.g. some popover paths). Original Compose Email crash was this class of bug.
+#### ~~FE-4. Tom Select `querySelector` crash for names like `"New ."`~~ — **FIXED**
+- **Was:** Tom Select treats render output without `<` as a CSS selector (`querySelector`); labels like `"New ."` throw and crash the control.
+- **Fix:** Legacy `templateResult` / `templateSelection` already go through `normalizeTemplateOutput` / `wrapPlainTextForTomSelect`; RecipientSelect uses `wrapTomSelectLabel`. Residual custom `render.option` / `render.item` paths now run through `ensureSafeRenderOutput` in `initTomSelect` (HTML unchanged; plain text wrapped in `<span>`). Already-normalized wrappers are marked `_tomSelectPlainTextSafe` to avoid double-escape. Default built-in templates untouched when no custom `render`. (2026-08-06)
 
 #### ~~FE-5. `recipient-select.js` XSS in HTML builder path (`buildRecipientHtml`)~~ — **FIXED** (same as E-13)
 - Confirmed fixed: `buildRecipientHtml` now escapes name/email/status.
 
-#### FE-6. `modern-search.js` depends on global `site_url` (wrong host if unset/mismatched)
+#### ~~FE-6. `modern-search.js` depends on global `site_url` (wrong host if unset/mismatched)~~ — **FIXED**
+- **Was:** AJAX and navigation used only global `site_url`; empty/wrong → bad host.
+- **Fix:** `siteBase()` prefers `site_url`, then `App.getUrl('siteUrl')` / `AppConfig` / `window.site_url` / `data-site-url`. `navigateToResult` uses `siteBase()`. Existing layouts with `site_url` unchanged. (2026-08-06)
 
 ### Low
 
-#### FE-7. `tomselect-init.js` AJAX requires jQuery (empty results without `$.ajax`)
-#### FE-8. Recipient URL fallback root-relative `/clients/get-recipients` (breaks in subdirectory)
-#### FE-9. Invoice report client link missing `/` in path  
-- **File:** `resources/views/Admin/reports/invoice.blade.php` (~100) — `URL::to('/clients/detail'.base64_encode(...))` missing slash between `detail` and id.
+#### ~~FE-7. `tomselect-init.js` AJAX requires jQuery (empty results without `$.ajax`)~~ — **FIXED**
+- **Was:** Legacy `ajax:` mapping used only `$.ajax`; without jQuery, `callback()` ran empty and dropdowns showed no results.
+- **Fix:** Prefer `$.ajax` when present (unchanged); otherwise `fetch` with the same URL/query/`processResults` → `callback(results)` contract. (2026-08-06)
+#### ~~FE-8. Recipient URL fallback root-relative `/clients/get-recipients` (breaks in subdirectory)~~ — **FIXED**
+- **Was:** `RecipientSelect.resolveUrl()` last fallback was bare `/clients/get-recipients` (domain root).
+- **Fix:** Prefer configured URLs unchanged; last resort uses `defaultRecipientsUrl()` = `siteUrl` / `window.site_url` / `data-site-url` + `/clients/get-recipients`. Root installs still resolve to `/clients/...` when base is empty. (2026-08-06)
+#### ~~FE-9. Invoice report client link missing `/` in path~~ — **FIXED**
+- **File:** `resources/views/Admin/reports/invoice.blade.php` (~100)
+- **Was:** `URL::to('/clients/detail'.base64_encode(...))` — no slash between `detail` and id.
+- **Fix:** `URL::to('/clients/detail/'.base64_encode(...))` (same pattern as other report/action links). (2026-08-06)
 
 ---
 
@@ -1020,7 +1036,7 @@ if ($invoicelist->type == 2) {
 | C-12 (original “merged still appear”) | **Wrong for `is_deleted=1`** — see corrected wording |
 | P-11 | **Retracted** — OR is grouped on partner Invoice tab |
 | INV-1 “overwrites type 1 & 2” | **Partial** — overwrites type 1 only |
-| FE-4 “generic initTomSelect still vulnerable” | **Overstated** — defaults already emit HTML |
+| FE-4 “generic initTomSelect still vulnerable” | **Overstated** then **FIXED** — defaults emit HTML; custom `render` now hardened via `ensureSafeRenderOutput` |
 | CA-1–CA-3 | **FIXED** — quick eligibility gate; open-ended `ends_at`; root-relative notif URLs |
 | CA-2 as High | **Was downgraded** then **FIXED** — open-ended `ends_at` null now counts as active |
 

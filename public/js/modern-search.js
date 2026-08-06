@@ -22,8 +22,37 @@
         return m ? m.getAttribute('content') : '';
     }
 
+    function trimTrailingSlash(url) {
+        return String(url || '').replace(/\/+$/, '');
+    }
+
+    /**
+     * Prefer global site_url (layouts). Fall back so search/AJAX still work if unset.
+     */
     function siteBase() {
-        return (typeof site_url !== 'undefined' ? site_url : '');
+        if (typeof site_url !== 'undefined' && site_url) {
+            return trimTrailingSlash(site_url);
+        }
+        if (typeof App !== 'undefined' && typeof App.getUrl === 'function') {
+            var fromApp = App.getUrl('siteUrl');
+            if (fromApp) {
+                return trimTrailingSlash(fromApp);
+            }
+        }
+        if (window.AppConfig && window.AppConfig.urls && window.AppConfig.urls.siteUrl) {
+            return trimTrailingSlash(window.AppConfig.urls.siteUrl);
+        }
+        if (typeof window.site_url === 'string' && window.site_url) {
+            return trimTrailingSlash(window.site_url);
+        }
+        var meta = document.querySelector('script[data-site-url]');
+        if (meta) {
+            var attr = meta.getAttribute('data-site-url');
+            if (attr) {
+                return trimTrailingSlash(attr);
+            }
+        }
+        return '';
     }
 
     function openCrmAccessRequestModal(ctx) {
@@ -923,7 +952,7 @@
             return;
         }
 
-        const siteUrl = (typeof site_url !== 'undefined' ? site_url : '');
+        const siteUrl = siteBase();
         const parts = data.id.split('/');
         const type = parts[1];  //alert('type='+type);
         const id = parts[0];  //alert('id='+id);

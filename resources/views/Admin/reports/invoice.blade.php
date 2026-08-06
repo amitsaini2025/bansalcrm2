@@ -97,7 +97,7 @@
 										<tr id="id_{{@$list->id}}">
 											<td>{{@$client->id}}</td>
 											<td>
-												<a href="{{URL::to('/clients/detail'.base64_encode(convert_uuencode(@$client->id)))}}">{{@$client->first_name}} {{@$client->last_name}}</a>
+												<a href="{{URL::to('/clients/detail/'.base64_encode(convert_uuencode(@$client->id)))}}">{{@$client->first_name}} {{@$client->last_name}}</a>
 											</td>
 											<td>-</td>
 											<td>{{@$client->assignee}}</td>
