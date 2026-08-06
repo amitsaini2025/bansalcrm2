@@ -58,10 +58,12 @@
 
 foreach($followups as $followup){
     $client = \App\Models\Admin::where('id',$followup->client_id)
-        ->select('id','client_id','first_name','last_name','email','phone')
+        ->select('id','client_id','first_name','last_name','email','phone','type')
         ->first();
     
     if($client){
+        $encodedClientId = base64_encode(convert_uuencode($client->id));
+        $isLeadType = strtolower((string) ($client->type ?? '')) === 'lead';
         $followupData = [
             'id' => $followup->id,
             'clientid' => $client->id,
@@ -73,7 +75,9 @@ foreach($followups as $followup){
             'end' => date("Y-m-d", strtotime($followup->action_assign_date)),
             'followup_date' => date("F d, Y", strtotime($followup->action_assign_date)),
             'description' => htmlspecialchars($followup->description, ENT_QUOTES, 'UTF-8'),
-            'url' => URL::to('/clients/detail/'.base64_encode(convert_uuencode($client->id)))
+            'url' => $isLeadType
+                ? route('leads.detail', $encodedClientId)
+                : route('clients.detail', $encodedClientId),
         ];
         $sched_res[$followup->id] = $followupData;
     }

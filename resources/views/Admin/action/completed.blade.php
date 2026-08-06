@@ -166,10 +166,15 @@
                                                         $client_reference_html = 'N/P';
                                                     }
                                                 } else {
-                                                    // Client type
+                                                    // Client/lead type (note.type stays "client"; admins.type may be lead)
                                                     if($list->noteClient){
                                                         $user_name = $list->noteClient->first_name.' '.$list->noteClient->last_name;
-                                                        $reference_link = '<a href="'.URL::to('/clients/detail/'.base64_encode(convert_uuencode(@$list->client_id))).'" target="_blank" >'.$list->noteClient->client_id.'</a>';
+                                                        $encodedRefId = base64_encode(convert_uuencode(@$list->client_id));
+                                                        $isLeadType = strtolower((string) ($list->noteClient->type ?? '')) === 'lead';
+                                                        $detailUrl = $isLeadType
+                                                            ? route('leads.detail', $encodedRefId)
+                                                            : route('clients.detail', $encodedRefId);
+                                                        $reference_link = '<a href="'.$detailUrl.'" target="_blank" >'.$list->noteClient->client_id.'</a>';
                                                         $client_reference_html = $user_name.'<br>'.$reference_link;
                                                     } else {
                                                         $client_reference_html = 'N/P';

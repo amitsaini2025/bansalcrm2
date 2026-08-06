@@ -135,7 +135,14 @@
                                             </td>
 											<td>{{ $list->assigned_user->first_name ?? ''}}  {{$list->assigned_user->last_name ?? ''}}</td>
 											<td>{{ $full_name??'N/P' }}</td>
-                                            <td><a href="{{URL::to('/clients/detail/'.base64_encode(convert_uuencode(@$list->client_id)))}}" target="_blank" >{{ $list->noteClient->client_id ?? 'N/P' }}</a></td>
+                                            @php
+                                                $encodedRefId = base64_encode(convert_uuencode(@$list->client_id));
+                                                $isLeadType = strtolower((string) ($list->noteClient->type ?? '')) === 'lead';
+                                                $detailUrl = $isLeadType
+                                                    ? route('leads.detail', $encodedRefId)
+                                                    : route('clients.detail', $encodedRefId);
+                                            @endphp
+                                            <td><a href="{{ $detailUrl }}" target="_blank" >{{ $list->noteClient->client_id ?? 'N/P' }}</a></td>
 											<td>
 												@if(!empty($list->action_assign_date))
 													{{ date('d/m/Y', strtotime($list->action_assign_date)) }}
@@ -325,7 +332,14 @@
                                             </td>
 											<td>{{ $listC->assigned_user->first_name ?? ''}}  {{$listC->assigned_user->last_name ?? ''}}</td>
 											<td>{{ $full_nameC??'N/P' }}</td>
-                                            <td><a href="{{URL::to('/clients/detail/'.base64_encode(convert_uuencode(@$listC->client_id)))}}" target="_blank" >{{ $listC->noteClient->client_id ?? 'N/P' }}</a></td>
+                                            @php
+                                                $encodedRefIdC = base64_encode(convert_uuencode(@$listC->client_id));
+                                                $isLeadTypeC = strtolower((string) ($listC->noteClient->type ?? '')) === 'lead';
+                                                $detailUrlC = $isLeadTypeC
+                                                    ? route('leads.detail', $encodedRefIdC)
+                                                    : route('clients.detail', $encodedRefIdC);
+                                            @endphp
+                                            <td><a href="{{ $detailUrlC }}" target="_blank" >{{ $listC->noteClient->client_id ?? 'N/P' }}</a></td>
 											<td>{{ date('d/m/Y',strtotime($listC->action_assign_date)) ?? 'N/P'}} </td>
                                             <td>{{ $listC->task_group??'N/P' }}</td>
                                             <td>{{ $listC->description??'N/P' }}</td>

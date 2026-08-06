@@ -730,8 +730,12 @@ class ActionController extends Controller
                         $user_name .= "<br>";
                         $user_name .= "\n";
 
-                        $client_encoded_id = base64_encode(convert_uuencode(@$data->client_id)) ;
-                        $user_name .= '<a href="'.route('clients.detail', $client_encoded_id).'" target="_blank" >'.Utf8Helper::sanitize($data->noteClient->client_id).'</a>';
+                        $client_encoded_id = base64_encode(convert_uuencode(@$data->client_id));
+                        // note.type is "client" for both clients and leads; use admins.type for the detail URL
+                        $detailRoute = strtolower((string) ($data->noteClient->type ?? '')) === 'lead'
+                            ? 'leads.detail'
+                            : 'clients.detail';
+                        $user_name .= '<a href="'.route($detailRoute, $client_encoded_id).'" target="_blank" >'.Utf8Helper::sanitize($data->noteClient->client_id).'</a>';
                     }
                 } else if($data->type == 'partner'){
                     $partnerInfo = \App\Models\Partner::select('partner_name')->where('id',$data->client_id)->first();

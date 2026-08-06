@@ -108,8 +108,14 @@
                                                     <br>
                                                     <?php
                                                     if($list->noteClient)
-                                                    { ?>
-                                                        <a href="{{URL::to('/clients/detail/'.base64_encode(convert_uuencode(@$list->client_id)))}}" target="_blank" >{{ $list->noteClient->client_id }}</a>
+                                                    {
+                                                        $encodedRefId = base64_encode(convert_uuencode(@$list->client_id));
+                                                        $isLeadType = strtolower((string) ($list->noteClient->type ?? '')) === 'lead';
+                                                        $detailUrl = $isLeadType
+                                                            ? route('leads.detail', $encodedRefId)
+                                                            : route('clients.detail', $encodedRefId);
+                                                    ?>
+                                                        <a href="{{ $detailUrl }}" target="_blank" >{{ $list->noteClient->client_id }}</a>
                                                     <?php
                                                     } ?>
                                                 </td>
