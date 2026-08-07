@@ -1963,6 +1963,7 @@ class ApplicationsController extends Controller
                                     <th style="white-space: initial;width: 135px;">Commission Claimed($)</th>
                                     <th style="white-space: initial;width: 135px;">Commission Received</th>
                                     <th style="white-space: initial;width: 180px;">Source</th>
+                                    <th style="white-space: initial;width: 50px;"></th>
                                 </tr>
                             </thead>
                             <tbody class="tdata">
@@ -2023,20 +2024,23 @@ class ApplicationsController extends Controller
                                             <td>
                                                 <input type="hidden" value="2"  name="fee_option_type[]">
                                                 <?php
-                                                // Convert date from DD/MM/YYYY or DD.MM.YYYY to YYYY-MM-DD for flatpickr
+                                                // Normalize stored date to DD/MM/YYYY for flatpickr (accepts d/m/Y, d.m.Y, or Y-m-d)
                                                 $formatted_date = '';
                                                 if (!empty($fee->date_paid)) {
                                                     try {
-                                                        // Normalize: replace dots with slashes to handle both DD.MM.YYYY and DD/MM/YYYY formats
-                                                        $normalized_date = str_replace('.', '/', $fee->date_paid);
-                                                        $formatted_date = \Carbon\Carbon::createFromFormat('d/m/Y', $normalized_date)->format('Y-m-d');
+                                                        $normalized_date = str_replace('.', '/', trim($fee->date_paid));
+                                                        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $normalized_date)) {
+                                                            $formatted_date = \Carbon\Carbon::createFromFormat('Y-m-d', $normalized_date)->format('d/m/Y');
+                                                        } else {
+                                                            $formatted_date = \Carbon\Carbon::createFromFormat('d/m/Y', $normalized_date)->format('d/m/Y');
+                                                        }
                                                     } catch (\Exception $e) {
                                                         // If date parsing fails, keep original value to prevent data loss
                                                         $formatted_date = $fee->date_paid;
                                                     }
                                                 }
                                                 ?>
-                                                <input type="text" data-valid="required" value="<?php echo $formatted_date;?>" class="form-control date_paid" name="date_paid[]">
+                                                <input type="text" data-valid="required" value="<?php echo $formatted_date;?>" class="form-control date_paid" name="date_paid[]" placeholder="dd/mm/yyyy" autocomplete="off">
                                             </td>
                                             <td>
                                                 <input type="number" data-valid="required" value="<?php echo $fee->total_fee;?>" class="form-control total_fee_am_2nd" name="total_fee[]">
@@ -2081,6 +2085,9 @@ class ApplicationsController extends Controller
                                                     <option value="Bonus" <?php if( $fee->source == 'Bonus' ) { echo ' selected="selected"'; } else { echo '';} ?> >Bonus</option>
                                                 </select>
                                             </td>
+                                            <td class="text-center align-middle">
+                                                <a href="javascript:;" class="btn btn-sm btn-outline-danger remove_other_fee_row" title="Delete fee row"><?php echo \App\Helpers\IconHelper::render('trash'); ?></a>
+                                            </td>
                                         </tr>
                                         <?php
                                     } //end foreach
@@ -2092,7 +2099,7 @@ class ApplicationsController extends Controller
                                     <tr class="add_fee_option cus_fee_option">
                                         <td>
                                             <input type="hidden" value="2"  name="fee_option_type[]">
-                                            <input type="text" data-valid="required" value="" class="form-control date_paid" name="date_paid[]">
+                                            <input type="text" data-valid="required" value="" class="form-control date_paid" name="date_paid[]" placeholder="dd/mm/yyyy" autocomplete="off">
                                         </td>
                                         <td>
                                             <input type="number" data-valid="required" value="" class="form-control total_fee_am_2nd" name="total_fee[]">
@@ -2131,6 +2138,9 @@ class ApplicationsController extends Controller
                                                 <option value="Told by student">Told by student</option>
                                                 <option value="Bonus">Bonus</option>
                                             </select>
+                                        </td>
+                                        <td class="text-center align-middle">
+                                            <a href="javascript:;" class="btn btn-sm btn-outline-danger remove_other_fee_row" title="Delete fee row"><?php echo \App\Helpers\IconHelper::render('trash'); ?></a>
                                         </td>
                                     </tr>
                                     <?php
@@ -2141,7 +2151,7 @@ class ApplicationsController extends Controller
                                     <tr class="add_fee_option cus_fee_option">
                                         <td>
                                             <input type="hidden" value="2"  name="fee_option_type[]">
-                                            <input type="text" data-valid="required" value="" class="form-control date_paid" name="date_paid[]">
+                                            <input type="text" data-valid="required" value="" class="form-control date_paid" name="date_paid[]" placeholder="dd/mm/yyyy" autocomplete="off">
                                         </td>
                                         <td>
                                             <input type="number" data-valid="required" value="" class="form-control total_fee_am_2nd" name="total_fee[]">
@@ -2180,6 +2190,9 @@ class ApplicationsController extends Controller
                                                 <option value="Told by student">Told by student</option>
                                                 <option value="Bonus">Bonus</option>
                                             </select>
+                                        </td>
+                                        <td class="text-center align-middle">
+                                            <a href="javascript:;" class="btn btn-sm btn-outline-danger remove_other_fee_row" title="Delete fee row"><?php echo \App\Helpers\IconHelper::render('trash'); ?></a>
                                         </td>
                                     </tr>
                             <?php
@@ -2195,7 +2208,8 @@ class ApplicationsController extends Controller
                                     <td class="net_totl text-info total_commission_earned"><?php if( isset($totl_commission) && $totl_commission != "" ){ echo $totl_commission;}?></td>
 
                                     <td class="net_totl text-info total_adjustment_discount_entry"><?php if( isset($sum_of_adjustment) && $sum_of_adjustment != "" ){ echo $sum_of_adjustment;}?></td>
-                                    <td colspan="3" class="net_totl text-info total_commission_claimed"><?php if( isset($total_commission_claimed) && $total_commission_claimed != "" ){ echo $total_commission_claimed;}?></td>
+                                    <td class="net_totl text-info total_commission_claimed"><?php if( isset($total_commission_claimed) && $total_commission_claimed != "" ){ echo $total_commission_claimed;}?></td>
+                                    <td colspan="3"></td>
                                 </tr>
                             </tfoot>
 						</table>
@@ -2318,11 +2332,16 @@ class ApplicationsController extends Controller
 					$objs = new ApplicationFeeOptionType;
 					$objs->fee_id = $obj->id;
 					$objs->fee_option_type = 2; //other fee
-                    // Convert date from YYYY-MM-DD (flatpickr format) back to DD/MM/YYYY (database format)
+                    // Normalize UI date (dd/mm/yyyy or yyyy-mm-dd) to DD/MM/YYYY for DB
                     $date_to_save = $requestData['date_paid'][$i];
                     if (!empty($date_to_save)) {
                         try {
-                            $date_to_save = \Carbon\Carbon::createFromFormat('Y-m-d', $date_to_save)->format('d/m/Y');
+                            $normalized_date = str_replace('.', '/', trim($date_to_save));
+                            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $normalized_date)) {
+                                $date_to_save = \Carbon\Carbon::createFromFormat('Y-m-d', $normalized_date)->format('d/m/Y');
+                            } else {
+                                $date_to_save = \Carbon\Carbon::createFromFormat('d/m/Y', $normalized_date)->format('d/m/Y');
+                            }
                         } catch (\Exception $e) {
                             // If conversion fails, keep original value to prevent data loss
                             $date_to_save = $requestData['date_paid'][$i];
@@ -2423,11 +2442,16 @@ class ApplicationsController extends Controller
 					$objs = new ApplicationFeeOptionType;
 					$objs->fee_id = $obj->id;
 					$objs->fee_option_type = 2; //other fee
-                    // Convert date from YYYY-MM-DD (flatpickr format) back to DD/MM/YYYY (database format)
+                    // Normalize UI date (dd/mm/yyyy or yyyy-mm-dd) to DD/MM/YYYY for DB
                     $date_to_save = $requestData['date_paid'][$i];
                     if (!empty($date_to_save)) {
                         try {
-                            $date_to_save = \Carbon\Carbon::createFromFormat('Y-m-d', $date_to_save)->format('d/m/Y');
+                            $normalized_date = str_replace('.', '/', trim($date_to_save));
+                            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $normalized_date)) {
+                                $date_to_save = \Carbon\Carbon::createFromFormat('Y-m-d', $normalized_date)->format('d/m/Y');
+                            } else {
+                                $date_to_save = \Carbon\Carbon::createFromFormat('d/m/Y', $normalized_date)->format('d/m/Y');
+                            }
                         } catch (\Exception $e) {
                             // If conversion fails, keep original value to prevent data loss
                             $date_to_save = $requestData['date_paid'][$i];

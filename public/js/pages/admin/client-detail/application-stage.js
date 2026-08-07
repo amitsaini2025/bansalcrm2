@@ -592,10 +592,10 @@ jQuery(document).ready(function($){
                 });
                 $('#new_fee_option_latest .showproductfee_latest').html(response);
                 
-                // Initialize flatpickr for date fields in the loaded modal
+                // Initialize flatpickr for date fields in the loaded modal (dd/mm/yyyy)
                 if (typeof flatpickr !== 'undefined') {
                     flatpickr('.showproductfee_latest .date_paid', {
-                        dateFormat: 'Y-m-d',
+                        dateFormat: 'd/m/Y',
                         allowInput: true
                     });
                 }
@@ -612,6 +612,57 @@ jQuery(document).ready(function($){
         });
     });
 
+    /**
+     * Recalculate Other Fee Option table totals + paid/pending/anticipated.
+     * Scoped to #new_fee_option_latest so Product Fees / other pages are untouched.
+     */
+    function recalculateOtherFeeOptionTotals($modal) {
+        $modal = $modal && $modal.length ? $modal : $('#new_fee_option_latest');
+        var $rows = $modal.find('#productitemviewlatest tbody.tdata tr.add_fee_option');
+        var totalFeePaid = 0;
+        var totalCommissionEarned = 0;
+        var totalAdjustment = 0;
+        var totalCommissionClaimed = 0;
+        var paidCommission = 0;
+        var pendingCommission = 0;
+        var anticipatedCommission = 0;
+
+        $rows.each(function(){
+            var $row = $(this);
+            var feePaid = parseFloat($row.find('.total_fee_am_2nd').val());
+            var commissionEarned = parseFloat($row.find('.commission_cal').val());
+            var adjustment = parseFloat($row.find('.adjustment_discount_entry').val());
+            var commissionClaimed = parseFloat($row.find('.commission_claimed').val());
+            var claimedOrNot = $row.find('select[name="claimed_or_not[]"]').val();
+
+            feePaid = isNaN(feePaid) ? 0 : feePaid;
+            commissionEarned = isNaN(commissionEarned) ? 0 : commissionEarned;
+            adjustment = isNaN(adjustment) ? 0 : adjustment;
+            commissionClaimed = isNaN(commissionClaimed) ? 0 : commissionClaimed;
+
+            totalFeePaid += feePaid;
+            totalCommissionEarned += commissionEarned;
+            totalAdjustment += adjustment;
+            totalCommissionClaimed += commissionClaimed;
+
+            if (claimedOrNot === 'Yes') {
+                paidCommission += commissionClaimed;
+            } else if (claimedOrNot === 'No') {
+                pendingCommission += commissionClaimed;
+            } else if (claimedOrNot === 'Anticipated') {
+                anticipatedCommission += commissionClaimed;
+            }
+        });
+
+        $modal.find('.total_fees_paid').html(totalFeePaid);
+        $modal.find('.total_commission_earned').html(totalCommissionEarned);
+        $modal.find('.total_adjustment_discount_entry').html(totalAdjustment);
+        $modal.find('.total_commission_claimed').html(totalCommissionClaimed);
+        $modal.find('#paid_commission').html(' ' + paidCommission);
+        $modal.find('#pending_commission').html(' ' + pendingCommission);
+        $modal.find('#anticipated_commission').html(' ' + anticipatedCommission);
+    }
+
     // Handler for "Add Fee" button inside latest fee modal
     $(document).on('click', '#new_fee_option_latest .fee_option_addbtn_latest a', function(e){
         e.preventDefault();
@@ -626,6 +677,8 @@ jQuery(document).ready(function($){
 
         var $newRow = $templateRow.clone();
         var defaultCommission = $modal.find('#commission_percentage').val() || '';
+
+        $newRow.find('.custom-error').remove();
 
         $newRow.find('input').each(function(){
             var $input = $(this);
@@ -646,15 +699,68 @@ jQuery(document).ready(function($){
             $input.val('');
         });
 
-        $newRow.find('select').val('');
+        $newRow.find('select').each(function(){
+            var $select = $(this);
+            $select.find('option').prop('selected', false);
+            $select.val('');
+            $select.find('option[value=""]').prop('selected', true);
+        });
 
         $tbody.append($newRow);
 
         if (typeof flatpickr !== 'undefined') {
-            flatpickr($newRow.find('.date_paid')[0], {
-                dateFormat: 'Y-m-d',
-                allowInput: true
+            var dateInput = $newRow.find('.date_paid')[0];
+            if (dateInput) {
+                if (dateInput._flatpickr && typeof dateInput._flatpickr.destroy === 'function') {
+                    dateInput._flatpickr.destroy();
+                }
+                flatpickr(dateInput, {
+                    dateFormat: 'd/m/Y',
+                    allowInput: true
+                });
+            }
+        }
+    });
+
+    // Delete fee row in Other Fee Option modal (confirm → remove → recalculate)
+    $(document).on('click', '#new_fee_option_latest .remove_other_fee_row', function(e){
+        e.preventDefault();
+
+        var $modal = $('#new_fee_option_latest');
+        var $row = $(this).closest('tr.add_fee_option');
+        var $tbody = $modal.find('#productitemviewlatest tbody.tdata');
+
+        if ($row.length === 0) {
+            return;
+        }
+
+        if ($tbody.find('tr.add_fee_option').length <= 1) {
+            if (typeof window.toastMsg === 'function') {
+                window.toastMsg('At least one fee row is required.', 'error');
+            } else {
+                alert('At least one fee row is required.');
+            }
+            return;
+        }
+
+        var confirmMessage = 'This fee row will be permanently removed when you save. Are you sure you want to delete it?';
+        var doRemove = function(){
+            var dateInput = $row.find('.date_paid')[0];
+            if (dateInput && dateInput._flatpickr && typeof dateInput._flatpickr.destroy === 'function') {
+                dateInput._flatpickr.destroy();
+            }
+            $row.remove();
+            recalculateOtherFeeOptionTotals($modal);
+        };
+
+        if (typeof window.crmConfirm === 'function') {
+            window.crmConfirm(confirmMessage).then(function(ok){
+                if (ok) {
+                    doRemove();
+                }
             });
+        } else if (window.confirm(confirmMessage)) {
+            doRemove();
         }
     });
 
