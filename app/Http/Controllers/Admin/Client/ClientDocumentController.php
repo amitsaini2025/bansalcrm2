@@ -1370,7 +1370,11 @@ class ClientDocumentController extends Controller
             return false;
         }
         if (str_starts_with($filelink, 'http://') || str_starts_with($filelink, 'https://')) {
-            return (bool) filter_var($filelink, FILTER_VALIDATE_URL);
+            // FILTER_VALIDATE_URL rejects unencoded spaces; S3 object keys often have them.
+            // Encode whitespace for validation only — original filelink is unchanged for auth/presign.
+            $forValidation = preg_replace('/\s/u', '%20', $filelink) ?? $filelink;
+
+            return (bool) filter_var($forValidation, FILTER_VALIDATE_URL);
         }
         if (str_starts_with($filelink, '/')) {
             return ! str_contains($filelink, '..');
