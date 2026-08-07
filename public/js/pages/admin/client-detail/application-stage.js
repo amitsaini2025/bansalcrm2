@@ -722,6 +722,29 @@ jQuery(document).ready(function($){
         }
     });
 
+    /**
+     * Confirm delete without nesting Bootstrap modals.
+     * crmConfirm (#crmConfirmModal) is unreliable while #new_fee_option_latest is open
+     * (confirm sits behind / already-shown). Swal or native confirm stay on top.
+     * Scoped to this handler only — does not change global crmConfirm.
+     */
+    function confirmOtherFeeRowDelete(message) {
+        if (typeof Swal !== 'undefined' && typeof Swal.fire === 'function') {
+            return Swal.fire({
+                title: 'Please confirm',
+                text: message,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Delete',
+                cancelButtonText: 'Cancel',
+                confirmButtonColor: '#dc3545'
+            }).then(function(result) {
+                return !!(result && result.isConfirmed);
+            });
+        }
+        return Promise.resolve(window.confirm(message));
+    }
+
     // Delete fee row in Other Fee Option modal (confirm → remove → recalculate)
     $(document).on('click', '#new_fee_option_latest .remove_other_fee_row', function(e){
         e.preventDefault();
@@ -753,15 +776,11 @@ jQuery(document).ready(function($){
             recalculateOtherFeeOptionTotals($modal);
         };
 
-        if (typeof window.crmConfirm === 'function') {
-            window.crmConfirm(confirmMessage).then(function(ok){
-                if (ok) {
-                    doRemove();
-                }
-            });
-        } else if (window.confirm(confirmMessage)) {
-            doRemove();
-        }
+        confirmOtherFeeRowDelete(confirmMessage).then(function(ok){
+            if (ok) {
+                doRemove();
+            }
+        });
     });
 
     console.log('[application-stage.js] Application stage handlers initialized');
