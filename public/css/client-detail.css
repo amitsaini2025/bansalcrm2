@@ -1335,3 +1335,11 @@ td .dropdown-menu {
 #accounts .productitemList td:last-child {
 	white-space: nowrap;
 }
+
+/* Other Fee Option — force trash icon clicks onto the parent delete control */
+#new_fee_option_latest .remove_other_fee_row .crm-icon,
+#new_fee_option_latest .remove_other_fee_row svg.crm-icon,
+#new_fee_option_latest .remove_other_fee_row svg.lucide {
+	pointer-events: none;
+	flex-shrink: 0;
+}

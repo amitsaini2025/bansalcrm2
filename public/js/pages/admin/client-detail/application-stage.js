@@ -748,6 +748,7 @@ jQuery(document).ready(function($){
     // Delete fee row in Other Fee Option modal (confirm → remove → recalculate)
     $(document).on('click', '#new_fee_option_latest .remove_other_fee_row', function(e){
         e.preventDefault();
+        e.stopPropagation();
 
         var $modal = $('#new_fee_option_latest');
         var $row = $(this).closest('tr.add_fee_option');
