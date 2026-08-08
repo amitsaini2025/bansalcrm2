@@ -709,7 +709,8 @@ class ClientDocumentController extends Controller
 
             return redirect($tempUrl);
         } catch (\InvalidArgumentException $e) {
-            return abort(400, $e->getMessage());
+            // Unresolvable / malformed S3 link — same UX as missing object
+            return abort(404, 'File not found in S3');
         } catch (\RuntimeException $e) {
             return abort(404, $e->getMessage());
         } catch (\Exception $e) {
@@ -760,7 +761,8 @@ class ClientDocumentController extends Controller
                 'error' => $e->getMessage(),
             ]);
 
-            return abort(400, $e->getMessage());
+            // Unresolvable / malformed S3 link — same UX as missing object
+            return abort(404, 'File not found in S3');
         } catch (\RuntimeException $e) {
             $this->s3UploadLog('error', '[S3DocumentUpload] preview_file_not_found', [
                 'operation' => 'preview_document',
@@ -956,6 +958,21 @@ class ClientDocumentController extends Controller
         if (preg_match('#^https?://[^/]+/(https?://.+)$#i', $url, $matches)) {
             $url = $matches[1];
         }
+        // asset()-wrapped scheme-less S3: https://app/ast-2.amazonaws.com/key → https://ast-2.amazonaws.com/key
+        if (preg_match('#^https?://[^/]+/([a-z0-9.-]*amazonaws\.com/.+)$#i', $url, $matches)) {
+            $url = 'https://' . $matches[1];
+        }
+        // Legacy DB rows: host/path without scheme
+        if (
+            ! preg_match('#^https?://#i', $url)
+            && ! str_starts_with($url, '//')
+            && (
+                preg_match('#^[a-z0-9.-]*amazonaws\.com/#i', $url)
+                || preg_match('#^[a-z0-9.-]+\.s3[.-]#i', $url)
+            )
+        ) {
+            $url = 'https://' . ltrim($url, '/');
+        }
 
         return rtrim($url, '/');
     }
@@ -1103,6 +1120,8 @@ class ClientDocumentController extends Controller
         if ($fileUrl === null || trim($fileUrl) === '') {
             return null;
         }
+
+        $fileUrl = $this->normalizeDocumentFileUrl($fileUrl);
 
         // Relative local filename (legacy non-S3) — not an S3 key
         if (! str_starts_with($fileUrl, 'http://') && ! str_starts_with($fileUrl, 'https://')) {

@@ -297,6 +297,19 @@ function normalizeDocumentPreviewUrl(rawUrl) {
     if (doubleWrap) {
         url = doubleWrap[2];
     }
+    // Unwrap asset()-wrapped scheme-less S3: https://app/ast-2.amazonaws.com/key
+    var assetWrappedS3 = url.match(/^(https?:\/\/[^/]+)\/([a-z0-9.-]*amazonaws\.com\/.+)$/i);
+    if (assetWrappedS3) {
+        url = 'https://' + assetWrappedS3[2];
+    }
+    // Legacy DB rows: host/path without scheme
+    if (
+        !/^https?:\/\//i.test(url)
+        && !url.startsWith('//')
+        && /^[a-z0-9.-]*amazonaws\.com\//i.test(url)
+    ) {
+        url = 'https://' + url.replace(/^\/+/, '');
+    }
     if (url.startsWith('http://') || url.startsWith('https://')) {
         return url;
     }

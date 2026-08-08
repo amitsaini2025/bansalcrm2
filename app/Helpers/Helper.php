@@ -206,6 +206,14 @@ class Helper
             return $pathOrUrl;
         }
 
+        // Scheme-less S3 host/path (legacy bad rows) — never asset()-wrap
+        if (
+            preg_match('#^[a-z0-9.-]*amazonaws\.com/#i', $pathOrUrl)
+            || preg_match('#^[a-z0-9.-]+\.s3[.-]#i', $pathOrUrl)
+        ) {
+            return 'https://' . ltrim($pathOrUrl, '/');
+        }
+
         return asset(ltrim($pathOrUrl, '/'));
     }
 
