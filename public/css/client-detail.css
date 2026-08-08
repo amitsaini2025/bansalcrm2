@@ -1336,6 +1336,15 @@ td .dropdown-menu {
 	white-space: nowrap;
 }
 
+/* Other Fee Option — keep Date column wide enough for dd/mm/yyyy (avoids clipped last digit) */
+#new_fee_option_latest #productitemviewlatest th:first-child,
+#new_fee_option_latest #productitemviewlatest td:first-child {
+	min-width: 140px;
+}
+#new_fee_option_latest #productitemviewlatest .date_paid {
+	min-width: 125px;
+}
+
 /* Other Fee Option — force trash icon clicks onto the parent delete control */
 #new_fee_option_latest .remove_other_fee_row .crm-icon,
 #new_fee_option_latest .remove_other_fee_row svg.crm-icon,
