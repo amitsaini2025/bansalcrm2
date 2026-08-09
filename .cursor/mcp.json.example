@@ -14,6 +14,13 @@
         "graphify.serve",
         "graphify-out/graph.json"
       ]
+    },
+    "laravel-boost": {
+      "command": "php",
+      "args": [
+        "artisan",
+        "boost:mcp"
+      ]
     }
   }
 }

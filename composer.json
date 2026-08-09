@@ -24,11 +24,12 @@
         "zbateson/mail-mime-parser": "^4.0"
     },
     "require-dev": {
+        "fakerphp/faker": "^1.23",
+        "laravel/boost": "^2.5",
+        "laravel/pint": "^1.18",
         "mockery/mockery": "^1.6",
         "nunomaduro/collision": "^8.8",
         "phpunit/phpunit": "^12.0",
-        "fakerphp/faker": "^1.23",
-        "laravel/pint": "^1.18",
         "spatie/laravel-ignition": "^2.8"
     },
     "autoload": {

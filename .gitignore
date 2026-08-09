@@ -35,3 +35,4 @@ php.ini
 **/.DS_Store
 /bootstrap/cache/*.php
 .cursor/mcp.json
+/graphify-out/

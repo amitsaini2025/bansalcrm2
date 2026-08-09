@@ -2,11 +2,61 @@
 
 **Date:** 2026-07-26  
 **Last deep review:** 2026-07-26 (code-verified; false positives retracted; wording corrected)  
+**Last status verification:** 2026-08-09 (code re-checked; open items confirmed below)  
 **Scope:** Full CRM audit by area (Clients, Leads, Partners, Agents, Applications, Invoices/Receipts, Email/Messaging, Documents, Followups, Actions, Staff/Roles/Teams/Branches, Reports, Admin Console, Auth/CRM Access, Ongoing Sheet, Notifications, Shared Frontend/Config, SMS Webhooks).  
-**Status:** Audit doc; some fixes applied (A-1–A-4, R-1, R-2, R-3 partial, R-4, F-1–F-4, **L-1–L-13** (L-6 retracted), OS-1, OS-2, OS-3, N-1, N-2, N-3, N-4, N-5, E-1–E-5, E-7, E-8, E-10–E-18, **APP-1–APP-12**, **C-1–C-21**, **C-22**, **C-23**, **C-24**, **C-25**, **C-26**, **C-27**, **CA-1–CA-3**).  
+**Status:** All sections closed except **3 open items** — **E-6** (Elite inbound secret unset = no auth), **SMS-1** (SMS webhooks unsigned), **E-9** (SES sender doc drift, low) — plus one residual: **INV-2** blade copy in `clients/detail.blade.php` still uses the old workflow lookup on initial Accounts tab render. **Open items are at the top of this document; everything below the FIXED / CLOSED divider is done.** Fixed: A-1–A-4, R-1–R-4, F-1–F-4, **L-1–L-13** (L-6 retracted), OS-1–OS-3, N-1–N-5, E-1–E-5, E-7, E-8, E-10–E-18, **APP-1–APP-12**, **C-1–C-27** (C-6 retracted), **CA-1–CA-3**, P-1–P-10 (P-11 retracted), INV-1–INV-9 (INV-2 partial), D-1–D-10, ACT-1–ACT-9, S-1–S-7, AC-1–AC-7, FE-1–FE-9 (FE-1/FE-2 env-verified, config defaults unchanged).  
 **Stack note:** Laravel **13.x** (route parameters bind **by position** after DI, not by PHP parameter name).
 
 Severity: **Critical** (crash / data corruption / money wrong / security) · **High** (major feature broken or serious auth hole) · **Medium** (incorrect behavior) · **Low** (edge case / UX / maintenance risk)
+
+---
+
+# OPEN — Needs Fixing (verified 2026-08-09)
+
+Everything in this section is confirmed still present in the codebase. All other items in this document are **FIXED** (see the Fixed section below).
+
+**Fix priority:** 1. SMS-1 → 2. E-6 → 3. INV-2 residual → 4. E-9 → 5. FE-1/FE-2 hardening (optional).
+
+## High
+
+### SMS-1. Provider webhooks have no signature / shared-secret verification
+- **Files:** `routes/sms.php` (~15–19) — `webhooks/sms/*` under `web` middleware only (no auth; CSRF excluded via `bootstrap/app.php`); `SmsWebhookController.php`
+- **What happens:** Twilio/Cellcast status endpoints update `SmsLog` by `provider_message_id` with **no** Twilio signature validation or shared secret. Anyone who can guess/obtain a provider message id can spoof delivery status (or DoS update loops). Incoming handlers currently only log + return OK.
+- **Reproduce:** POST `/webhooks/sms/twilio/status` with arbitrary `MessageSid` + `MessageStatus`.
+- **Verified 2026-08-09:** Still present — `twilioStatus` / `cellcastStatus` / incoming handlers have no verification.
+- **Fix direction:** Twilio `X-Twilio-Signature` validation (SDK `RequestValidator`) on Twilio routes; shared-secret query/header check on Cellcast routes.
+
+### E-6. Elite inbound webhook open when secret unset
+- **File:** `EliteEmailController.php` `assertInboundSecret` (~385–398); `config/crm.php` default `env('EDUCATION_ELITE_INBOUND_SECRET', '')`
+- **What happens:** Empty secret → early `return` (no auth); anyone can inject `elite_emails`.
+- **Verified 2026-08-09:** Still present — `assertInboundSecret` returns without checking anything when the configured secret is `''`. When a secret **is** set, comparison uses `hash_equals` (good).
+- **Fix direction:** Fail closed (403/503) when secret is empty, or require the secret to be configured at boot.
+
+## Medium
+
+### INV-2 (residual). Initial Accounts tab blade still loads workflow by wrong ID
+- **File:** `resources/views/Admin/clients/detail.blade.php` (line ~1775, non-type-3 branch)
+- **What happens:** Controller `getinvoices` was fixed (see INV-2 in the Fixed section), but the initial Accounts tab render in the blade still does `Workflow::where('id', $invoicelist->application_id)` instead of `@$applicationdata->workflow` → wrong/blank workflow name until the AJAX `/get-invoices` path refreshes the table. Display-only; due math in that blade already uses `Invoice::computeOutstandingDue`.
+- **Fix direction:** Use `@$applicationdata->workflow` in the non-type-3 branch (same as the controller).
+
+## Low
+
+### E-9. `SesSenderService` no longer merges SES API identities (doc drift)
+- **File:** `app/Services/SesSenderService.php` — `getComposeSenders` / `getCrmSenders`
+- **What happens:** Compose From dropdown is built from the `from_emails` table only. `listVerifiedEmailIdentitiesFromApi()` exists (paginated `listEmailIdentities`) but is never merged into compose senders; docs (`SES_USAGE_FRONTEND_BACKEND.md`, `SES_VERIFICATION_REPORT.md`) imply SES API identities feed the sender list.
+- **Impact:** Low — behavior may be intentional (DB as the curated allow-list).
+- **Fix direction:** Merge API identities into `getComposeSenders` **or** update the docs to match DB-only behavior.
+
+### FE-1 / FE-2 (optional hardening). Config defaults unsafe when env keys missing
+- **File:** `config/app.php` — `'debug' => env('APP_DEBUG', true)`; `'url' => env('APP_URL', 'http://localhost')`
+- **Status:** Production `.env` is correct (marked FIXED per production verification), but the config **defaults** remain unsafe if the env keys go missing (local/misconfig risk only).
+- **Fix direction:** Default `debug` to `false`; consider failing loudly when `APP_URL` is unset in non-local environments.
+
+---
+
+# FIXED / CLOSED (audit history below)
+
+Everything below this line is fixed, retracted, or corrected. Kept for audit history and fix references.
 
 ### Deep review changelog (2026-07-26)
 
@@ -107,6 +157,10 @@ Severity: **Critical** (crash / data corruption / money wrong / security) · **H
 | **E-16** | **FIXED** (cosmetic) — `where(..., 'and')` was valid Laravel; simplified to `where(col, val)` |
 | **E-17** | **FIXED** — `resolveFromEmail()` + PHPDoc; `configureMailerForEmail` BC alias (never configured mailer) |
 | **E-18** | **FIXED** — CRM sent S3 HTML snapshot sanitizes body + CSP; Email v2 read iframe sandboxed |
+
+### Status verification (2026-08-09)
+
+Code re-checked against this document. Open items are listed in the **OPEN — Needs Fixing** section at the top. Spot-checked fixes confirmed in place: `ClientMergeController` `canEditClient` + `DB::transaction`; `Invoice::computeOutstandingDue` in `getinvoices` / client Accounts tab; `ClientDocumentController` `assertCanAccessDocumentClient`; `ReportController` `ensureReportsModuleAccess` 62–65; `RecentlyModifiedClientsController` `ensureSuperAdminAccess` on all public methods; `fetchnotification` counts `receiver_status = 0` only.
 
 ---
 
@@ -516,7 +570,7 @@ if ($invoicelist->type == 2) {
 #### ~~INV-2. `getinvoices` loads workflow by wrong ID~~ — **FIXED**
 - **File:** `InvoiceController.php` (~488–490) — after loading Application, still does `Workflow::where('id', $invoicelist->application_id)` (application ID as workflow ID). Should use `$applicationdata->workflow`.
 - **Fix:** Controller `getinvoices` now uses `@$applicationdata->workflow` (and `@$applicationdata->partner_id`). Type 3 unchanged.
-- **Note:** Initial Accounts tab render in `clients/detail.blade.php` (~1763) still has the old lookup until that copy is updated; AJAX `/get-invoices` path is correct.
+- **Residual (OPEN):** Initial Accounts tab render in `clients/detail.blade.php` (~1775) still has the old lookup — tracked as **INV-2 (residual)** in the **OPEN — Needs Fixing** section at top.
 
 #### ~~INV-3. Commission report duplicates rows + ungrouped stage OR footgun~~ — **FIXED**
 - **File:** `ClientReceiptController.php` `getcommissionreport` (~737–745)
@@ -578,9 +632,7 @@ if ($invoicelist->type == 2) {
 - **Was:** Docblock listed `sendmsg`; JS opened missing `#sendmsgmodal` / form `sendmsg`; no method or route.
 - **Fix:** No new backend. Legacy `.sendmsg` opens live `#sendSmsModal` via `window.openClientSendSmsModal` (phones/templates + Admin Console `features.sms.send`). Dead form-validation POST branch routes to same modal. Toolbar `.send-sms-btn` unchanged. (2026-08-05)
 
-#### E-6. Elite inbound webhook open when secret unset
-- **File:** `EliteEmailController.php` `assertInboundSecret` (~385–398); `config/crm.php` default `env('EDUCATION_ELITE_INBOUND_SECRET', '')`
-- **What happens:** Empty secret → early `return` (no auth); anyone can inject `elite_emails`.
+#### E-6. Elite inbound webhook open when secret unset — **OPEN** → see **OPEN — Needs Fixing** section at top
 
 ### Medium
 
@@ -590,7 +642,7 @@ if ($invoicelist->type == 2) {
 - **Files:** `email-from-ses-script.blade.php`; `OutlookController::senders`
 - **Was:** Frontend only restored `prev`; never used `default_from`.
 - **Fix:** After loading senders, keep `prev` if still valid; otherwise select `data.default_from` when present in the list. (2026-08-05)
-#### E-9. `SesSenderService` no longer merges SES API identities (doc drift)
+#### E-9. `SesSenderService` no longer merges SES API identities (doc drift) — **OPEN** → see **OPEN — Needs Fixing** section at top
 #### ~~E-10. `uploadmail` — no validation, weak persistence~~ — **FIXED**
 - **File:** `ClientMessagingController::uploadmail`
 - **Was:** Raw `$request->all()` save; missing server validation; weak typed client_id.
@@ -997,34 +1049,28 @@ if ($invoicelist->type == 2) {
 
 ### High
 
-#### SMS-1. Provider webhooks have no signature / shared-secret verification
-- **Files:** `routes/sms.php` (~15–19) — `webhooks/sms/*` under `web` middleware only (no auth); `SmsWebhookController.php`
-- **What happens:** Twilio/Cellcast status endpoints update `SmsLog` by `provider_message_id` with **no** Twilio signature validation or shared secret. Anyone who can guess/obtain a provider message id can spoof delivery status (or DoS update loops). Incoming handlers currently only log + return OK.
-- **Reproduce:** POST `/webhooks/sms/twilio/status` with arbitrary `MessageSid` + `MessageStatus`.
+#### SMS-1. Provider webhooks have no signature / shared-secret verification — **OPEN** → see **OPEN — Needs Fixing** section at top
 
 ---
 
 ## Cross-cutting themes (for prioritization)
 
-1. **Authorization / IDOR** — Many Client/* AJAX controllers, documents, notes, actions, ongoing sheet mutations, reports, audit logs, teams/branches, Admin Console destructive ops lack visibility/module checks.
-2. **Money math** — Invoice due formulas diverge between list UI (`getinvoices`, partner Accounts tab) and payment store; fee joins inflate partner/commission totals.
-3. **Broken/missing endpoints** — Convert lead, convert/delete application routes. (Agent Excel import **A-1/A-2** fixed; SMS sendmsg legacy path **E-5 FIXED** — rewired to `#sendSmsModal`; finalize view copy **APP-1 FIXED**.)
-4. **Email send loop** — *(E-1 college crash, E-2 multi-recipient early return, E-3 placeholders, E-7 checklist dup — **FIXED**)*
-5. **APP_URL / URL::to** — Absolute URLs break when browser host ≠ `APP_URL`.
-6. **SQL injection** — *(APP-3 application checklist upload count — **FIXED** via parameter binding.)*
-7. **Document integrity** — Signing fallback copies unsigned PDF; download accepts arbitrary S3 links.
-8. **Unauthenticated ingress** — Elite inbound when secret empty; SMS webhooks without signature checks.
+*(Updated 2026-08-09 — themes 1–7 closed; only unauthenticated ingress remains.)*
+
+1. **Authorization / IDOR** — **CLOSED** — Client/* AJAX, documents, notes, actions, ongoing sheet, reports, audit logs, teams/branches, Admin Console destructive ops all gated (C-1–C-14, D-3, OS-1, R-1/R-4, S-1–S-3, AC-1).
+2. **Money math** — **CLOSED** — shared `Invoice::computeOutstandingDue` / latest-fee joins (INV-1, P-1–P-3, INV-3). Residual: INV-2 blade workflow-name lookup (display only, not money).
+3. **Broken/missing endpoints** — **CLOSED** (L-1, C-3, A-1/A-2, E-5, APP-1).
+4. **Email send loop** — **CLOSED** (E-1, E-2, E-3, E-7).
+5. **APP_URL / URL::to** — **CLOSED** for audited paths (C-27, P-6, INV-8, CA-3, N-5, FE-2 env, FE-6–FE-9).
+6. **SQL injection** — **CLOSED** (APP-3 via parameter binding).
+7. **Document integrity** — **CLOSED** (D-3 download auth, D-4 signing fail-closed).
+8. **Unauthenticated ingress** — **OPEN** — Elite inbound when secret empty (**E-6**); SMS webhooks without signature checks (**SMS-1**).
 
 ---
 
-## Suggested fix priority (do not implement in this pass)
+## Suggested fix priority
 
-1. INV-1 + P-1 invoice due math  *(APP-3 SQLi, E-1 college / E-2 multi-To email send — **FIXED**)*  
-
-2. C-1/C-2/C-7–C-11 IDOR; D-3 document download auth; AC-1 Admin Console gates; S-1 role auth mismatch  
-3. L-1 convert-to-client; C-3 missing application routes  *(A-1 agent import, APP-1/APP-2 finalize + stage crash — **FIXED**)*  
-4. D-4 signing unsigned PDF; E-6 Elite webhook auth; SMS-1 webhook signatures; FE-1 APP_DEBUG default  
-5. FE-5 recipient XSS *(F-1 followup consultants, N-1 notification poll badge — **FIXED**)*  
+Moved to the **OPEN — Needs Fixing** section at the top of this document (updated 2026-08-09). All earlier priority items (INV-1, P-1, APP-3, E-1/E-2, C-1/C-2/C-7–C-11, D-3, AC-1, S-1, L-1, C-3, D-4, FE-5, F-1, N-1) are **FIXED**.
 
 ---
 
@@ -1042,4 +1088,4 @@ if ($invoicelist->type == 2) {
 
 ---
 
-*End of audit. Generated 2026-07-26. Deep-reviewed 2026-07-26 against codebase (Laravel 13). No application code fixes in this document pass.*
+*End of audit. Generated 2026-07-26. Deep-reviewed 2026-07-26; status re-verified against codebase 2026-08-09 (Laravel 13). Open: E-6, SMS-1, E-9; residual: INV-2 blade lookup. No application code fixes in this document pass.*
