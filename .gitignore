@@ -34,3 +34,4 @@ php.ini
 .DS_Store
 **/.DS_Store
 /bootstrap/cache/*.php
+.cursor/mcp.json
