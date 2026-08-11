@@ -825,10 +825,6 @@ $(document).on('click', '.updateclientreceipt', function(e) {
                 // Populate form with fetched data - Backend returns 'record_get', not 'requestData'
                 var receiptData = obj.record_get || obj.requestData || [];
                 var firstRecord = receiptData[0] || {};
-                if (parseInt(firstRecord.validate_receipt, 10) === 1) {
-                    toastMsg('Validated client receipts cannot be edited.', 'error');
-                    return;
-                }
 
                 // Clear existing rows
                 $('.productitem').html('');

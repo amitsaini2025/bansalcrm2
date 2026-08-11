@@ -614,7 +614,6 @@ function customValidate(formName, savetype = '')
                                             var reqData = obj.requestData;
                                             var awsUrl = obj.awsUrl; //console.log('awsUrl='+awsUrl);
                                             var lastInsertedId = obj.lastInsertedId; //console.log('lastInsertedId='+lastInsertedId);
- 	                                        var validate_receipt = obj.validate_receipt;
                                             var printUrl = obj.printUrl || (lastInsertedId ? '/clients/printpreview/' + lastInsertedId : '');
                                             var trRows = "";
                                             $.each(reqData, function(index, subArray) {
@@ -632,10 +631,7 @@ function customValidate(formName, savetype = '')
                                                     var printLink = '';
                                                 }
 
-                                                // New receipts are unvalidated; still gate on flag for safety
-                                                var editLink = (parseInt(validate_receipt, 10) === 1)
-                                                    ? ''
-                                                    : '<a class="link-primary client-receipt-action updateclientreceipt" href="javascript:;" data-id="'+rowId+'" title="Edit receipt">' + crmIcon('pencil-alt') + '</a>';
+                                                var editLink = '<a class="link-primary client-receipt-action updateclientreceipt" href="javascript:;" data-id="'+rowId+'" title="Edit receipt">' + crmIcon('pencil-alt') + '</a>';
                                                 var refundLink = ' <a class="link-primary client-receipt-action createclientrefund" href="javascript:;" data-id="'+rowId+'" data-trans-no="'+(subArray.trans_no || '')+'" data-amount="'+subArray.deposit_amount+'" data-application-id="" title="Create Refund">' + crmIcon('undo') + '</a>';
 
                                                 trRows += "<tr id=\"TrRow_"+rowId+"\"><td>"+subArray.trans_date+" "+awsLink+"</td><td>"+subArray.entry_date+"</td><td>"+(subArray.trans_no || '')+"</td><td>"+subArray.payment_method+"</td><td>"+subArray.description+"</td><td>$"+subArray.deposit_amount+" "+printLink+" "+editLink+refundLink+"</td></tr>";
@@ -654,7 +650,6 @@ function customValidate(formName, savetype = '')
                                             var awsUrl = obj.awsUrl;
                                             var printUrl = obj.printUrl;
                                             var lastInsertedId = obj.lastInsertedId;
-                                            var validate_receipt = obj.validate_receipt;
 
 											// Fixed Issue #4: Update existing rows instead of emptying/rebuilding
 											$.each(reqData, function(index, subArray) {
@@ -668,7 +663,7 @@ function customValidate(formName, savetype = '')
 												// Build links
 												var awsLink = '';
 												var printLink = '';
-												var editLink = '';
+												var editLink = '<a class="link-primary client-receipt-action updateclientreceipt" href="javascript:;" data-id="'+subArray.id+'" title="Edit receipt">' + crmIcon('pencil-alt') + '</a>';
 												var refundLink = ' <a class="link-primary client-receipt-action createclientrefund" href="javascript:;" data-id="'+subArray.id+'" data-trans-no="'+subArray.trans_no+'" data-amount="'+subArray.deposit_amount+'" data-application-id="'+(subArray.application_id || '')+'" title="Create Refund">' + crmIcon('undo') + '</a>';
 												
 												if(awsUrl != ""){
@@ -678,10 +673,6 @@ function customValidate(formName, savetype = '')
                                                 if(printUrl != ""){
                                                     printLink = '<a target="_blank" class="link-primary client-receipt-action" href="'+printUrl+'" title="Print receipt">' + crmIcon('print') + '</a>';
                                                 }
-
-												if (parseInt(validate_receipt, 10) !== 1) {
-													editLink = '<a class="link-primary client-receipt-action updateclientreceipt" href="javascript:;" data-id="'+subArray.id+'" title="Edit receipt">' + crmIcon('pencil-alt') + '</a>';
-												}
 
 												// Update each TD cell instead of emptying the entire row
 												$existingRow.find('td:eq(0)').html(subArray.trans_date+" "+awsLink);
