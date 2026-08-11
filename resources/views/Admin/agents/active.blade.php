@@ -2,7 +2,10 @@
 @section('title', 'Agents')
 
 @section('content')
-
+<style>
+.filter_panel {background: #f7f7f7;margin-bottom: 10px;border: 1px solid #eee;display: none;}
+.card .card-body .filter_panel { padding: 20px;}
+</style>
 <!-- Main Content -->
 <div class="main-content">
 	<section class="section">
@@ -20,6 +23,7 @@
 							<div class="card-header-action">
 								<a href="{{route('agents.create')}}" class="btn btn-primary">Create Agent</a>
 								<a href="javascript:;" class="btn btn-primary openimportmodal">Import</a>
+								<a href="javascript:;" class="btn btn-theme btn-theme-sm filter_btn">@icon('filter') Filter</a>
 							</div>
 						</div>
 						<div class="card-body">
@@ -33,7 +37,46 @@
 								<li class="nav-item is_checked_clientn">
 									<a class="nav-link" id="inactive-tab"  href="{{URL::to('/agents/inactive')}}" >Inactive</a>
 								</li>
-							</ul> 
+							</ul>
+							<div class="filter_panel"@if(request()->hasAny(['search_by', 'agent_type', 'struture']) && (request('search_by') || request('agent_type') || request('struture'))) style="display:block;"@endif>
+								<h4>Search By Details</h4>
+								<form action="{{ route('agents.active') }}" method="get">
+									<div class="row">
+										<div class="col-md-4">
+											<div class="form-group">
+												<label for="search_by" class="col-form-label">Name, Email or Phone</label>
+												<input id="search_by" type="search" name="search_by" class="form-control" placeholder="Search by name, email or phone..." value="{{ request('search_by') }}" autocomplete="off" />
+											</div>
+										</div>
+										<div class="col-md-4">
+											<div class="form-group">
+												<label for="agent_type" class="col-form-label">Agent Type</label>
+												<select id="agent_type" name="agent_type" class="form-control">
+													<option value="">All</option>
+													<option value="Super Agent" @selected(request('agent_type') === 'Super Agent')>Super Agent</option>
+													<option value="Sub Agent" @selected(request('agent_type') === 'Sub Agent')>Sub Agent</option>
+												</select>
+											</div>
+										</div>
+										<div class="col-md-4">
+											<div class="form-group">
+												<label for="struture" class="col-form-label">Agent Structure</label>
+												<select id="struture" name="struture" class="form-control">
+													<option value="">All</option>
+													<option value="Individual" @selected(request('struture') === 'Individual')>Individual</option>
+													<option value="Business" @selected(request('struture') === 'Business')>Business</option>
+												</select>
+											</div>
+										</div>
+									</div>
+									<div class="row">
+										<div class="col-md-12 text-center">
+											<button type="submit" class="btn btn-primary btn-theme-lg">Search</button>
+											<a class="btn btn-info" href="{{ route('agents.active') }}">Reset</a>
+										</div>
+									</div>
+								</form>
+							</div>
 							<div class="tab-content" id="clientContent">								
 								<div class="tab-pane fade show active" id="active" role="tabpanel" aria-labelledby="active-tab">
 									<div class="table-responsive common_table"> 
@@ -246,6 +289,9 @@
 jQuery(document).ready(function($){
 	$(document).delegate('.openimportmodal','click', function(){
 		$('#openimportmodal').modal('show');
+	});
+	$('.filter_btn').on('click', function(){
+		$('.filter_panel').slideToggle();
 	});
 	$("[data-checkboxes]").each(function () {
   var me = $(this),
