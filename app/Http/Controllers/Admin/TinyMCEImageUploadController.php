@@ -15,8 +15,8 @@ class TinyMCEImageUploadController extends Controller
     }
 
     /**
-     * Upload an image for TinyMCE (email signatures, descriptions, etc.).
-     * Stores in storage/app/public/tinymce-images and returns the public URL.
+     * Upload an image for TinyMCE (notes, email signatures, descriptions, etc.).
+     * Stores on the S3 disk (same pattern as documents) and returns the object URL.
      */
     public function upload(Request $request)
     {
@@ -24,22 +24,19 @@ class TinyMCEImageUploadController extends Controller
             'file' => 'required|image|mimes:jpeg,jpg,png,gif,webp|max:2048', // 2MB max
         ], [
             'file.required' => 'No image selected.',
-            'file.image'    => 'The file must be an image.',
-            'file.mimes'    => 'Allowed formats: JPEG, PNG, GIF, WebP.',
-            'file.max'      => 'Image must be under 2MB.',
+            'file.image' => 'The file must be an image.',
+            'file.mimes' => 'Allowed formats: JPEG, PNG, GIF, WebP.',
+            'file.max' => 'Image must be under 2MB.',
         ]);
 
         $file = $request->file('file');
-        $name = Str::uuid() . '.' . $file->getClientOriginalExtension();
-        $path = 'tinymce-images/' . $name;
+        $name = Str::uuid().'.'.$file->getClientOriginalExtension();
+        $path = 'tinymce-images/'.$name;
 
-        Storage::disk('public')->put($path, file_get_contents($file->getRealPath()));
+        Storage::disk('s3')->put($path, file_get_contents($file->getRealPath()));
 
-        $url = Storage::disk('public')->url($path);
-
-        // Return absolute URL so it works in emails and saved content
-        $location = url($url);
-
-        return response()->json(['location' => $location]);
+        return response()->json([
+            'location' => Storage::disk('s3')->url($path),
+        ]);
     }
 }

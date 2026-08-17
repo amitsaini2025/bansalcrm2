@@ -293,7 +293,7 @@ $collegeRecipientName = $partnerdetail->partner_name ?? 'College';
 											</div>
 											<?php if($applicationlist->description != ''){ ?>
 											<div class="log_desc">
-												<?php echo $applicationlist->description; ?>
+												{!! \App\Helpers\Helper::normalizeActivityDescriptionHtml((string) $applicationlist->description, true) !!}
 											</div>
 											<?php } ?>
 										</div>	

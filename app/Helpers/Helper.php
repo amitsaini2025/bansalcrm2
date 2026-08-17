@@ -1,42 +1,47 @@
 <?php
-namespace App\Helpers; // Your helpers namespace 
+
+namespace App\Helpers; // Your helpers namespace
+
 // NOTE: User model/table has been removed
 // use App\Models\User;
 use App\Models\Company;
 use App\Models\Profile;
 use Auth;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\Storage;
 
 class Helper
 {
-    public static function changeDateFormate($date,$date_format){
-        return \Carbon\Carbon::createFromFormat('Y-m-d', $date)->format($date_format);    
+    public static function changeDateFormate($date, $date_format)
+    {
+        return Carbon::createFromFormat('Y-m-d', $date)->format($date_format);
     }
+
     public static function getUserCompany(): ?object
     {
         $companyId = Auth::user()->comp_id ?? null;
+
         return $companyId ? Company::find($companyId) : null;
     }
 
     /**
      * Get the default CRM profile (Bansal Education Group - Profile ID 1).
      * Used for all non-invoice contexts: emails, receipts, templates, etc.
-     *
-     * @return \App\Models\Profile|null
      */
     public static function defaultCrmProfile(): ?Profile
     {
         $profileId = config('app.default_profile_id', 1);
+
         return Profile::find($profileId);
     }
 
     /**
      * Get the default CRM company name.
-     *
-     * @return string
      */
     public static function defaultCrmCompanyName(): string
     {
         $profile = self::defaultCrmProfile();
+
         return $profile ? $profile->company_name : 'Bansal Education Group';
     }
 
@@ -45,15 +50,16 @@ class Helper
      */
     public static function invoiceProfileLogoFilename($invoicedetail): ?string
     {
-        if (!empty($invoicedetail->profile)) {
+        if (! empty($invoicedetail->profile)) {
             $profile = json_decode($invoicedetail->profile);
-            if ($profile && !empty($profile->logo)) {
+            if ($profile && ! empty($profile->logo)) {
                 return $profile->logo;
             }
         }
 
         $crmProfile = self::defaultCrmProfile();
-        return ($crmProfile && !empty($crmProfile->logo)) ? $crmProfile->logo : null;
+
+        return ($crmProfile && ! empty($crmProfile->logo)) ? $crmProfile->logo : null;
     }
 
     /**
@@ -62,12 +68,12 @@ class Helper
     public static function profileLogoBase64(?string $logoFilename = null): ?string
     {
         $paths = [];
-        if (!empty($logoFilename)) {
-            $paths[] = config('constants.profile_imgs') . DIRECTORY_SEPARATOR . $logoFilename;
+        if (! empty($logoFilename)) {
+            $paths[] = config('constants.profile_imgs').DIRECTORY_SEPARATOR.$logoFilename;
         } else {
             $profile = self::defaultCrmProfile();
-            if ($profile && !empty($profile->logo)) {
-                $paths[] = config('constants.profile_imgs') . DIRECTORY_SEPARATOR . $profile->logo;
+            if ($profile && ! empty($profile->logo)) {
+                $paths[] = config('constants.profile_imgs').DIRECTORY_SEPARATOR.$profile->logo;
             }
         }
         $paths[] = public_path('img/logo.png');
@@ -76,7 +82,8 @@ class Helper
             if (is_string($logoPath) && file_exists($logoPath)) {
                 $logoData = file_get_contents($logoPath);
                 $mime = mime_content_type($logoPath) ?: 'image/png';
-                return 'data:' . $mime . ';base64,' . base64_encode($logoData);
+
+                return 'data:'.$mime.';base64,'.base64_encode($logoData);
             }
         }
 
@@ -87,9 +94,6 @@ class Helper
      * Strip cid: (Content-ID) references from email HTML to prevent ERR_UNKNOWN_URL_SCHEME.
      * Browsers cannot load cid: URLs; replace with transparent 1x1 pixel.
      * Use for server-rendered email content (Conversations tab, etc.).
-     *
-     * @param string|null $html
-     * @return string
      */
     public static function stripCidReferences(?string $html): string
     {
@@ -98,9 +102,10 @@ class Helper
         }
         $pixel = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
         // img src="cid:..." or src='cid:...'
-        $html = preg_replace('/src=["\']cid:[^"\'>]+["\']/i', 'src="' . $pixel . '"', $html);
+        $html = preg_replace('/src=["\']cid:[^"\'>]+["\']/i', 'src="'.$pixel.'"', $html);
         // background-image: url("cid:...") or url('cid:...') or url(cid:...)
         $html = preg_replace('/background-image:\s*url\s*\(["\']?cid:[^"\'\)]+["\']?\)/i', 'background-image: none', $html);
+
         return $html;
     }
 
@@ -109,31 +114,80 @@ class Helper
      * Use when outputting activity or note descriptions that may contain invalid HTML.
      * Parser closes tags within the fragment so they cannot wrap following content.
      *
-     * @param string $html
-     * @return string
+     * When $imagesAsLinks is true (note display only), http(s) images become
+     * "View image" links. Stored HTML and edit payloads are unchanged.
      */
-    public static function normalizeActivityDescriptionHtml(string $html): string
+    public static function normalizeActivityDescriptionHtml(string $html, bool $imagesAsLinks = false): string
     {
         $html = trim($html);
         if ($html === '') {
             return '';
         }
         $enc = 'UTF-8';
-        $wrapper = '<div id="activity-desc-root">' . $html . '</div>';
-        $dom = new \DOMDocument();
+        $wrapper = '<div id="activity-desc-root">'.$html.'</div>';
+        $dom = new \DOMDocument;
         @$dom->loadHTML(
-            '<?xml encoding="' . $enc . '">' . $wrapper,
+            '<?xml encoding="'.$enc.'">'.$wrapper,
             \LIBXML_HTML_NOIMPLIED | \LIBXML_HTML_NODEFDTD
         );
         $root = $dom->getElementById('activity-desc-root');
-        if (!$root) {
+        if (! $root) {
             return $html;
+        }
+        if ($imagesAsLinks) {
+            self::replaceImagesWithPreviewLinks($dom, $root);
         }
         $out = '';
         foreach ($root->childNodes as $child) {
             $out .= $dom->saveHTML($child);
         }
+
         return $out;
+    }
+
+    /**
+     * Replace <img> nodes with a new-tab preview link (document-style).
+     */
+    private static function replaceImagesWithPreviewLinks(\DOMDocument $dom, \DOMElement $root): void
+    {
+        $images = [];
+        foreach ($root->getElementsByTagName('img') as $img) {
+            $images[] = $img;
+        }
+
+        $total = count($images);
+        foreach ($images as $index => $img) {
+            $parent = $img->parentNode;
+            if (! $parent) {
+                continue;
+            }
+
+            $src = trim($img->getAttribute('src'));
+            if (! self::isSafeHttpUrl($src)) {
+                $parent->removeChild($img);
+
+                continue;
+            }
+
+            $label = $total > 1 ? 'View image '.($index + 1) : 'View image';
+            $link = $dom->createElement('a', $label);
+            $link->setAttribute('href', $src);
+            $link->setAttribute('target', '_blank');
+            $link->setAttribute('rel', 'noopener noreferrer');
+            $link->setAttribute('class', 'note-image-link');
+            $parent->replaceChild($link, $img);
+        }
+    }
+
+    private static function isSafeHttpUrl(string $url): bool
+    {
+        if ($url === '' || filter_var($url, FILTER_VALIDATE_URL) === false) {
+            return false;
+        }
+
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+
+        return in_array($scheme, ['http', 'https'], true);
     }
 
     /**
@@ -211,7 +265,7 @@ class Helper
             preg_match('#^[a-z0-9.-]*amazonaws\.com/#i', $pathOrUrl)
             || preg_match('#^[a-z0-9.-]+\.s3[.-]#i', $pathOrUrl)
         ) {
-            return 'https://' . ltrim($pathOrUrl, '/');
+            return 'https://'.ltrim($pathOrUrl, '/');
         }
 
         return asset(ltrim($pathOrUrl, '/'));
@@ -245,11 +299,11 @@ class Helper
         // AWS_URL on s3 disk (path-style / CDN / custom endpoint)
         $configuredBase = rtrim((string) (config('filesystems.disks.s3.url') ?: env('AWS_URL', '')), '/');
         if ($configuredBase !== '') {
-            return $configuredBase . '/' . $key;
+            return $configuredBase.'/'.$key;
         }
 
         try {
-            $url = \Illuminate\Support\Facades\Storage::disk('s3')->url($key);
+            $url = Storage::disk('s3')->url($key);
             if (is_string($url) && trim($url) !== '') {
                 return $url;
             }
@@ -260,7 +314,7 @@ class Helper
         $bucket = (string) (config('filesystems.disks.s3.bucket') ?: env('AWS_BUCKET', ''));
         $region = (string) (config('filesystems.disks.s3.region') ?: env('AWS_DEFAULT_REGION', ''));
         if ($bucket !== '' && $region !== '') {
-            return 'https://' . $bucket . '.s3.' . $region . '.amazonaws.com/' . $key;
+            return 'https://'.$bucket.'.s3.'.$region.'.amazonaws.com/'.$key;
         }
 
         return self::documentFileUrl($key);

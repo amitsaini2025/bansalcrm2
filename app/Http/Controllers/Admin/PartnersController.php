@@ -5011,7 +5011,7 @@ class PartnersController extends Controller
                     <?php } ?>
 				</div>
 				<div class="extra_content">
-				    <p><?php echo @$list->description; ?></p>
+				    <p><?php echo \App\Helpers\Helper::normalizeActivityDescriptionHtml((string) ($list->description ?? ''), true); ?></p>
 
                     <?php if( isset($list->mobile_number) && $list->mobile_number != ""){ ?>
                         <p><?php echo @$list->mobile_number; ?></p>

@@ -16,7 +16,7 @@
 				@if(strpos($description, '<xml>') !== false || strpos($description, '<o:OfficeDocumentSettings>') !== false)
 					<p>{!! htmlentities($description) !!}</p>
 				@else
-					<p>{!! \App\Helpers\Helper::normalizeActivityDescriptionHtml($description) !!}</p>
+					<p>{!! \App\Helpers\Helper::normalizeActivityDescriptionHtml($description, true) !!}</p>
 				@endif
 			</div>
 		@endif

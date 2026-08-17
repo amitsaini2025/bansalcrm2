@@ -50,6 +50,13 @@ const FULL_PLUGINS = [
     'emoticons', 'directionality', 'pagebreak', 'nonbreaking', 'save',
 ].join(' ');
 
+// Keep upload handler URLs (S3) intact on nested pages like /clients/detail/.../application/{id}.
+const EDITOR_URL_OPTIONS = {
+    convert_urls: false,
+    relative_urls: false,
+    remove_script_host: false,
+};
+
 function getImageUploadHandler() {
     return function (blobInfo, progress) {
         return new Promise(function (resolve, reject) {
@@ -129,6 +136,7 @@ function initTinyMCE() {
         branding: false,
         promotion: false,
         browser_spellcheck: true,
+        ...EDITOR_URL_OPTIONS,
         images_upload_handler: getImageUploadHandler(),
         setup: function (editor) {
             editor.on('change', function () {
@@ -157,6 +165,7 @@ function initTinyMCE() {
         branding: false,
         promotion: false,
         browser_spellcheck: true,
+        ...EDITOR_URL_OPTIONS,
         images_upload_handler: getImageUploadHandler(),
         setup: function (editor) {
             editor.on('change', function () {
@@ -185,6 +194,7 @@ function initTinyMCE() {
         branding: false,
         promotion: false,
         browser_spellcheck: true,
+        ...EDITOR_URL_OPTIONS,
         images_upload_handler: getImageUploadHandler(),
     });
 }

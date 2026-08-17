@@ -358,7 +358,10 @@ padding: 5px 10px;width:100%;background-color: #fdfdff;}
 .application_other_info .activity_list .activity_col{padding-bottom:8px;}
 .application_other_info .activity_list .activity_col:last-child{padding-bottom:0px;} 
 .application_other_info .activity_list .activity_col .app_description{box-shadow: 0 3px 8px 0 rgb(0 0 0 / 8%), 0 1px 2px 0 rgb(0 0 0 / 10%);padding: 10px 10px;margin: 6px 0px 6px 10px;border-radius: 4px;} 
-.application_other_info .activity_list .activity_col .app_description p{margin:0px;}  
+.application_other_info .activity_list .activity_col .app_description p{margin:0px;}
+.application_other_info .activity_list .activity_col .log_desc img{max-width:100%;height:auto;}
+.note-image-link{display:inline-block;color:#6777ef;font-weight:600;text-decoration:underline;}
+.note-image-link:hover{color:#404ee0;}  
 .application_other_info .activity_list .activity_col span.span_txt{font-size:13px;line-height:16px;position: relative;padding-left: 5px;}
 .application_other_info .activity_list .activity_col span.span_txt:before{content:"";border-radius:50%;width:10px;height:10px;display: inline-block;background: #6777ef;position: absolute;top: 3px;left: -12px;}
 .application_other_info .activity_list .activity_col span.span_time{font-size:12px;line-height:16px;}

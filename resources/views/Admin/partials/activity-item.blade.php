@@ -122,7 +122,7 @@
 			@else
 				<div class="activity-content-card">
 					<div class="activity-type-badge activity-type-badge--{{ $inferredType }}">{{ ucfirst(str_replace('_', ' ', $inferredType)) }}</div>
-					<div class="activity-content-body">{!! \App\Helpers\Helper::normalizeActivityDescriptionHtml($description) !!}</div>
+					<div class="activity-content-body">{!! \App\Helpers\Helper::normalizeActivityDescriptionHtml($description, $inferredType === 'note') !!}</div>
 				</div>
 			@endif
 		@endif

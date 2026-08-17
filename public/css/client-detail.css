@@ -692,6 +692,19 @@
 .activity-content-body .text-semi-bold {
 	font-weight: 600;
 }
+.activity-content-body img,
+#view_note .note_content img,
+#view_application_note .note_content img {
+	max-width: 100%;
+	height: auto;
+}
+.activity-content-body .note-image-link,
+#view_note .note_content .note-image-link,
+#view_application_note .note_content .note-image-link {
+	display: inline-block;
+	font-weight: 600;
+	text-decoration: underline;
+}
 
 /* Receipt-specific grid (inside activity-content-card) */
 .activity-receipt-grid {

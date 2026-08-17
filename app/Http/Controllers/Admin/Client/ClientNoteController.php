@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin\Client;
 
+use App\Helpers\Helper;
 use App\Http\Controllers\Controller;
 use App\Models\ActivitiesLog;
 use App\Models\Admin;
@@ -114,9 +115,9 @@ class ClientNoteController extends Controller
                 $objs->created_by = Auth::user()->id;
 
                 if (isset($request->mobileNumber) && $request->mobileNumber != '') {
-                    $objs->description = '<span class="text-semi-bold">' . $request->title . '</span><p>' . $request->description . '</p><p>' . $request->mobileNumber . '</p>';
+                    $objs->description = '<span class="text-semi-bold">'.$request->title.'</span><p>'.$request->description.'</p><p>'.$request->mobileNumber.'</p>';
                 } else {
-                    $objs->description = '<span class="text-semi-bold">' . $request->title . '</span><p>' . $request->description . '</p>';
+                    $objs->description = '<span class="text-semi-bold">'.$request->title.'</span><p>'.$request->description.'</p>';
                 }
 
                 $objs->subject = $subject;
@@ -172,6 +173,7 @@ class ClientNoteController extends Controller
             $admin = Staff::find($data->user_id);
             $s = substr(@$admin->first_name, 0, 1);
             $data->admin = $s;
+            $data->description = Helper::normalizeActivityDescriptionHtml((string) $data->description, true);
             $response['status'] = true;
             $response['data'] = $data;
         } else {
@@ -199,6 +201,7 @@ class ClientNoteController extends Controller
             $admin = Staff::find($data->user_id);
             $s = substr(@$admin->first_name, 0, 1);
             $data->admin = $s;
+            $data->description = Helper::normalizeActivityDescriptionHtml((string) $data->description, true);
             $response['status'] = true;
             $response['data'] = $data;
         } else {
@@ -248,7 +251,7 @@ class ClientNoteController extends Controller
                     $objs = new ActivitiesLog;
                     $objs->client_id = $data->client_id;
                     $objs->created_by = Auth::user()->id;
-                    $objs->description = '<span class="text-semi-bold">' . $data->title . '</span><p>' . $data->description . '</p>';
+                    $objs->description = '<span class="text-semi-bold">'.$data->title.'</span><p>'.$data->description.'</p>';
                     $objs->subject = $subject;
                     $objs->task_status = 0;
                     $objs->pin = 0;
