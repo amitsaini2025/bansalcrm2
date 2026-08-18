@@ -829,10 +829,16 @@ $(document).on('click', '.updateclientreceipt', function(e) {
                 // Clear existing rows
                 $('.productitem').html('');
 
-                $('#receipt_application_id').val(firstRecord.application_id || '');
                 $('#create_client_receipt').data('original-application-id', firstRecord.application_id || '');
                 $('#reassignment_reason').val(firstRecord.reassignment_reason || '').removeAttr('data-valid');
                 $('#reassignment_reason_wrapper').hide();
+                if (typeof window.ensureReceiptApplicationOptions === 'function') {
+                    window.ensureReceiptApplicationOptions(function () {
+                        $('#receipt_application_id').val(firstRecord.application_id || '');
+                    });
+                } else {
+                    $('#receipt_application_id').val(firstRecord.application_id || '');
+                }
 
                 $.each(receiptData, function(index, data) {
                     var clonedRow = `

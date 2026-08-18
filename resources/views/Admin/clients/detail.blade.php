@@ -147,10 +147,10 @@ use App\Http\Controllers\Controller;
 
 											<select class=&quot;assignee-tomselect tomselect form-control selec_reg&quot; id=&quot;rem_cat&quot; name=&quot;rem_cat&quot; onchange=&quot;&quot;>
 												<option value=&quot;&quot; >Select</option>
-												@foreach(\App\Models\Staff::select('id', 'office_id', 'first_name', 'last_name')->where('status',1)->orderby('first_name','ASC')->get() as $admin)
+												@foreach(\App\Models\Staff::select('id', 'office_id', 'first_name', 'last_name')->where('status',1)->orderby('first_name','ASC')->with(['office' => function ($q) { $q->select('id', 'office_name'); }])->get() as $admin)
 
 												<?php
-												$branchname = \App\Models\Branch::select('id', 'office_name')->where('id',$admin->office_id)->first();
+												$branchname = $admin->office;
 												?>
 												<option value=&quot;<?php echo $admin->id; ?>&quot;><?php echo $admin->first_name.' '.$admin->last_name.' ('.@$branchname->office_name.')'; ?></option>
 												@endforeach
@@ -594,6 +594,10 @@ use App\Http\Controllers\Controller;
 										<?php
 										if($fetchedData->related_files != ''){
 											$exploder = explode(',', $fetchedData->related_files);
+											$relatedIds = collect($exploder)->map(fn ($id) => trim((string) $id))->filter()->unique()->values();
+											$relatedById = $relatedIds->isEmpty()
+												? collect()
+												: \App\Models\Admin::whereIn('id', $relatedIds)->get()->keyBy(fn ($row) => (int) $row->id);
 
 										?>
 										<?php   
@@ -601,7 +605,8 @@ use App\Http\Controllers\Controller;
 											foreach($exploder AS $EXP){
 												// PostgreSQL doesn't accept empty strings for integer columns - filter empty values
 												if(!empty(trim($EXP)) && trim($EXP) !== '') {
-													$relatedclients = \App\Models\Admin::where('id', trim($EXP))->first();
+													$relatedId = trim($EXP);
+													$relatedclients = is_numeric($relatedId) ? $relatedById->get((int) $relatedId) : null;
 													if($relatedclients) {
 										?>
 														<li><a target="_blank" href="{{URL::to('/clients/detail/'.base64_encode(convert_uuencode(@$relatedclients->id)))}}">{{$relatedclients->first_name}} {{$relatedclients->last_name}}</a></li>
@@ -656,38 +661,13 @@ use App\Http\Controllers\Controller;
 				<div class="card">
 						<div class="card-body">
 							@php
-							$allowedTabs = [
-								'activities',
-								'noteterm',
-								'application',
-								'alldocuments',
-								'notuseddocuments',
-								'accounts',
-							];
-								$tabAliases = [
-									'notestrm' => 'noteterm',
-									'documents' => 'alldocuments',
-									'migrationdocuments' => 'alldocuments'
-								];
-								$allowedTabSlugs = array_unique(array_merge($allowedTabs, array_keys($tabAliases)));
-								$requestedTab = (isset($forcedTab) && $forcedTab)
-									? $forcedTab
-									: (Request::route('tab') ?? Request::get('tab'));
-							if (in_array($requestedTab, ['documents', 'migrationdocuments'])) {
-								$requestedTab = 'alldocuments';
-							}
-													if (empty($requestedTab) || !in_array($requestedTab, $allowedTabSlugs, true)) {
-								$requestedTab = 'activities';
-							}
-								$activeTab = $tabAliases[$requestedTab] ?? $requestedTab;
-								$activeTabSlug = array_search($activeTab, $tabAliases, true);
-								if ($activeTabSlug === false) {
-									$activeTabSlug = $requestedTab;
-								}
-								// Redirected from documents/migrationdocuments: use alldocuments as URL slug
-								if ($activeTab === 'alldocuments' && in_array($activeTabSlug, ['documents', 'migrationdocuments'])) {
-									$activeTabSlug = 'alldocuments';
-								}
+							$resolvedTab = \App\Support\ClientDetailTab::resolve(
+								$forcedTab ?? null,
+								Request::route('tab'),
+								Request::get('tab')
+							);
+							$activeTab = $resolvedTab['tab'];
+							$activeTabSlug = $resolvedTab['slug'];
 								$detailBaseUrl = Request::route()
 									&& \Illuminate\Support\Str::startsWith(Request::route()->getName(), 'leads.detail')
 										? url('/leads/detail/'.$encodeId)
@@ -867,296 +847,23 @@ use App\Http\Controllers\Controller;
 								</div>
 
 								<div class="activities">
-										<?php
-										// Build query with filters
-										$query = \App\Models\ActivitiesLog::where('activities_logs.client_id', $fetchedData->id);
-										
-										// Keyword search filter
-										$keyword_search = Request::get('keyword', '');
-										if($keyword_search != "") {
-											$query->where(function($q) use ($keyword_search) {
-												$q->where('activities_logs.description', 'like', '%'.$keyword_search.'%')
-												  ->orWhere('activities_logs.subject', 'like', '%'.$keyword_search.'%');
-											});
-										}
-										
-										// Activity type filter
-										$activity_type = Request::get('activity_type', 'all');
-										if($activity_type != 'all') {
-											switch($activity_type) {
-												case 'notes':
-													$query->where(function($q) {
-														$q->where('activities_logs.subject', 'like', '%added a note%')
-														  ->orWhere('activities_logs.subject', 'like', '%updated a note%')
-														  ->orWhere('activities_logs.subject', 'like', '%deleted a note%');
-													});
-													break;
-												case 'messages':
-													$query->where('activities_logs.subject', 'like', '%sent a message%');
-													break;
-												case 'calls':
-													$query->where(function($q) {
-														$q->where('activities_logs.description', 'like', '%Call not picked%')
-														  ->orWhere('activities_logs.subject', 'like', '%call%');
-													});
-													break;
-												case 'reviews':
-													$query->where('activities_logs.subject', 'like', '%review%');
-													break;
-												case 'reminders':
-													$query->where(function($q) {
-														$q->where('activities_logs.subject', 'like', '%Email reminder sent%')
-														  ->orWhere('activities_logs.subject', 'like', '%SMS reminder sent%')
-														  ->orWhere('activities_logs.subject', 'like', '%Phone reminder recorded%')
-														  ->orWhere('activities_logs.subject', 'like', '%Checklist Email sent%')
-														  ->orWhere('activities_logs.subject', 'like', '%Checklist Email resent%')
-														  ->orWhere('activities_logs.subject', 'like', '%Document Checklist sent%');
-													});
-													break;
-												case 'documents':
-													$query->where(function($q) {
-														$q->where('activities_logs.subject', 'like', '%document%')
-														  ->orWhere('activities_logs.subject', 'like', '%uploaded%')
-														  ->orWhere('activities_logs.subject', 'like', '%verified%');
-													});
-													break;
-												case 'action':
-													// Renamed from 'tasks' - Groups: Tasks, Actions
-													$query->where(function($q) {
-														$q->where('activities_logs.subject', 'like', '%action%')
-														  ->orWhere('activities_logs.subject', 'like', '%task%')
-														  ->orWhere('activities_logs.subject', 'like', '%Completed action%')
-														  ->orWhere('activities_logs.task_status', '=', 1);
-													});
-													break;
-												case 'accounting':
-													$query->where(function($q) {
-														$q->where('activities_logs.subject', 'like', '%receipt%')
-														  ->orWhere('activities_logs.subject', 'like', '%invoice%')
-														  ->orWhere('activities_logs.subject', 'like', '%payment%');
-													});
-													break;
-												case 'applications':
-													$query->where('activities_logs.subject', 'like', '%started an application%');
-													break;
-											case 'services':
-												$query->where(function($q) {
-													$q->where('activities_logs.subject', 'like', '%an interested service%');
-												});
-												break;
-												case 'status':
-													$query->where(function($q) {
-														$q->where('activities_logs.subject', 'like', '%status%')
-														  ->orWhere('activities_logs.subject', 'like', '%rated%')
-														  ->orWhere('activities_logs.subject', 'like', '%rating%');
-													});
-													break;
-												case 'checkins':
-													$query->where(function($q) {
-														$q->where('activities_logs.subject', 'like', '%check-in%')
-														  ->orWhere('activities_logs.subject', 'like', '%session%')
-														  ->orWhere('activities_logs.subject', 'like', '%commented%');
-													});
-													break;
-												case 'other':
-													// Exclude all known types
-													$query->where(function($q) {
-														$q->where('activities_logs.subject', 'not like', '%note%')
-														  ->where('activities_logs.subject', 'not like', '%document%')
-														  ->where('activities_logs.subject', 'not like', '%action%')
-														  ->where('activities_logs.subject', 'not like', '%task%')
-														  ->where('activities_logs.subject', 'not like', '%receipt%')
-														  ->where('activities_logs.subject', 'not like', '%application%')
-														  ->where('activities_logs.subject', 'not like', '%message%')
-														  ->where('activities_logs.subject', 'not like', '%call%')
-														  ->where('activities_logs.subject', 'not like', '%service%')
-														  ->where('activities_logs.subject', 'not like', '%status%')
-														  ->where('activities_logs.subject', 'not like', '%check-in%')
-														  ->where('activities_logs.subject', 'not like', '%session%')
-														  ->where('activities_logs.subject', 'not like', '%review%')
-														  ->where('activities_logs.subject', 'not like', '%reminder%')
-														  ->where('activities_logs.subject', 'not like', '%Checklist Email sent%')
-														  ->where('activities_logs.subject', 'not like', '%Checklist Email resent%');
-													});
-													break;
-											}
-										}
-										
-										// Date range filter
-										$date_from = Request::get('date_from', '');
-										$date_to = Request::get('date_to', '');
-										if($date_from != "") {
-											$query->whereDate('activities_logs.created_at', '>=', date('Y-m-d', strtotime($date_from)));
-										}
-										if($date_to != "") {
-											$query->whereDate('activities_logs.created_at', '<=', date('Y-m-d', strtotime($date_to)));
-										}
-										
-										// Execute query
-										$activities = $query->orderby('activities_logs.created_at', 'DESC')->get();
-
-										//dd($activities);
-                                        foreach($activities as $activit){
-											$admin = \App\Models\Staff::find($activit->created_by) ?? \App\Models\Admin::find($activit->created_by);
-                                            /*if($activit->use_for != ""){
-                                                $receiver = \App\Models\Staff::find($activit->use_for) ?? \App\Models\Admin::find($activit->use_for);
-                                                if($receiver->first_name){
-                                                    $reciver_name = "to <b>{$receiver->first_name}</b>";
-                                                } else {
-                                                    $reciver_name = "";
-                                                }
-                                            } else {
-                                                $reciver_name = "";
-                                            }*/
-
-											?>
-											<div class="activity" id="activity_{{$activit->id}}">
-												<div class="activity-icon bg-primary text-white">
-													<span>{{substr($admin->first_name, 0, 1)}}</span>
-												</div>
-												<div class="activity-detail">
-												    <div class="activity-head">
-												    	<div class="activity-title">
-															<p><b>{{$admin->first_name}}</b>  <?php echo @$activit->subject; ?></p>
-                                                    	</div>
-
-														<div class="activity-head-actions">
-															<div class="activity-date">
-																<span class="text-job">{{date('d M Y, H:i A', strtotime($activit->created_at))}}</span>
-															</div>
-
-															<div class="activity-actions">
-																<?php if($activit->pin == 1){?>
-																	<div class="pined_note">{!! \App\Helpers\IconHelper::render('thumbtack', 'solid', ['attrs' => ['style' => 'font-size: 12px;color: #6777ef;']]) !!}</div>
-																<?php } ?>
-
-																<div class="dropdown d-inline dropdown_ellipsis_icon">
-																	<a class="dropdown-toggle" href="javascript:;" type="button" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">@icon('ellipsis-v')</a>
-																	<div class="dropdown-menu">
-																		@if(Auth::user()->role == 1)
-																		<a data-id="{{$activit->id}}" data-href="deleteactivitylog" class="dropdown-item deleteactivitylog" href="javascript:;" >Delete</a>
-																		@endif
-																		<?php if($activit->pin == 1){ ?>
-																			<a data-id="<?php echo $activit->id;?>"  class="dropdown-item pinactivitylog" href="javascript:;" >UnPin</a>
-																		<?php
-																		} else { ?>
-																			<a data-id="<?php echo $activit->id;?>"  class="dropdown-item pinactivitylog" href="javascript:;" >Pin</a>
-																		<?php } ?>
-																	</div>
-																</div>
-															</div>
-														</div>
-                                                    </div>
-
-													@if(!empty($activit->description))
-                                                        @php
-                                                            $description = $activit->description;
-                                                            $subject = strtolower($activit->subject ?? '');
-                                                            $actType = $activit->activity_type ?? '';
-
-                                                            // Infer activity type for badge
-                                                            $inferredType = 'other';
-                                                            if (in_array($actType, ['receipt_created','receipt_validated','receipt_edited','receipt_reassigned','receipt_refunded','receipt_voided']) || strpos($description, 'action: receipt_') === 0) {
-                                                                $inferredType = 'receipt';
-                                                            } elseif ($actType === 'document' || preg_match('/\b(document|uploaded|verified|attached|detached)\b/i', $subject)) {
-                                                                $inferredType = 'document';
-                                                            } elseif ($actType === 'sms' || preg_match('/\b(sms|message sent|text)\b/i', $subject)) {
-                                                                $inferredType = 'message';
-                                                            } elseif (preg_match('/\b(added a note|updated a note|deleted a note)\b/i', $subject)) {
-                                                                $inferredType = 'note';
-                                                            } elseif (preg_match('/\b(sent a message)\b/i', $subject)) {
-                                                                $inferredType = 'message';
-                                                            } elseif (preg_match('/\b(call not picked|call)\b/i', $subject) || preg_match('/\bCall not picked\b/', $description)) {
-                                                                $inferredType = 'call';
-                                                            } elseif (preg_match('/\b(review|rated|rating)\b/i', $subject)) {
-                                                                $inferredType = 'review';
-                                                            } elseif (preg_match('/\b(reminder|checklist email|checklist resent|document checklist)\b/i', $subject)) {
-                                                                $inferredType = 'reminder';
-                                                            } elseif (preg_match('/\b(action|task|completed action|marked action)\b/i', $subject) || $activit->task_status == 1) {
-                                                                $inferredType = 'action';
-                                                            } elseif (preg_match('/\b(receipt|invoice|payment)\b/i', $subject)) {
-                                                                $inferredType = 'accounting';
-                                                            } elseif (preg_match('/\b(started an application)\b/i', $subject)) {
-                                                                $inferredType = 'application';
-                                                            } elseif (preg_match('/\b(interested service)\b/i', $subject)) {
-                                                                $inferredType = 'service';
-                                                            } elseif (preg_match('/\b(status|rated|rating)\b/i', $subject)) {
-                                                                $inferredType = 'status';
-                                                            } elseif (preg_match('/\b(check-in|session|commented|sheet comment)\b/i', $subject)) {
-                                                                $inferredType = 'checkin';
-                                                            }
-
-                                                            $isReceiptActivity = in_array($actType, ['receipt_created','receipt_validated','receipt_edited','receipt_reassigned','receipt_refunded','receipt_voided']) || (strpos($description, 'action: receipt_') === 0);
-                                                            $receiptFields = [];
-                                                            $parsedAction = $actType;
-                                                            if ($isReceiptActivity) {
-                                                                $lines = preg_split('/\r?\n/', trim($description));
-                                                                if (empty($parsedAction) && preg_match('/^action:\s*(\S+)/m', $description, $am)) {
-                                                                    $parsedAction = $am[1];
-                                                                }
-                                                                $displayLabels = [
-                                                                    'receipt_id' => 'Receipt ID', 'trans_no' => 'Trans. No', 'trans_date' => 'Trans. Date', 'entry_date' => 'Entry Date',
-                                                                    'payment_method' => 'Payment Method', 'description' => 'Description', 'deposit_amount' => 'Amount', 'application_name' => 'Application',
-                                                                    'document_attached' => 'Document', 'parent_receipt_id' => 'Parent Receipt', 'refund_reason' => 'Refund Reason', 'reassignment_reason' => 'Reassignment Reason',
-                                                                ];
-                                                                foreach ($lines as $line) {
-                                                                    if (preg_match('/^(\w[\w_]+):\s*(.+)$/', trim($line), $m)) {
-                                                                        $key = $m[1];
-                                                                        $value = trim($m[2]);
-                                                                        if (in_array($key, ['action', 'performed_at', 'performed_by', 'deposit_amount'])) continue;
-                                                                        $label = $displayLabels[$key] ?? ucfirst(str_replace('_', ' ', $key));
-                                                                        $receiptFields[] = ['label' => $label, 'value' => $value];
-                                                                    }
-                                                                }
-                                                            }
-
-                                                            $skipXml = (strpos($description, '<xml>') !== false || strpos($description, '<o:OfficeDocumentSettings>') !== false);
-                                                        @endphp
-
-                                                        @if($isReceiptActivity && count($receiptFields) > 0)
-                                                            <div class="activity-content-card">
-                                                                <div class="activity-type-badge activity-type-badge--{{ str_replace('receipt_', '', $parsedAction ?: 'created') }}">
-                                                                    {{ ucfirst(str_replace(['receipt_', '_'], ['', ' '], $parsedAction ?: 'receipt')) }}
-                                                                </div>
-                                                                <div class="activity-receipt-grid">
-                                                                    @foreach($receiptFields as $field)
-                                                                        <div class="activity-receipt-field {{ ($field['label'] ?? '') === 'Amount' ? 'activity-receipt-field--amount' : '' }}">
-                                                                            <span class="activity-receipt-label">{{ $field['label'] }}</span>
-                                                                            <span class="activity-receipt-value">{{ $field['value'] }}</span>
-                                                                        </div>
-                                                                    @endforeach
-                                                                </div>
-                                                            </div>
-                                                        @elseif($skipXml)
-                                                            <div class="activity-content-card">
-                                                                <div class="activity-type-badge activity-type-badge--other">Note</div>
-                                                                <div class="activity-content-body"><p>{!! htmlentities($description) !!}</p></div>
-                                                            </div>
-                                                        @else
-                                                            <div class="activity-content-card">
-                                                                <div class="activity-type-badge activity-type-badge--{{ $inferredType }}">{{ ucfirst(str_replace('_', ' ', $inferredType)) }}</div>
-                                                                <div class="activity-content-body">{!! \App\Helpers\Helper::normalizeActivityDescriptionHtml($description, $inferredType === 'note') !!}</div>
-                                                            </div>
-                                                        @endif
-                                                    @endif
-
-                                                    @if(isset($activit->task_status) && $activit->task_status == '1')
-														<p style="color:#4caf50;"><b>Completed</b></p>
-													@endif
-
-                                                    @if($activit->followup_date != '')
-														<p>{!!$activit->followup_date!!}</p>
-													@endif
-
-                                                    @if($activit->task_group != '')
-														<p>{!!$activit->task_group!!}</p>
-													@endif
-												</div>
-											</div>
-											<?php
-												}
-											?>
+									@if($activeTab === 'activities')
+										@php
+											$activityPage = \App\Support\ClientDetailActivities::paginate(
+												(int) $fetchedData->id,
+												\App\Support\ClientDetailActivities::filtersFromRequest(request()),
+												1
+											);
+											$activityActors = \App\Support\ClientDetailEagerLoads::staffThenAdminByIds($activityPage->getCollection()->pluck('created_by'));
+										@endphp
+										@include('Admin.partials.activities-list', [
+											'activities' => $activityPage,
+											'staffMap' => $activityActors,
+											'adminMap' => collect(),
+										])
+									@endif
 									</div>
+									<button type="button" class="btn btn-outline-primary btn-sm mt-2 activities-load-more" data-next-page="{{ ($activeTab === 'activities' && isset($activityPage) && $activityPage->hasMorePages()) ? 2 : '' }}" style="{{ ($activeTab === 'activities' && isset($activityPage) && $activityPage->hasMorePages()) ? '' : 'display:none;' }}">Load more</button>
 								</div>
 								<div class="tab-pane fade {{ $activeTab === 'application' ? 'show active' : '' }}" id="application" role="tabpanel" aria-labelledby="application-tab">
 									<div class="card-header-action text-end if_applicationdetail" style="padding-bottom:15px;">
@@ -1177,16 +884,18 @@ use App\Http\Controllers\Controller;
 												</tr>
 											</thead>
 											<tbody class="applicationtdata">
+											@if($activeTab === 'application')
 											<?php
-											$application_data=\App\Models\Application::where('client_id', $fetchedData->id)->orderby('created_at','Desc')->get();
+											$application_data = $clientApplications ?? \App\Models\Application::eagerForClientDetailList((int) $fetchedData->id);
+											$application_assign_counts = \App\Models\Application::openClientActionCountsByApplicationId((int) $fetchedData->id, $application_data->pluck('id'));
 											if(count($application_data) > 0){
 											foreach($application_data as $alist){
-												$productdetail = \App\Models\Product::where('id', $alist->product_id)->first();
-												$partnerdetail = \App\Models\Partner::where('id', $alist->partner_id)->first();
-												$PartnerBranch = \App\Models\PartnerBranch::where('id', $alist->branch)->first();
-												$workflow = \App\Models\Workflow::where('id', $alist->workflow)->first();
+												$productdetail = $alist->product;
+												$partnerdetail = $alist->partner;
+												$PartnerBranch = $alist->branch;
+												$workflow = $alist->workflow;
 
-                                                $application_assign_count = \App\Models\Note::where('type','client')->whereNotNull('client_id')->where('is_action',1)->where('status',0)->where('application_id',$alist->id)->where('client_id',$fetchedData->id)->count();
+                                                $application_assign_count = (int) $application_assign_counts->get($alist->id, 0);
                                                 //dd($application_assign_count);
 												?>
 												<tr id="id_{{$alist->id}}">
@@ -1242,6 +951,7 @@ use App\Http\Controllers\Controller;
 													</td>
 												</tr>
 									<?php	} ?>
+											@endif
 											</tbody>
 										</table>
 									</div>
@@ -1290,11 +1000,12 @@ use App\Http\Controllers\Controller;
                                                     </tr>
                                                 </thead>
                                                 <tbody class="tdata alldocumnetlist">
+                                                    @if($activeTab === 'alldocuments')
                                                     <?php
-                                                    $fetchd = \App\Models\Document::where('client_id',$fetchedData->id)->whereNull('not_used_doc')->where('doc_type', 'documents')->where('type','client')->orderby('updated_at', 'DESC')->get();
+                                                    $fetchd = \App\Models\Document::with('staff')->where('client_id',$fetchedData->id)->whereNull('not_used_doc')->where('doc_type', 'documents')->where('type','client')->orderby('updated_at', 'DESC')->get();
                                                     foreach($fetchd as $docKey=>$fetch)
                                                     {
-                                                        $admin = \App\Models\Staff::find($fetch->user_id);
+                                                        $admin = $fetch->staff;
                                                         $addedByInfo = $admin->first_name . ' on ' . date('d/m/Y', strtotime($fetch->created_at));
                                                         //Checklist verified by
                                                         /*if( isset($fetch->checklist_verified_by) && $fetch->checklist_verified_by != "") {
@@ -1398,15 +1109,16 @@ use App\Http\Controllers\Controller;
                                                         <?php endif; ?>
                                                     <?php
                                                     } //end foreach?>
+                                                    @endif
                                                 </tbody>
                                             </table>
                                         </div>
                                     </div>
                                     <div class="grid_data allgriddata">
+                                        @if($activeTab === 'alldocuments' && !empty($fetchd))
                                         <?php
                                         foreach($fetchd as $fetch)
                                         {
-                                            $admin = \App\Models\Staff::find($fetch->user_id);
                                             ?>
                                             <div class="grid_list" id="gid_<?php echo $fetch->id; ?>">
                                                 <div class="grid_col">
@@ -1453,6 +1165,7 @@ use App\Http\Controllers\Controller;
                                             </div>
                                         <?php
                                         } //end foreach ?>
+                                        @endif
                                         <div class="clearfix"></div>
                                     </div>
                                    
@@ -1512,7 +1225,7 @@ use App\Http\Controllers\Controller;
 												<tbody class="tdata notuseddocumnetlist">
                                                     <?php
                                                     //$fetchd = \App\Models\Document::where('client_id',$fetchedData->id)->where('not_used_doc', 1)->where('doc_type', 'personal')->where('type','client')->orderby('updated_at', 'DESC')->get();
-                                                    $fetchd = \App\Models\Document::where('client_id', $fetchedData->id)
+                                                    $fetchd = \App\Models\Document::with('staff')->where('client_id', $fetchedData->id)
                                                     ->where('not_used_doc', 1)
                                                     ->where('type','client')
                                                     ->whereIn('doc_type', ['documents', 'education', 'migration'])
@@ -1520,7 +1233,7 @@ use App\Http\Controllers\Controller;
                                                     //dd($fetchd);
                                                     foreach($fetchd as $notuseKey=>$fetch)
                                                     {
-                                                        $admin = \App\Models\Staff::find($fetch->user_id);
+                                                        $admin = $fetch->staff;
                                                         //Checklist verified by
                                                         /*if( isset($fetch->checklist_verified_by) && $fetch->checklist_verified_by != "") {
                                                             $checklist_verified_Info = \App\Models\Staff::select('first_name')->find($fetch->checklist_verified_by) ?? \App\Models\Admin::select('first_name')->find($fetch->checklist_verified_by);
@@ -1615,10 +1328,12 @@ use App\Http\Controllers\Controller;
 
 									</div>
 									<div class="note_term_list">
+									@if($activeTab === 'noteterm')
 									@php
 									$notelist = \App\Models\Note::where('client_id', $fetchedData->id)->whereNull('assigned_to')->whereNull('task_group')->where('type', 'client')->orderby('pin', 'DESC')->orderByRaw('created_at DESC NULLS LAST')->get();
 									@endphp
 									@include('Admin.partials.notes-list', ['notelist' => $notelist])
+									@endif
 									</div>
 									<div class="clearfix"></div>
 								</div>
@@ -1656,7 +1371,7 @@ use App\Http\Controllers\Controller;
                                                     <th>Deposit</th>
                                                 </tr>
                                             </thead>
-                                            <tbody class="productitemList">
+                                                <tbody class="productitemList">
                                                 <?php
                                                 $receipts_lists = DB::table('account_client_receipts')
                                                     ->where('client_id',$fetchedData->id)
@@ -1664,6 +1379,14 @@ use App\Http\Controllers\Controller;
                                                     ->where(function($q){ $q->where('void_invoice',0)->orWhereNull('void_invoice'); })
                                                     ->orderBy('created_at','desc')
                                                     ->get();
+                                                $receiptClientIds = collect($receipts_lists)->pluck('client_id')->filter()->unique()->values();
+                                                $receiptClientsById = $receiptClientIds->isEmpty()
+                                                    ? collect()
+                                                    : DB::table('admins')->select('id','client_id')->whereIn('id', $receiptClientIds)->get()->keyBy(fn ($row) => (int) $row->id);
+                                                $receiptDocIds = collect($receipts_lists)->pluck('uploaded_doc_id')->filter(fn ($id) => (int) $id > 0)->unique()->values();
+                                                $receiptDocsById = $receiptDocIds->isEmpty()
+                                                    ? collect()
+                                                    : DB::table('documents')->select('id','myfile','client_id','doc_type','myfile_key')->whereIn('id', $receiptDocIds)->get()->keyBy(fn ($row) => (int) $row->id);
                                                 //dd($receipts_lists);
                                                 if(!empty($receipts_lists) && count($receipts_lists)>0 )
                                                 {
@@ -1678,9 +1401,9 @@ use App\Http\Controllers\Controller;
 
                                                         <?php
                                                         if(isset($rec_val->uploaded_doc_id) && $rec_val->uploaded_doc_id >0){
-                                                            $client_info = DB::table('admins')->select('id','client_id')->where('id',$rec_val->client_id)->first();
+                                                            $client_info = $receiptClientsById->get((int) $rec_val->client_id);
 
-                                                        	$client_doc_list = DB::table('documents')->select('id','myfile','client_id','doc_type','myfile_key')->where('id',$rec_val->uploaded_doc_id)->first();
+                                                        	$client_doc_list = $receiptDocsById->get((int) $rec_val->uploaded_doc_id);
                                                             if($client_doc_list){
                                                                 if( isset($client_doc_list->myfile_key) && $client_doc_list->myfile_key != "") {
                                                                     $awsUrl = $client_doc_list->myfile;
@@ -1760,17 +1483,37 @@ use App\Http\Controllers\Controller;
 												</tr>
 											</thead>
 											<tbody class="tdata invoicedatalist">
+												@if($activeTab === 'accounts')
 												<?php
-												$invoicelists = \App\Models\Invoice::where('client_id',$fetchedData->id)->orderby('created_at','DESC')->get();
+												$invoicelists = \App\Models\Invoice::where('client_id',$fetchedData->id)
+													->with([
+														'invoiceDetails' => function ($q) { $q->orderBy('id', 'ASC'); },
+														'invoicePayments' => function ($q) { $q->orderBy('created_at', 'DESC'); },
+													])
+													->orderby('created_at','DESC')
+													->get();
+												$invoiceApplicationIds = $invoicelists->pluck('application_id')->filter()->unique()->values();
+												$workflowsByApplicationId = $invoiceApplicationIds->isEmpty()
+													? collect()
+													: \App\Models\Workflow::whereIn('id', $invoiceApplicationIds)->get()->keyBy(fn ($row) => (int) $row->id);
+												$applicationsById = $invoiceApplicationIds->isEmpty()
+													? collect()
+													: \App\Models\Application::whereIn('id', $invoiceApplicationIds)->get()->keyBy(fn ($row) => (int) $row->id);
+												$partnerIds = $applicationsById->pluck('partner_id')->filter()->unique()->values();
+												$partnersById = $partnerIds->isEmpty()
+													? collect()
+													: \App\Models\Partner::whereIn('id', $partnerIds)->get()->keyBy(fn ($row) => (int) $row->id);
 												foreach($invoicelists as $invoicelist){
+													$invoiceApplicationKey = is_numeric($invoicelist->application_id) ? (int) $invoicelist->application_id : null;
 													if($invoicelist->type == 3){
-														$workflowdaa = \App\Models\Workflow::where('id', $invoicelist->application_id)->first();
+														$workflowdaa = $invoiceApplicationKey !== null ? $workflowsByApplicationId->get($invoiceApplicationKey) : null;
 													}else{
-														$applicationdata = \App\Models\Application::where('id', $invoicelist->application_id)->first();
-														$workflowdaa = \App\Models\Workflow::where('id', $invoicelist->application_id)->first();
-														$partnerdata = \App\Models\Partner::where('id', @$applicationdata->partner_id)->first();
+														$applicationdata = $invoiceApplicationKey !== null ? $applicationsById->get($invoiceApplicationKey) : null;
+														$workflowdaa = $invoiceApplicationKey !== null ? $workflowsByApplicationId->get($invoiceApplicationKey) : null;
+														$rawPartnerId = $applicationdata->partner_id ?? null;
+														$partnerdata = is_numeric($rawPartnerId) ? $partnersById->get((int) $rawPartnerId) : null;
 													}
-													$invoiceitemdetails = \App\Models\InvoiceDetail::where('invoice_id', $invoicelist->id)->orderby('id','ASC')->get();
+													$invoiceitemdetails = $invoicelist->invoiceDetails;
 													$netamount = 0;
 													$coom_amt = 0;
 													$total_fee = 0;
@@ -1780,7 +1523,7 @@ use App\Http\Controllers\Controller;
 														$total_fee += $invoiceitemdetail->total_fee;
 													}
 
-													$paymentdetails = \App\Models\InvoicePayment::where('invoice_id', $invoicelist->id)->orderby('created_at', 'DESC')->get();
+													$paymentdetails = $invoicelist->invoicePayments;
 													$amount_rec = 0;
 													foreach($paymentdetails as $paymentdetail){
 														$amount_rec += $paymentdetail->amount_rec;
@@ -1832,6 +1575,7 @@ use App\Http\Controllers\Controller;
 													</td>
 												</tr>
 												<?php } ?>
+												@endif
 											</tbody>
 										</table>
 									</div>

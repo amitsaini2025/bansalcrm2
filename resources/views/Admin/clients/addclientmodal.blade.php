@@ -1360,7 +1360,7 @@
 						<div class="col-12 col-md-6 col-lg-6">
 							<div class="form-group">
 								<label for="receipt_application_id">Application / Course</label>
-								<select class="form-control" name="application_id" id="receipt_application_id">
+								<select class="form-control" name="application_id" id="receipt_application_id" data-apps-loaded="{{ ($clientApplications ?? null) !== null ? '1' : '0' }}">
 									<option value="">Unallocated</option>
 									@foreach(($clientApplications ?? collect()) as $app)
 										<?php

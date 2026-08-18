@@ -14,18 +14,25 @@
                          urlParams.has('date_to');
         var tabParam = urlParams.get('tab');
 
-        // If filters are present and tab is empty/not set, activate Activities tab
+        // If filters are present and tab is empty/not set, activate Activities tab.
+        // Honor the server-selected URL tab so /accounts?keyword= does not reveal an empty Activities pane.
         if (hasFilters && (!tabParam || tabParam === '')) {
-            var activitiesTab = $('#activities-tab');
-            var activitiesPane = $('#activities');
+            var serverTab = ($('#client_tabs').attr('data-active-tab') || 'activities');
+            if (serverTab === 'notestrm') {
+                serverTab = 'noteterm';
+            }
+            if (serverTab === 'activities') {
+                var activitiesTab = $('#activities-tab');
+                var activitiesPane = $('#activities');
 
-            // Remove active class from all tabs and panes
-            $('#client_tabs .nav-link').removeClass('active');
-            $('#clientContent .tab-pane').removeClass('show active');
+                // Remove active class from all tabs and panes
+                $('#client_tabs .nav-link').removeClass('active');
+                $('#clientContent .tab-pane').removeClass('show active');
 
-            // Activate Activities tab and pane
-            activitiesTab.addClass('active').attr('aria-selected', 'true');
-            activitiesPane.addClass('show active');
+                // Activate Activities tab and pane
+                activitiesTab.addClass('active').attr('aria-selected', 'true');
+                activitiesPane.addClass('show active');
+            }
         }
 
         // Function to handle personal-details-container visibility based on active tab
@@ -63,13 +70,73 @@
             }, 10);
         });
 
-        // Also listen to Bootstrap's shown.bs.tab event for more reliable handling
-        $('#client_tabs a').on('shown.bs.tab', function () {
+        // Lazy-load hidden tab panes on first show (shells are always in the DOM).
+        var loadedTabs = {};
+        var initialTab = ($('#client_tabs').attr('data-active-tab') || 'activities');
+        if (initialTab === 'notestrm') {
+            initialTab = 'noteterm';
+        }
+        loadedTabs[initialTab] = true;
+
+        function loadInvoicesForClientDetail() {
+            var clientId = (typeof App !== 'undefined' && App.getPageConfig)
+                ? App.getPageConfig('clientId')
+                : (window.PageConfig && PageConfig.clientId);
+            var siteUrl = '';
+            if (typeof App !== 'undefined' && App.getUrl) {
+                siteUrl = App.getUrl('siteUrl') || '';
+            } else if (window.AppConfig && AppConfig.siteUrl) {
+                siteUrl = AppConfig.siteUrl;
+            }
+            if (!clientId) {
+                return;
+            }
+            if ($('.popuploader').length) {
+                $('.popuploader').show();
+            }
+            $.ajax({
+                url: String(siteUrl).replace(/\/$/, '') + '/get-invoices',
+                type: 'GET',
+                data: { clientid: clientId },
+                success: function (html) {
+                    if ($('.popuploader').length) {
+                        $('.popuploader').hide();
+                    }
+                    $('.invoicedatalist').html(html);
+                },
+                error: function () {
+                    if ($('.popuploader').length) {
+                        $('.popuploader').hide();
+                    }
+                }
+            });
+        }
+
+        function loadHiddenTab(tabValue) {
+            var key = tabValue === 'notestrm' ? 'noteterm' : tabValue;
+            if (!key || loadedTabs[key]) {
+                return;
+            }
+            loadedTabs[key] = true;
+
+            if (key === 'activities' && typeof getallactivities === 'function') {
+                getallactivities();
+            } else if (key === 'noteterm' && typeof getallnotes === 'function') {
+                getallnotes();
+            } else if (key === 'accounts') {
+                loadInvoicesForClientDetail();
+            }
+        }
+
+        $('#client_tabs a[data-bs-toggle="tab"]').on('shown.bs.tab', function () {
             handlePersonalDetailsVisibility();
-            var targetHref = $(this).attr('href') || '';
-            if (targetHref === '#accounts' && $('.popuploader').length && $('.popuploader').is(':visible')) {
+            var tabValue = $(this).attr('data-tab');
+            var key = tabValue === 'notestrm' ? 'noteterm' : tabValue;
+            var alreadyLoaded = !!loadedTabs[key];
+            if (alreadyLoaded && ($(this).attr('href') || '') === '#accounts' && $('.popuploader').length && $('.popuploader').is(':visible')) {
                 $('.popuploader').hide();
             }
+            loadHiddenTab(tabValue);
         });
 
         // Layout: adjust add_note width on sidebar toggle

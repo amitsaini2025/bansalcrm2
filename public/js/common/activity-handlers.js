@@ -15,10 +15,12 @@
  * Apply activities API response to the DOM.
  * Prefers server-rendered HTML; falls back to legacy JSON data builder.
  * @param {object|string} response
+ * @param {{append?: boolean}} [options]
  */
-function applyActivitiesResponse(response) {
+function applyActivitiesResponse(response, options) {
     var ress = typeof response === 'string' ? JSON.parse(response) : response;
     var html = '';
+    var append = !!(options && options.append);
 
     if (ress && ress.html) {
         html = ress.html;
@@ -29,10 +31,46 @@ function applyActivitiesResponse(response) {
     }
 
     if ($('.activities').length) {
-        $('.activities').html(html);
+        if (append) {
+            $('.activities').append(html);
+        } else {
+            $('.activities').html(html);
+        }
     } else if ($('.activitiesdata').length) {
-        $('.activitiesdata').html(html);
+        if (append) {
+            $('.activitiesdata').append(html);
+        } else {
+            $('.activitiesdata').html(html);
+        }
     }
+
+    syncActivitiesLoadMore(ress);
+}
+
+function syncActivitiesLoadMore(ress) {
+    var $btn = $('.activities-load-more');
+    if (!$btn.length) {
+        return;
+    }
+    $btn.prop('disabled', false).text('Load more');
+    if (ress && ress.hasMore) {
+        $btn.attr('data-next-page', ress.nextPage).show();
+    } else {
+        $btn.removeAttr('data-next-page').hide();
+    }
+}
+
+function activityFilterRequestData() {
+    var data = {};
+    var $form = $('#activitiesFilterForm');
+    if (!$form.length) {
+        return data;
+    }
+    data.keyword = $form.find('[name="keyword"]').val() || '';
+    data.activity_type = $form.find('[name="activity_type"]').val() || 'all';
+    data.date_from = $form.find('[name="date_from"]').val() || '';
+    data.date_to = $form.find('[name="date_to"]').val() || '';
+    return data;
 }
 
 /**
@@ -83,8 +121,9 @@ function buildLegacyActivityItemHtml(v) {
  * Get all activities for the current page
  * Fetches activities based on PageConfig settings
  * @param {function} [onSuccess] - Optional callback called after activities are refreshed
+ * @param {{page?: number, append?: boolean}} [options]
  */
-function getallactivities(onSuccess) {
+function getallactivities(onSuccess, options) {
     var activityId = App.getPageConfig('clientId') || 
                      App.getPageConfig('productId') || 
                      App.getPageConfig('userId') || 
@@ -103,18 +142,27 @@ function getallactivities(onSuccess) {
         if (typeof onSuccess === 'function') onSuccess();
         return;
     }
+
+    options = options || {};
+    var page = parseInt(options.page, 10) || 1;
+    var append = !!options.append;
+    var data = activityFilterRequestData();
+    data.id = activityId;
+    data.paginated = 1;
+    data.page = page;
     
     $.ajax({
         url: url,
         type: 'GET',
         dataType: 'json',
-        data: { id: activityId },
+        data: data,
         success: function(responses) {
-            applyActivitiesResponse(responses);
+            applyActivitiesResponse(responses, { append: append });
             if (typeof onSuccess === 'function') onSuccess();
         },
         error: function(xhr, status, err) {
             console.warn('Failed to refresh activities:', status, err);
+            $('.activities-load-more').prop('disabled', false).text('Load more');
             if (typeof onSuccess === 'function') onSuccess();
         }
     });
@@ -191,4 +239,25 @@ if (typeof window !== 'undefined') {
     window.getallnotes = getallnotes;
     window.deleteactivitylog = deleteactivitylog;
     window.applyActivitiesResponse = applyActivitiesResponse;
+}
+
+function bindActivitiesLoadMore() {
+    if (typeof jQuery === 'undefined') {
+        return;
+    }
+    jQuery(document).off('click.activitiesLoadMore', '.activities-load-more').on('click.activitiesLoadMore', '.activities-load-more', function () {
+        var $btn = jQuery(this);
+        var nextPage = parseInt($btn.attr('data-next-page'), 10);
+        if (!nextPage || $btn.prop('disabled')) {
+            return;
+        }
+        $btn.prop('disabled', true).text('Loading...');
+        getallactivities(null, { page: nextPage, append: true });
+    });
+}
+
+if (typeof jQuery !== 'undefined') {
+    bindActivitiesLoadMore();
+} else if (typeof document !== 'undefined') {
+    document.addEventListener('DOMContentLoaded', bindActivitiesLoadMore);
 }

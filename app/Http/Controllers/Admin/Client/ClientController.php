@@ -17,6 +17,7 @@ use App\Services\ClientExportService;
 use App\Services\ClientLeadListExportService;
 use App\Models\Staff;
 use App\Support\StaffClientVisibility;
+use App\Support\ClientDetailTab;
 use App\Models\CheckinLog;
 use App\Models\ClientPhone;
 use App\Models\ClientEmail;
@@ -622,9 +623,7 @@ class ClientController extends Controller
 					}
                   
                     if(!empty($fetchedData) && $fetchedData->dob != ""){
-                        $calculate_age  = $this->calculateAge($fetchedData->dob); //dd($age);
-                        $fetchedData->age = $calculate_age;  // Update age in the database
-                        $fetchedData->save();
+                        $this->applyCalculatedAgeForDisplay($fetchedData);
                     }
                   
                      //Check phone record is exist in client phone table
@@ -760,9 +759,7 @@ class ClientController extends Controller
                 }
 
                 if(!empty($fetchedData) && $fetchedData->dob != ""){
-                    $calculate_age  = $this->calculateAge($fetchedData->dob); //dd($age);
-                    $fetchedData->age = $calculate_age;  // Update age in the database
-                    $fetchedData->save();
+                    $this->applyCalculatedAgeForDisplay($fetchedData);
                 }
                 
                 
@@ -775,10 +772,7 @@ class ClientController extends Controller
                     }
                 }
                 
-                $clientApplications = Application::where('client_id', $fetchedData->id)
-                    ->with(['product', 'partner'])
-                    ->orderBy('created_at', 'desc')
-                    ->get();
+                $clientApplications = $this->clientApplicationsForActiveDetailTab($request, $forcedTab, (int) $fetchedData->id);
 
                 $showGoogleReviewReminderModal = $this->shouldShowGoogleReviewReminderModal($fetchedData);
 
@@ -836,10 +830,8 @@ class ClientController extends Controller
                     return $this->redirectWhenCannotViewClientRecord($fetchedData, 'leads.index');
                 }
                 $encodeId = base64_encode(convert_uuencode($adminLead->id));
-                $clientApplications = Application::where('client_id', $fetchedData->id)
-                    ->with(['product', 'partner'])
-                    ->orderBy('created_at', 'desc')
-                    ->get();
+                $this->applyCalculatedAgeForDisplay($fetchedData);
+                $clientApplications = $this->clientApplicationsForActiveDetailTab($request, $forcedTab, (int) $fetchedData->id);
                 $showGoogleReviewReminderModal = $this->shouldShowGoogleReviewReminderModal($fetchedData);
                 $followupConsultants = $this->followupConsultantsForSchedule();
                 $canEditClient = $this->canEditClient($fetchedData);
@@ -858,6 +850,7 @@ class ClientController extends Controller
                     if (! $this->canViewClient($fetchedData)) {
                         return $this->redirectWhenCannotViewClientRecord($fetchedData, 'leads.index');
                     }
+                    $this->applyCalculatedAgeForDisplay($fetchedData);
                     if ($fetchedData->updated_at) {
                         $updatedAt = Carbon::parse($fetchedData->updated_at);
                         $fourWeeksAgo = Carbon::now()->subWeeks(4);
@@ -865,10 +858,7 @@ class ClientController extends Controller
                             $showAlert = true;
                         }
                     }
-                    $clientApplications = Application::where('client_id', $fetchedData->id)
-                        ->with(['product', 'partner'])
-                        ->orderBy('created_at', 'desc')
-                        ->get();
+                    $clientApplications = $this->clientApplicationsForActiveDetailTab($request, $forcedTab, (int) $fetchedData->id);
                     $showGoogleReviewReminderModal = $this->shouldShowGoogleReviewReminderModal($fetchedData);
                     $followupConsultants = $this->followupConsultantsForSchedule();
                     $canEditClient = $this->canEditClient($fetchedData);
@@ -884,6 +874,31 @@ class ClientController extends Controller
         {
             return redirect()->route('leads.index')->with('error', Config::get('constants.unauthorized'));
         }
+    }
+
+    /**
+     * Applications tab data only — other tabs lazy-load this via /get-application-lists.
+     */
+    protected function clientApplicationsForActiveDetailTab(Request $request, $forcedTab, int $clientId)
+    {
+        $tab = ClientDetailTab::resolve($forcedTab, $request->route('tab'), $request->get('tab'))['tab'];
+        if ($tab !== 'application') {
+            return null;
+        }
+
+        return Application::eagerForClientDetailList($clientId);
+    }
+
+    /**
+     * Set age on the in-memory record for display. GET must not persist this.
+     */
+    protected function applyCalculatedAgeForDisplay(Admin $record): void
+    {
+        if ($record->dob === null || $record->dob === '') {
+            return;
+        }
+
+        $record->age = $this->calculateAge($record->dob);
     }
 
     //Calculate age

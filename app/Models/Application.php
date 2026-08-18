@@ -2,27 +2,29 @@
 
 namespace App\Models;
 
+use Illuminate\Support\Collection;
 use Kyslik\ColumnSortable\Sortable;
 
 class Application extends BaseModel
 {
     use Sortable;
-	
+
     /**
      * The attributes that are mass assignable.
      *
      * @var array
      */
-	
-	protected $fillable = [
+    protected $fillable = [
         'id', 'client_id', 'user_id', 'product_id', 'enrolment_type', 'company_name', 'partner_id', 'branch',
-        'workflow', 'stage', 'status', 'checklist_sheet_status', 'checklist_sent_at', 'created_at', 'updated_at'
+        'workflow', 'stage', 'status', 'checklist_sheet_status', 'checklist_sent_at', 'created_at', 'updated_at',
     ];
 
     public const ENROLMENT_TYPE_TRANSFER = 'transfer_option';
+
     public const ENROLMENT_TYPE_COURSE_PROGRESSION = 'course_progression';
 
     public const COMPANY_BANSAL_EDUCATION_GROUP = 'bansal_education_group';
+
     public const COMPANY_ELITE_11 = 'elite_11';
 
     public static function enrolmentTypeOptions(): array
@@ -157,43 +159,86 @@ class Application extends BaseModel
 
         return $html;
     }
-	
-	public $sortable = ['id', 'created_at', 'updated_at'];
-    
+
+    public $sortable = ['id', 'created_at', 'updated_at'];
+
     public function application_assignee()
     {
         return $this->belongsTo('App\Models\Staff', 'user_id', 'id');
     }
-	
-	public function client()
-	{
-		return $this->belongsTo(Admin::class, 'client_id', 'id');
-	}
 
-	public function product()
-	{
-		return $this->belongsTo('App\Models\Product', 'product_id', 'id');
-	}
-	
-	public function partner()
-	{
-		return $this->belongsTo('App\Models\Partner', 'partner_id', 'id');
-	}
-	
-	public function branch()
-	{
-		return $this->belongsTo('App\Models\PartnerBranch', 'branch', 'id');
-	}
-	
-	public function workflow()
-	{
-		return $this->belongsTo('App\Models\Workflow', 'workflow', 'id');
-	}
-	
-	public function invoices()
-	{
-		return $this->hasMany('App\Models\Invoice', 'application_id', 'id');
-	}
-	
+    public function client()
+    {
+        return $this->belongsTo(Admin::class, 'client_id', 'id');
+    }
+
+    public function product()
+    {
+        return $this->belongsTo('App\Models\Product', 'product_id', 'id');
+    }
+
+    public function partner()
+    {
+        return $this->belongsTo('App\Models\Partner', 'partner_id', 'id');
+    }
+
+    public function branch()
+    {
+        return $this->belongsTo('App\Models\PartnerBranch', 'branch', 'id');
+    }
+
+    public function workflow()
+    {
+        return $this->belongsTo('App\Models\Workflow', 'workflow', 'id');
+    }
+
+    public function invoices()
+    {
+        return $this->hasMany('App\Models\Invoice', 'application_id', 'id');
+    }
+
+    /**
+     * Client detail Applications tab: same rows as the legacy list query, with relations loaded.
+     *
+     * @return \Illuminate\Database\Eloquent\Collection<int, static>
+     */
+    public static function eagerForClientDetailList(int $clientId)
+    {
+        return static::query()
+            ->where('client_id', $clientId)
+            ->with(['product', 'partner', 'branch', 'workflow'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+    }
+
+    /**
+     * Open action-note counts keyed by application_id (same filters as the Applications tab badge).
+     *
+     * @param  iterable<mixed>  $applicationIds
+     * @return Collection<int, int>
+     */
+    public static function openClientActionCountsByApplicationId(int $clientId, iterable $applicationIds): Collection
+    {
+        $ids = collect($applicationIds)
+            ->filter(fn ($id): bool => $id !== null && $id !== '')
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        return Note::query()
+            ->where('type', 'client')
+            ->whereNotNull('client_id')
+            ->where('is_action', 1)
+            ->where('status', 0)
+            ->where('client_id', $clientId)
+            ->whereIn('application_id', $ids)
+            ->groupBy('application_id')
+            ->select('application_id')
+            ->selectRaw('COUNT(*) as aggregate')
+            ->pluck('aggregate', 'application_id')
+            ->map(fn ($count): int => (int) $count);
+    }
 }
-

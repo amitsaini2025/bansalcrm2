@@ -5,8 +5,11 @@ namespace App\Http\Controllers\Admin\Client;
 use App\Http\Controllers\Controller;
 use App\Models\ActivitiesLog;
 use App\Models\Admin;
+use App\Models\Application;
 use App\Models\Partner;
 use App\Models\PartnerBranch;
+use App\Models\Product;
+use App\Models\WorkflowStage;
 use App\Traits\ClientAuthorization;
 use Auth;
 use Illuminate\Http\Request;
@@ -113,7 +116,7 @@ class ClientApplicationController extends Controller
         }
 
         $enrolmentType = $request->input('enrolment_type');
-        if (! array_key_exists($enrolmentType, \App\Models\Application::enrolmentTypeOptions())) {
+        if (! array_key_exists($enrolmentType, Application::enrolmentTypeOptions())) {
             $response['message'] = 'Please select an Enrolment Type.';
             echo json_encode($response);
 
@@ -121,7 +124,7 @@ class ClientApplicationController extends Controller
         }
 
         $companyName = $request->input('company_name');
-        if (! array_key_exists($companyName, \App\Models\Application::companyNameOptions())) {
+        if (! array_key_exists($companyName, Application::companyNameOptions())) {
             $response['message'] = 'Please select a Company Name.';
             echo json_encode($response);
 
@@ -137,7 +140,7 @@ class ClientApplicationController extends Controller
         }
 
         $workflow = $request->workflow;
-        $workflowstage = \App\Models\WorkflowStage::where('w_id', $workflow)->orderby('id', 'asc')->first();
+        $workflowstage = WorkflowStage::where('w_id', $workflow)->orderby('id', 'asc')->first();
         if (! $workflowstage) {
             $response['message'] = 'This workflow has no stages. Please select a valid workflow.';
             echo json_encode($response);
@@ -152,7 +155,7 @@ class ClientApplicationController extends Controller
         $status = 0;
         $stage = $workflowstage->name;
         $sale_forcast = 0.00;
-        $obj = new \App\Models\Application;
+        $obj = new Application;
         $obj->user_id = Auth::user()->id;
         $obj->workflow = $workflow;
         $obj->partner_id = $partner;
@@ -167,7 +170,7 @@ class ClientApplicationController extends Controller
         $obj->client_id = $client_id;
         $saved = $obj->save();
         if ($saved) {
-            $productdetail = \App\Models\Product::where('id', $product)->first();
+            $productdetail = Product::where('id', $product)->first();
             $partnerdetail = Partner::where('id', $partner)->first();
             $PartnerBranch = PartnerBranch::where('id', $branch)->first();
             $subject = 'has started an application';
@@ -200,15 +203,16 @@ class ClientApplicationController extends Controller
             return '';
         }
 
-        $applications = \App\Models\Application::where('client_id', $client->id)->orderby('created_at', 'DESC')->get();
+        $applications = Application::eagerForClientDetailList((int) $client->id);
+        $applicationAssignCounts = Application::openClientActionCountsByApplicationId((int) $client->id, $applications->pluck('id'));
         ob_start();
         foreach ($applications as $alist) {
-            $productdetail = \App\Models\Product::where('id', $alist->product_id)->first();
-            $partnerdetail = Partner::where('id', $alist->partner_id)->first();
-            $PartnerBranch = PartnerBranch::where('id', $alist->branch)->first();
-            $workflow = \App\Models\Workflow::where('id', $alist->workflow)->first();
+            $productdetail = $alist->product;
+            $partnerdetail = $alist->partner;
+            $PartnerBranch = $alist->branch;
+            $workflow = $alist->workflow;
 
-            $application_assign_count = \App\Models\Note::where('type', 'client')->whereNotNull('client_id')->where('is_action', 1)->where('status', 0)->where('application_id', $alist->id)->where('client_id', $client->id)->count();
+            $application_assign_count = (int) $applicationAssignCounts->get($alist->id, 0);
             // dd($application_assign_count);
             ?>
 				<tr id="id_<?php echo $alist->id; ?>">
@@ -246,13 +250,13 @@ class ClientApplicationController extends Controller
                 </td>
 
 				<td><?php if (@$alist->start_date != '') {
-                    echo date('d/m/Y', strtotime($alist->start_date));
-                } ?></td>
+				    echo date('d/m/Y', strtotime($alist->start_date));
+				} ?></td>
 				<td><?php if (@$alist->end_date != '') {
-                    echo date('d/m/Y', strtotime($alist->end_date));
-                } ?></td>
-				<td><?php echo e(\App\Models\Application::enrolmentTypeLabel($alist->enrolment_type ?? null) ?: '—'); ?></td>
-				<td><?php echo e(\App\Models\Application::companyNameLabel($alist->company_name ?? null) ?: '—'); ?></td>
+				    echo date('d/m/Y', strtotime($alist->end_date));
+				} ?></td>
+				<td><?php echo e(Application::enrolmentTypeLabel($alist->enrolment_type ?? null) ?: '—'); ?></td>
+				<td><?php echo e(Application::companyNameLabel($alist->company_name ?? null) ?: '—'); ?></td>
 			</tr>
 				<?php
         }

@@ -4,11 +4,84 @@
 'use strict';
 
 (function() {
+    function fillReceiptApplicationSelectFromHtml(html) {
+        var $select = jQuery('#receipt_application_id');
+        if (!$select.length) {
+            return;
+        }
+        var current = $select.val();
+        var $tbody = jQuery('<table><tbody></tbody></table>').find('tbody');
+        $tbody.html(html || '');
+        $select.find('option').not(':first').remove();
+        $tbody.find('tr[id^="id_"]').each(function () {
+            var id = String(this.id || '').replace(/^id_/, '');
+            if (!id || $select.find('option[value="' + id + '"]').length) {
+                return;
+            }
+            var $link = jQuery(this).find('a.openapplicationdetail');
+            var productName = $link.clone().children().remove().end().text().trim();
+            var partnerName = jQuery(this).find('small').first().text().split('(')[0].trim();
+            var label = productName || ('Application #' + id);
+            if (partnerName) {
+                label += ' – ' + partnerName;
+            }
+            $select.append(jQuery('<option></option>').attr('value', id).text(label));
+        });
+        $select.attr('data-apps-loaded', '1');
+        if (current) {
+            $select.val(current);
+        }
+    }
+
+    window.fillReceiptApplicationSelectFromHtml = fillReceiptApplicationSelectFromHtml;
+
     jQuery(document).ready(function($){
         // Clear stuck full-page loader so Accounts receipt icons remain clickable
         if ($('.popuploader').length && $('.popuploader').is(':visible')) {
             $('.popuploader').hide();
         }
+
+        function ensureReceiptApplicationOptions(onReady) {
+            var $select = $('#receipt_application_id');
+            var done = function () {
+                if (typeof onReady === 'function') {
+                    onReady();
+                }
+            };
+            if (!$select.length || $select.attr('data-apps-loaded') === '1') {
+                done();
+                return;
+            }
+            if ($select.find('option').length > 1) {
+                $select.attr('data-apps-loaded', '1');
+                done();
+                return;
+            }
+            var clientId = (typeof App !== 'undefined' && App.getPageConfig)
+                ? App.getPageConfig('clientId')
+                : (window.PageConfig && PageConfig.clientId);
+            if (!clientId) {
+                done();
+                return;
+            }
+            var url = (typeof App !== 'undefined' && App.getUrl)
+                ? (App.getUrl('getApplicationLists') || App.getUrl('siteUrl') + '/get-application-lists')
+                : '/get-application-lists';
+            $.ajax({
+                url: url,
+                type: 'GET',
+                data: { id: clientId },
+                success: function (html) {
+                    fillReceiptApplicationSelectFromHtml(html);
+                    done();
+                },
+                error: function () {
+                    done();
+                }
+            });
+        }
+
+        window.ensureReceiptApplicationOptions = ensureReceiptApplicationOptions;
 
         // ============================================================================
         // RECEIPT HELPERS
@@ -85,6 +158,7 @@
                 $('.productitem tr.clonedrow:first').find('input[type="hidden"]').not('[name="trans_no[]"]').val('');
                 $('.total_deposit_amount_all_rows').text('');
             }
+            ensureReceiptApplicationOptions();
             $('#createclientreceiptmodal').modal('show');
         });
 
@@ -138,10 +212,12 @@
                         if(obj.record_get){
                             var record_get = obj.record_get;
                             var firstRecord = record_get[0] || {};
-                            $('#receipt_application_id').val(firstRecord.application_id || '');
                             $('#create_client_receipt').data('original-application-id', firstRecord.application_id || '');
                             $('#reassignment_reason').val(firstRecord.reassignment_reason || '').removeAttr('data-valid');
                             $('#reassignment_reason_wrapper').hide();
+                            ensureReceiptApplicationOptions(function () {
+                                $('#receipt_application_id').val(firstRecord.application_id || '');
+                            });
                         }
                         $('#createclientreceiptmodal').modal('show');
                         if(obj.record_get){

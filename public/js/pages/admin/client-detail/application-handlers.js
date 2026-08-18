@@ -47,6 +47,13 @@
 
 jQuery(document).ready(function($){
 
+    function applyApplicationListHtml(html) {
+        $('.applicationtdata').html(html);
+        if (typeof window.fillReceiptApplicationSelectFromHtml === 'function') {
+            window.fillReceiptApplicationSelectFromHtml(html);
+        }
+    }
+
     // ============================================================================
     // INTERESTED PRODUCT HANDLER
     // ============================================================================
@@ -104,7 +111,7 @@ jQuery(document).ready(function($){
                         data:{id: App.getPageConfig('clientId')},
                         success: function(responses){
                             $('.popuploader').hide();
-                            $('.applicationtdata').html(responses);
+                            applyApplicationListHtml(responses);
                         },
                         error: function() {
                             $('.popuploader').hide();
@@ -134,7 +141,7 @@ jQuery(document).ready(function($){
                 data:{id: App.getPageConfig('clientId')},
                 success: function(responses){
                     $('.popuploader').hide();
-                    $('.applicationtdata').html(responses);
+                    applyApplicationListHtml(responses);
                 },
                 error: function() {
                     $('.popuploader').hide();
@@ -151,7 +158,7 @@ jQuery(document).ready(function($){
                 data:{id: App.getPageConfig('clientId')},
                 success: function(responses){
                     $('.popuploader').hide();
-                    $('.applicationtdata').html(responses);
+                    applyApplicationListHtml(responses);
                 },
                 error: function() {
                     $('.popuploader').hide();
@@ -276,7 +283,7 @@ jQuery(document).ready(function($){
                                             datatype: 'json',
                                             data: {id: clientId},
                                             success: function(responses) {
-                                                $('.applicationtdata').html(responses);
+                                                applyApplicationListHtml(responses);
                                             }
                                         });
                                     },
@@ -321,7 +328,7 @@ jQuery(document).ready(function($){
                                             datatype: 'json',
                                             data: {id: clientId},
                                             success: function(responses) {
-                                                $('.applicationtdata').html(responses);
+                                                applyApplicationListHtml(responses);
                                             }
                                         });
                                     },

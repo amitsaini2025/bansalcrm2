@@ -293,12 +293,21 @@ document.addEventListener('DOMContentLoaded', function() {
     // Debug: Check if modules are available (V2 module auto-initializes)
     console.log('loadEmailsV2 available:', typeof window.loadEmailsV2);
     
-    // Load emails on page load
-    if (typeof window.loadEmailsV2 === 'function') {
-        console.log('Loading initial emails V2...');
-        setTimeout(function() {
+    // Load emails when the Emails tab is shown (or immediately when that tab is already active / no tab control).
+    function runLoadEmailsV2() {
+        if (typeof window.loadEmailsV2 === 'function') {
             window.loadEmailsV2();
-        }, 100);
+        }
+    }
+
+    var emailTab = document.getElementById('email-v2-tab');
+    if (emailTab && !emailTab.classList.contains('active')) {
+        emailTab.addEventListener('shown.bs.tab', function () {
+            runLoadEmailsV2();
+        });
+    } else if (typeof window.loadEmailsV2 === 'function') {
+        console.log('Loading initial emails V2...');
+        setTimeout(runLoadEmailsV2, 100);
     } else {
         console.log('Auto-loading emails from main module');
     }

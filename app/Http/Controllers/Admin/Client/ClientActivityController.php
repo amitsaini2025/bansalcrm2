@@ -5,11 +5,11 @@ namespace App\Http\Controllers\Admin\Client;
 use App\Http\Controllers\Controller;
 use App\Models\ActivitiesLog;
 use App\Models\Admin;
-use App\Models\Staff;
 use App\Services\Sms\UnifiedSmsManager;
+use App\Support\ClientDetailActivities;
+use App\Support\ClientDetailEagerLoads;
 use App\Traits\ClientAuthorization;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -77,7 +77,7 @@ class ClientActivityController extends Controller
         $userInfo = Admin::select('id', 'country_code', 'phone')->where('id', $data['id'])->first();
         $smsSent = false;
         if ($userInfo && ! empty($data['message'])) {
-            $userPhone = trim(($userInfo->country_code ?? '') . '' . ($userInfo->phone ?? ''));
+            $userPhone = trim(($userInfo->country_code ?? '').''.($userInfo->phone ?? ''));
             if ($userPhone) {
                 $result = $this->smsManager->sendSms($userPhone, $data['message'], 'notification', ['client_id' => $data['id']]);
                 $smsSent = ! empty($result['success']);
@@ -173,10 +173,26 @@ class ClientActivityController extends Controller
                 return;
             }
 
-            $activities = ActivitiesLog::where('client_id', $request->id)->orderby('created_at', 'DESC')->get();
+            $clientId = (int) $request->id;
+            $filters = ClientDetailActivities::filtersFromRequest($request);
+            $paginate = $request->boolean('paginated');
+            $page = max(1, $request->integer('page', 1));
+            $hasMore = false;
+            $nextPage = $page + 1;
+
+            if ($paginate) {
+                $paginator = ClientDetailActivities::paginate($clientId, $filters, $page);
+                $activities = $paginator->getCollection();
+                $hasMore = $paginator->hasMorePages();
+                $nextPage = $paginator->currentPage() + 1;
+            } else {
+                $activities = ActivitiesLog::where('client_id', $clientId)->orderby('created_at', 'DESC')->get();
+            }
+
+            $actorMap = ClientDetailEagerLoads::staffThenAdminByIds($activities->pluck('created_by'));
             $data = [];
             foreach ($activities as $activit) {
-                $admin = Staff::find($activit->created_by) ?? Admin::find($activit->created_by);
+                $admin = is_numeric($activit->created_by) ? $actorMap->get((int) $activit->created_by) : null;
                 if (! $admin) {
                     continue;
                 }
@@ -196,7 +212,14 @@ class ClientActivityController extends Controller
 
             $response['status'] = true;
             $response['data'] = $data;
-            $response['html'] = view('Admin.partials.activities-list', compact('activities'))->render();
+            $response['hasMore'] = $hasMore;
+            $response['nextPage'] = $nextPage;
+            $response['page'] = $page;
+            $response['html'] = view('Admin.partials.activities-list', [
+                'activities' => $activities,
+                'staffMap' => $actorMap,
+                'adminMap' => collect(),
+            ])->render();
         } else {
             $response['status'] = false;
             $response['message'] = 'Please try again';
