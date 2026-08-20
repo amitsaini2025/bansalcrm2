@@ -29,9 +29,11 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Redirect;
 use Carbon\Carbon;
 use App\Services\Sms\UnifiedSmsManager;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Uri;
 
 /**
  * Core client CRUD and listing operations
@@ -698,6 +700,19 @@ class ClientController extends Controller
         return redirect()->route($fallbackRoute)->with('error', config('constants.unauthorized'));
     }
 
+    /**
+     * Send a lead opened on /clients/detail to the matching /leads/detail URL (C-21).
+     * Query string is copied as query string so optional {tab} is not hijacked.
+     */
+    protected function redirectToMatchingLeadDetail(string $routeName, array $routeParams, Request $request): RedirectResponse
+    {
+        return redirect()->to(
+            Uri::route($routeName, $routeParams)
+                ->withQuery($request->query())
+                ->value()
+        );
+    }
+
     //Client detail page
     public function clientdetail(Request $request, $id = NULL, $tab = NULL){ 
         $showAlert = false;
@@ -741,17 +756,13 @@ class ClientController extends Controller
                     if (! empty($applicationId)) {
                         $leadRouteParams['applicationId'] = $applicationId;
 
-                        return redirect()
-                            ->route('leads.detail.application', $leadRouteParams)
-                            ->withQueryString();
+                        return $this->redirectToMatchingLeadDetail('leads.detail.application', $leadRouteParams, $request);
                     }
                     if (! empty($tab)) {
                         $leadRouteParams['tab'] = $tab;
                     }
 
-                    return redirect()
-                        ->route('leads.detail', $leadRouteParams)
-                        ->withQueryString();
+                    return $this->redirectToMatchingLeadDetail('leads.detail', $leadRouteParams, $request);
                 }
 
                 if (! $this->canViewClient($fetchedData)) {

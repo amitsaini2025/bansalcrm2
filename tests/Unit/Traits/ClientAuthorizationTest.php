@@ -5,7 +5,6 @@ namespace Tests\Unit\Traits;
 use Tests\TestCase;
 use App\Models\Admin;
 use App\Models\StaffRole;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Mockery;
 
@@ -14,7 +13,6 @@ use Mockery;
  */
 class ClientAuthorizationTest extends TestCase
 {
-    use RefreshDatabase;
 
     protected $controller;
 

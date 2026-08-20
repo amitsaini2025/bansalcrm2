@@ -3,7 +3,6 @@
 namespace Tests\Unit\Traits;
 
 use Tests\TestCase;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Auth;
@@ -14,7 +13,6 @@ use Mockery;
  */
 class ClientHelpersTest extends TestCase
 {
-    use RefreshDatabase;
 
     protected $controller;
 
