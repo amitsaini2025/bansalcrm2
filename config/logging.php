@@ -61,7 +61,7 @@ return [
         ],
 
         'papertrail' => [
-            'driver'  => 'monolog',
+            'driver' => 'monolog',
             'level' => 'debug',
             'handler' => SyslogUdpHandler::class,
             'handler_with' => [
@@ -87,12 +87,12 @@ return [
             'driver' => 'errorlog',
             'level' => 'debug',
         ],
-      
+
         'cron' => [
-          'driver' => 'single',
-          'path' => storage_path('logs/cron.log'),
-          'level' => 'error',
-       ],
+            'driver' => 'single',
+            'path' => storage_path('logs/cron.log'),
+            'level' => 'error',
+        ],
 
         /*
          * Dedicated channel for AWS S3 document uploads (client checklist / bulk upload / preview).
@@ -102,7 +102,7 @@ return [
             'driver' => 'daily',
             'path' => storage_path('logs/s3-upload.log'),
             'level' => 'debug',
-            'days' => 14,
+            'days' => 7,
         ],
     ],
 
