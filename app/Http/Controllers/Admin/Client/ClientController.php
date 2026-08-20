@@ -703,9 +703,12 @@ class ClientController extends Controller
     /**
      * Send a lead opened on /clients/detail to the matching /leads/detail URL (C-21).
      * Query string is copied as query string so optional {tab} is not hijacked.
+     * Status flash is kept so save/error alerts survive this extra hop.
      */
     protected function redirectToMatchingLeadDetail(string $routeName, array $routeParams, Request $request): RedirectResponse
     {
+        session()->keep(['success', 'error', 'warning', 'info']);
+
         return redirect()->to(
             Uri::route($routeName, $routeParams)
                 ->withQuery($request->query())

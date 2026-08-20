@@ -67,6 +67,23 @@ class ClientDetailLeadRedirectTest extends TestCase
         );
     }
 
+    public function test_lead_redirect_keeps_status_flash_for_the_next_request(): void
+    {
+        session()->flash('success', 'Clients Edited Successfully');
+        session()->flash('error', 'Keep errors too');
+        session()->ageFlashData();
+
+        $encodedId = 'JS0zLFYsM0BgCmAK';
+        $request = Request::create('/clients/detail/'.$encodedId, 'GET');
+
+        $this->controller()->redirect('leads.detail', ['id' => $encodedId], $request);
+
+        session()->ageFlashData();
+
+        $this->assertSame('Clients Edited Successfully', session('success'));
+        $this->assertSame('Keep errors too', session('error'));
+    }
+
     public function test_application_redirect_keeps_application_id(): void
     {
         $encodedId = 'JS0zLFYsM0BgCmAK';
