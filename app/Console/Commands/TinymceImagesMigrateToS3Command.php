@@ -14,8 +14,8 @@ use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 
-#[Signature('tinymce-images:migrate-to-s3 {--client= : Client numeric id or client_id reference (e.g. DEMO2308)} {--application= : Application id (resolves that client)} {--all : Process every client (use after a one-client test)} {--dry-run : Report only; do not upload or update HTML}')]
-#[Description('Copy local TinyMCE note screenshots to S3 and rewrite note HTML for the related client. Does not change documents or other S3 paths.')]
+#[Signature('tinymce-images:migrate-to-s3 {--client= : Client numeric id or client_id reference (e.g. DEMO2308)} {--application= : Application id (resolves that client)} {--all : Process every client (use after a one-client test)} {--dry-run : Report only; do not upload, rewrite HTML, or delete local files}')]
+#[Description('Copy local TinyMCE note screenshots to S3, rewrite note HTML, and delete the local file only after S3 has it. Does not change documents or other S3 paths.')]
 class TinymceImagesMigrateToS3Command extends Command
 {
     public function __construct(private TinymceImageS3Migrator $migrator)
@@ -31,7 +31,7 @@ class TinymceImagesMigrateToS3Command extends Command
         }
 
         $dryRun = (bool) $this->option('dry-run');
-        $this->info($dryRun ? 'Dry run — no S3 uploads or database writes.' : 'Live run — will upload to S3 and update note HTML.');
+        $this->info($dryRun ? 'Dry run — no S3 uploads, database writes, or local deletes.' : 'Live run — will upload to S3, update note HTML, and delete local files only after S3 has them.');
 
         $rows = $this->collectDescriptionRows($client);
         $filenames = [];
@@ -62,12 +62,12 @@ class TinymceImagesMigrateToS3Command extends Command
         );
 
         if ($dryRun) {
-            $this->info('Dry run complete. Re-run without --dry-run to upload and rewrite HTML.');
+            $this->info('Dry run complete. Re-run without --dry-run to upload, rewrite HTML, and delete local files after S3 success.');
 
             return self::SUCCESS;
         }
 
-        if ($this->input->isInteractive() && ! $this->confirm('Upload missing files to S3 and rewrite matching note HTML?', false)) {
+        if ($this->input->isInteractive() && ! $this->confirm('Upload missing files to S3, rewrite matching note HTML, and delete local copies only after S3 has the file?', false)) {
             $this->warn('Aborted.');
 
             return self::SUCCESS;
@@ -76,6 +76,8 @@ class TinymceImagesMigrateToS3Command extends Command
         $uploaded = 0;
         $skipped = 0;
         $missing = 0;
+        $failed = 0;
+        $deleted = 0;
         $rewritten = 0;
 
         foreach ($filenames as $name) {
@@ -90,11 +92,32 @@ class TinymceImagesMigrateToS3Command extends Command
                     continue;
                 }
 
-                Storage::disk('s3')->put($key, Storage::disk('public')->get($key));
+                try {
+                    Storage::disk('s3')->put($key, Storage::disk('public')->get($key));
+                } catch (\Throwable $e) {
+                    $this->error("S3 upload failed, local file kept: {$key} ({$e->getMessage()})");
+                    $failed++;
+
+                    continue;
+                }
+
+                if (! Storage::disk('s3')->exists($key)) {
+                    $this->error("S3 upload did not persist, local file kept: {$key}");
+                    $failed++;
+
+                    continue;
+                }
+
                 $uploaded++;
                 $this->line("Uploaded {$key}");
             } else {
                 $skipped++;
+            }
+
+            if (Storage::disk('s3')->exists($key) && Storage::disk('public')->exists($key)) {
+                Storage::disk('public')->delete($key);
+                $deleted++;
+                $this->line("Deleted local {$key}");
             }
 
             $s3Url = Helper::s3ObjectUrl($key);
@@ -116,7 +139,7 @@ class TinymceImagesMigrateToS3Command extends Command
             }
         }
 
-        $this->info("Done. uploaded={$uploaded} already_on_s3={$skipped} local_missing={$missing} html_rows_updated={$rewritten}");
+        $this->info("Done. uploaded={$uploaded} already_on_s3={$skipped} local_missing={$missing} upload_failed={$failed} local_deleted={$deleted} html_rows_updated={$rewritten}");
 
         return self::SUCCESS;
     }
