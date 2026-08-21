@@ -14,17 +14,20 @@
 					<div class="card">
 						<div class="card-header">
 							<h4>Recently Modified Clients</h4>
-							<div class="card-header-action">
-								@if(isset($totalData) && $totalData !== null)
-									<span class="badge badge-primary">Total: {{ $totalData }}</span>
-								@else
-									<span class="badge badge-secondary" title="Total not shown for faster loading">Total: —</span>
-								@endif
+							<div class="card-header-action d-flex align-items-center">
+								<button type="button"
+									class="btn btn-sm btn-outline-primary recent-clients-filter-toggle"
+									id="recentClientsFilterToggle"
+									title="Show filters"
+									aria-expanded="false"
+									aria-controls="recentClientsFilterPanel">
+									@icon('filter')
+								</button>
 							</div>
 						</div>
 						<div class="card-body">
-							<!-- Filter Panel -->
-							<div class="filter-panel mb-4" style="background: #f7f7f7; padding: 20px; border: 1px solid #eee; border-radius: 5px;">
+							<!-- Filter Panel (hidden until the header filter icon is clicked) -->
+							<div class="filter-panel mb-4" id="recentClientsFilterPanel" style="display: none; background: #f7f7f7; padding: 20px; border: 1px solid #eee; border-radius: 5px;">
 								<form method="GET" action="{{ route('adminconsole.recentclients.index') }}" id="filterForm">
 									<!-- Search Box -->
 									<div class="row mb-3">
@@ -182,28 +185,26 @@
 											<div class="form-group">
 												<label for="per_page"><strong>@icon('list') Per Page</strong></label>
 												<select name="per_page" id="per_page" class="form-control">
-													<option value="10" {{ @$perPage == 10 ? 'selected' : '' }}>10</option>
-													<option value="25" {{ @$perPage == 25 ? 'selected' : '' }}>25</option>
-													<option value="50" {{ @$perPage == 50 ? 'selected' : '' }}>50</option>
-													<option value="100" {{ @$perPage == 100 ? 'selected' : '' }}>100</option>
+													<option value="10" {{ (int) @$perPage === 10 ? 'selected' : '' }}>10</option>
+													<option value="20" {{ (int) @$perPage === 20 ? 'selected' : '' }}>20</option>
+													<option value="25" {{ (int) @$perPage === 25 ? 'selected' : '' }}>25</option>
+													<option value="50" {{ (int) @$perPage === 50 ? 'selected' : '' }}>50</option>
+													<option value="100" {{ (int) @$perPage === 100 ? 'selected' : '' }}>100</option>
 												</select>
 											</div>
 										</div>
-										<div class="col-md-2">
-											<div class="form-group">
-												<label>&nbsp;</label>
-												<div>
-													<button type="submit" class="btn btn-primary">
-														@icon('filter') Apply Filters
-													</button>
-													<button type="button" class="btn btn-info" id="refreshBtn" title="Refresh Data">
-														@icon('sync-alt') Refresh
-													</button>
-													<a href="{{ route('adminconsole.recentclients.index') }}" class="btn btn-secondary">
-														@icon('times') Clear
-													</a>
-												</div>
-											</div>
+									</div>
+									<div class="row">
+										<div class="col-12 d-flex justify-content-end flex-wrap" style="gap: 8px;">
+											<button type="submit" class="btn btn-primary">
+												@icon('filter') Apply Filters
+											</button>
+											<button type="button" class="btn btn-info" id="refreshBtn" title="Refresh Data">
+												@icon('sync-alt') Refresh
+											</button>
+											<a href="{{ route('adminconsole.recentclients.index') }}" class="btn btn-secondary">
+												@icon('times') Clear
+											</a>
 										</div>
 									</div>
 									
@@ -211,24 +212,7 @@
 									<input type="hidden" name="sort_column" id="sort_column" value="{{ @$sortColumn }}">
 								</form>
 							</div>
-							<!-- Storage tabs: filter listing by Storage column (Local Only / Both / AWS) -->
-							@php
-								$storageTabParams = request()->except('doc_storage');
-							@endphp
-							<ul class="nav nav-tabs mb-3 storage-tabs" role="tablist">
-								<li class="nav-item">
-									<a class="nav-link {{ (@$docStorage === 'local') ? 'active' : '' }}" href="{{ route('adminconsole.recentclients.index', array_merge($storageTabParams, ['doc_storage' => 'local'])) }}" role="tab">Local Only <span class="storage-tab-count">({{ (int) (@$storageCounts['local'] ?? 0) }})</span></a>
-								</li>
-								<li class="nav-item">
-									<a class="nav-link {{ (@$docStorage === 'both') ? 'active' : '' }}" href="{{ route('adminconsole.recentclients.index', array_merge($storageTabParams, ['doc_storage' => 'both'])) }}" role="tab">Both <span class="storage-tab-count">({{ (int) (@$storageCounts['both'] ?? 0) }})</span></a>
-								</li>
-								<li class="nav-item">
-									<a class="nav-link {{ (@$docStorage === 'aws') ? 'active' : '' }}" href="{{ route('adminconsole.recentclients.index', array_merge($storageTabParams, ['doc_storage' => 'aws'])) }}" role="tab">AWS <span class="storage-tab-count">({{ (int) (@$storageCounts['aws'] ?? 0) }})</span></a>
-								</li>
-								<li class="nav-item">
-									<a class="nav-link {{ (@$docStorage === 'none') ? 'active' : '' }}" href="{{ route('adminconsole.recentclients.index', array_merge($storageTabParams, ['doc_storage' => 'none'])) }}" role="tab">None <span class="storage-tab-count">({{ (int) (@$storageCounts['storage'] ?? 0) }})</span></a>
-								</li>
-							</ul>
+							<div id="recent-clients-results">
 							@if($lists->count() > 0)
 							<div class="mb-3 d-flex align-items-center flex-wrap">
 								<button type="button" class="btn btn-danger mr-2" id="bulkArchiveBtn" disabled title="Select one or more clients to archive">
@@ -313,7 +297,6 @@
 												@icon('sort', 'solid', ['class' => 'ml-1 text-muted'])
 											@endif
 										</th>
-										<th>Storage</th>
 										<th>Action</th>
 									</tr>
 								</thead>
@@ -385,18 +368,6 @@
 											@endif
 										</td>
 										<td>
-											@php $ds = @$list->doc_storage ?? 'none'; @endphp
-											@if($ds === 'both')
-												<span class="badge badge-info" title="Documents in local and AWS">@icon('folder') @icon('cloud') Both</span>
-											@elseif($ds === 'local')
-												<span class="badge badge-secondary" title="Documents in local/public folder">@icon('folder') Local</span>
-											@elseif($ds === 'aws')
-												<span class="badge badge-primary" title="Documents in AWS S3">@icon('cloud') AWS</span>
-											@else
-												<span class="text-muted">—</span>
-											@endif
-										</td>
-										<td>
 											@if(@$list->client_id)
 												<a href="{{ URL::to('/clients/detail/'.base64_encode(convert_uuencode(@$list->client_id))) }}" class="btn btn-sm btn-primary" title="View Client">
 													@icon('eye', 'regular') View
@@ -409,7 +380,7 @@
 									<!-- Expandable row for client details -->
 									@if(@$list->client_id)
 									<tr id="client-details-{{ @$list->client_id }}" class="client-details-row" style="display: none;">
-										<td colspan="9" style="background-color: #f8f9fa; padding: 20px;">
+										<td colspan="8" style="background-color: #f8f9fa; padding: 20px;">
 											<div class="client-details-content" id="client-details-content-{{ @$list->client_id }}">
 												<div class="text-center">
 													@icon('spinner', 'solid', ['spin' => true]) Loading...
@@ -423,7 +394,7 @@
 								@else
 								<tbody>
 									<tr>
-										<td style="text-align:center;" colspan="9">
+										<td style="text-align:center;" colspan="8">
 											No records found
 										</td>
 									</tr>
@@ -436,6 +407,7 @@
 								{{ $lists->links() }}
 							</div>
 						@endif
+							</div>
 					</div>
 				</div>
 			</div>
@@ -510,6 +482,16 @@
 	.btn-archive-client {
 		/* Small button - no min-width needed */
 	}
+	.recent-clients-filter-toggle {
+		margin-right: 8px;
+		padding: 4px 10px;
+		line-height: 1;
+	}
+	.recent-clients-filter-toggle.is-open {
+		background: #6777ef;
+		color: #fff;
+		border-color: #6777ef;
+	}
 	
 	/* Enhanced date picker styling */
 	.filterdatepicker {
@@ -561,38 +543,23 @@
 	#refreshBtn i.icon-spin {
 		animation: crm-icon-spin 1s infinite linear;
 	}
-	
-	/* Storage tabs above listing */
-	ul.storage-tabs.nav-tabs {
-		border-bottom: 2px solid #dee2e6;
-	}
-	ul.storage-tabs .nav-link {
-		color: #495057;
-		border: 1px solid transparent;
-		border-radius: 4px 4px 0 0;
-		padding: 0.5rem 1rem;
-	}
-	ul.storage-tabs .nav-link:hover {
-		border-color: #e9ecef #e9ecef #dee2e6;
-		color: #007bff;
-	}
-	ul.storage-tabs .nav-link.active {
-		color: #495057;
-		background-color: #fff;
-		border-color: #dee2e6 #dee2e6 #fff;
-		font-weight: 600;
-	}
-	ul.storage-tabs .storage-tab-count {
-		font-weight: 500;
-		opacity: 0.9;
-		margin-left: 2px;
-	}
 </style>
 @endpush
 
 @push('scripts')
 <script>
 $(document).ready(function() {
+	$('#recentClientsFilterToggle').on('click', function() {
+		var $btn = $(this);
+		var $panel = $('#recentClientsFilterPanel');
+		$panel.slideToggle(200, function() {
+			var open = $panel.is(':visible');
+			$btn.toggleClass('is-open', open)
+				.attr('aria-expanded', open ? 'true' : 'false')
+				.attr('title', open ? 'Hide filters' : 'Show filters');
+		});
+	});
+
 	// Wait for flatpickr to be available (it's loaded via Vite)
 	function initDatePickers() {
 		if (typeof flatpickr !== 'undefined' && $(".filterdatepicker").length) {
@@ -610,6 +577,64 @@ $(document).ready(function() {
 	
 	// Initialize date pickers
 	initDatePickers();
+
+	function loadRecentClientsResults(url, pushUrl) {
+		var $box = $('#recent-clients-results');
+		if (!$box.length || !url) {
+			window.location.href = url;
+			return;
+		}
+
+		$box.css('opacity', 0.55);
+		$.ajax({
+			url: url,
+			type: 'GET',
+			headers: { 'X-Requested-With': 'XMLHttpRequest' },
+			success: function(html) {
+				var doc = new DOMParser().parseFromString(html, 'text/html');
+				var fresh = doc.getElementById('recent-clients-results');
+				if (!fresh) {
+					window.location.href = url;
+					return;
+				}
+				$('#recent-clients-results').replaceWith(fresh);
+				if (pushUrl && window.history && window.history.pushState) {
+					window.history.pushState({ recentClientsPage: true }, '', url);
+				}
+			},
+			error: function() {
+				window.location.href = url;
+			}
+		});
+	}
+
+	$(document).on('click', '#recent-clients-results .pagination a', function(e) {
+		var href = $(this).attr('href');
+		if (!href || href === '#') {
+			e.preventDefault();
+			return;
+		}
+		if ($(this).closest('.disabled, .active').length) {
+			e.preventDefault();
+			return;
+		}
+		if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.which === 2) {
+			return;
+		}
+		e.preventDefault();
+		loadRecentClientsResults(href, true);
+	});
+
+	var skipRecentClientsPopstate = true;
+	$(window).on('popstate', function() {
+		if (skipRecentClientsPopstate || !$('#recent-clients-results').length) {
+			return;
+		}
+		loadRecentClientsResults(window.location.href, false);
+	});
+	setTimeout(function() {
+		skipRecentClientsPopstate = false;
+	}, 0);
 	
 	// Quick filter buttons (Today, This Week, This Month)
 	$('.quick-filter-btn').on('click', function() {
@@ -654,7 +679,7 @@ $(document).ready(function() {
 	});
 	
 	// Column header sorting
-	$('.sortable-header').on('click', function() {
+	$(document).on('click', '#recent-clients-results .sortable-header', function() {
 		var sortColumn = $(this).data('sort-column');
 		var currentSortColumn = $('#sort_column').val();
 		var currentSort = $('#sort_order').val() || 'desc';
@@ -690,7 +715,7 @@ $(document).ready(function() {
 	});
 	
 	// Handle client name click to expand/collapse details
-	$('.client-name-toggle').on('click', function(e) {
+	$(document).on('click', '#recent-clients-results .client-name-toggle', function(e) {
 		e.preventDefault();
 		var $toggle = $(this);
 		var clientId = $toggle.data('client-id');
@@ -1132,13 +1157,13 @@ $(document).ready(function() {
 	});
 	
 	// Bulk selection: select all on page
-	$('#selectAllClients').on('change', function() {
+	$(document).on('change', '#selectAllClients', function() {
 		var checked = $(this).prop('checked');
 		$('.client-checkbox').prop('checked', checked);
 		updateBulkArchiveState();
 	});
 	
-	$('.client-checkbox').on('change', function() {
+	$(document).on('change', '#recent-clients-results .client-checkbox', function() {
 		updateBulkArchiveState();
 	});
 	
@@ -1151,7 +1176,7 @@ $(document).ready(function() {
 	}
 	
 	// Bulk archive
-	$('#bulkArchiveBtn').on('click', function() {
+	$(document).on('click', '#bulkArchiveBtn', function() {
 		var ids = [];
 		$('.client-checkbox:checked').each(function() {
 			var id = $(this).val();
@@ -1218,7 +1243,7 @@ $(document).ready(function() {
 	});
 
 	// Bulk upload all docs (Application, Education, Migration) to S3 + remove public paths
-	$('#bulkUploadAllDocsToS3Btn').on('click', function() {
+	$(document).on('click', '#bulkUploadAllDocsToS3Btn', function() {
 		var ids = [];
 		$('.client-checkbox:checked').each(function() {
 			var id = $(this).val();

@@ -13,7 +13,10 @@ use App\Models\ActivitiesLog;
 use App\Models\Application;
 use App\Models\Document;
 use App\Models\DocumentCategory;
+use App\Support\ClientDetailEagerLoads;
 use Carbon\Carbon;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Pagination\Paginator;
 
 use Auth; 
 use Config;
@@ -59,26 +62,62 @@ class RecentlyModifiedClientsController extends Controller
 	}
 
 	/**
-	 * One latest activity per client: max(created_at), then max(id) on timestamp ties.
-	 * Avoids duplicate list/count rows when multiple logs share the same timestamp.
-	 *
-	 * @return \Illuminate\Database\Eloquent\Builder|\Illuminate\Database\Query\Builder
+	 * Restrict the latest-activity subquery to created_at >= fromDate only when
+	 * that matches "true latest falls on/after fromDate": no to_date and no
+	 * last-activity-years filter. Windowing with to_date or stale-years would
+	 * pick latest-in-window instead of true latest.
 	 */
-	private function latestActivityPerClientSubquery()
+	private function latestActivitySubqueryFromDate(string $fromDate, string $toDate, string $lastActivityYears): ?string
 	{
-		$maxCreatedAt = ActivitiesLog::select('client_id', DB::raw('MAX(created_at) as last_activity'))
-			->whereNotNull('client_id')
-			->groupBy('client_id');
+		if ($fromDate === '' || $toDate !== '') {
+			return null;
+		}
 
-		return ActivitiesLog::select(
-				'activities_logs.client_id',
-				DB::raw('MAX(activities_logs.id) as last_activity_id')
-			)
-			->joinSub($maxCreatedAt, 'latest_ts', function ($join) {
-				$join->on('activities_logs.client_id', '=', 'latest_ts.client_id')
-					->on('activities_logs.created_at', '=', 'latest_ts.last_activity');
-			})
-			->groupBy('activities_logs.client_id');
+		if ($lastActivityYears !== '' && in_array((int) $lastActivityYears, [1, 2, 3, 4, 5], true)) {
+			return null;
+		}
+
+		return $fromDate;
+	}
+
+	/**
+	 * One latest activity log per client (newest created_at, then highest id).
+	 * Postgres uses DISTINCT ON; other drivers use an equivalent window function.
+	 *
+	 * @return \Illuminate\Database\Query\Builder
+	 */
+	private function latestActivityPerClientSubquery(?string $fromDate = null)
+	{
+		$fromDate = ($fromDate !== null && $fromDate !== '') ? $fromDate : null;
+
+		if (DB::connection()->getDriverName() === 'pgsql') {
+			$query = DB::table('activities_logs')
+				->selectRaw('DISTINCT ON (client_id) client_id, id as last_activity_id')
+				->whereNotNull('client_id')
+				->orderBy('client_id')
+				->orderByDesc('created_at')
+				->orderByDesc('id');
+
+			if ($fromDate !== null) {
+				$query->where('created_at', '>=', $fromDate);
+			}
+
+			return $query;
+		}
+
+		$ranked = DB::table('activities_logs')
+			->select('client_id', 'id')
+			->selectRaw('ROW_NUMBER() OVER (PARTITION BY client_id ORDER BY created_at DESC, id DESC) as rn')
+			->whereNotNull('client_id');
+
+		if ($fromDate !== null) {
+			$ranked->where('created_at', '>=', $fromDate);
+		}
+
+		return DB::query()
+			->fromSub($ranked, 'ranked_latest_activities')
+			->select('client_id', DB::raw('id as last_activity_id'))
+			->where('rn', 1);
 	}
 	
 	/**
@@ -117,9 +156,11 @@ class RecentlyModifiedClientsController extends Controller
 		}
 		
 		// One latest activity log per client (max created_at; max id when timestamps collide)
-		$subQuery = $this->latestActivityPerClientSubquery();
+		$subQuery = $this->latestActivityPerClientSubquery(
+			$this->latestActivitySubqueryFromDate($fromDate, $toDate, $lastActivityYears)
+		);
 		
-		// Clients live in admins table (role = 7). Join admins twice: client info + creator info.
+		// Clients live in admins (role = 7). Activity created_by is staff first, then admin (same as client detail).
 		$query = ActivitiesLog::select(
 				'activities_logs.id as activity_id',
 				'activities_logs.client_id',
@@ -132,8 +173,8 @@ class RecentlyModifiedClientsController extends Controller
 				'client_admins.client_id as client_unique_id',
 				'client_admins.email as client_email',
 				'client_admins.phone as client_phone',
-				'admins.first_name as admin_firstname',
-				'admins.last_name as admin_lastname'
+				DB::raw($this->modifiedByFirstNameSql().' as admin_firstname'),
+				DB::raw($this->modifiedByLastNameSql().' as admin_lastname')
 			)
 			->joinSub($subQuery, 'latest_activities', function($join) {
 				$join->on('activities_logs.id', '=', 'latest_activities.last_activity_id');
@@ -146,7 +187,8 @@ class RecentlyModifiedClientsController extends Controller
 						   ->orWhereNull('client_admins.is_archived');
 					 });
 			})
-			->leftJoin('admins', 'activities_logs.created_by', '=', 'admins.id');
+			->leftJoin('staff as modifier_staff', 'activities_logs.created_by', '=', 'modifier_staff.id')
+			->leftJoin('admins as modifier_admins', 'activities_logs.created_by', '=', 'modifier_admins.id');
 
 		// Only join document stats when filtering by document count or doc storage (otherwise we fetch per page later for speed)
 		$useDocStatsInQuery = ($documentCount !== '' || ($docStorage !== '' && in_array($docStorage, ['local', 'aws', 'both', 'none'], true)));
@@ -255,7 +297,7 @@ class RecentlyModifiedClientsController extends Controller
 			'client_email' => 'client_admins.email',
 			'client_phone' => 'client_admins.phone',
 			'activity_date' => 'activities_logs.created_at',
-			'modified_by' => DB::raw("CONCAT(admins.first_name, ' ', admins.last_name)"),
+			'modified_by' => DB::raw($this->modifiedByFullNameSql()),
 		];
 		
 		if (isset($allowedSortColumns[$sortColumn])) {
@@ -264,58 +306,21 @@ class RecentlyModifiedClientsController extends Controller
 			$query->orderBy('activities_logs.created_at', $sortOrder);
 		}
 		
-		// Use simplePaginate for fast load (no expensive COUNT over full result set)
+		// One COUNT for page numbers (tabs/Total no longer need four storage-split counts).
+		$totalData = (int) (clone $query)->toBase()->getCountForPagination();
 		$lists = $query->simplePaginate($perPage)
 			->appends($request->query());
+		$lists = $this->withPageNumbers($lists, $totalData, $request);
 
-		// When we skipped doc_stats in the main query, fetch storage only for clients on this page
-		if (!$useDocStatsInQuery && $lists->count() > 0) {
-			$clientIds = $lists->pluck('client_id')->unique()->values()->all();
-			$docStats = Document::select(
-					'client_id',
-					DB::raw('COUNT(*) as doc_count'),
-					DB::raw("SUM(CASE WHEN (myfile_key IS NULL OR TRIM(COALESCE(myfile_key, '')) = '') AND myfile IS NOT NULL AND TRIM(COALESCE(myfile, '')) != '' THEN 1 ELSE 0 END) AS count_local"),
-					DB::raw("SUM(CASE WHEN myfile_key IS NOT NULL AND TRIM(myfile_key) != '' THEN 1 ELSE 0 END) AS count_aws")
-				)
-				->whereNull('archived_at')
-				->appEduMigForStorage()
-				->whereIn('client_id', $clientIds)
-				->groupBy('client_id')
-				->get();
-			$storageMap = [];
-			foreach ($docStats as $r) {
-				$docCount = (int) ($r->doc_count ?? 0);
-				$countLocal = (int) ($r->count_local ?? 0);
-				$countAws = (int) ($r->count_aws ?? 0);
-				if ($countLocal > 0 && $countAws > 0) {
-					$storageMap[$r->client_id] = 'both';
-				} elseif ($docCount > 0 && $countLocal === $docCount) {
-					$storageMap[$r->client_id] = 'local';
-				} elseif ($docCount > 0 && $countAws === $docCount) {
-					$storageMap[$r->client_id] = 'aws';
-				} else {
-					$storageMap[$r->client_id] = 'none';
-				}
-			}
-			foreach ($lists->items() as $row) {
-				$row->doc_storage = $storageMap[$row->client_id] ?? 'none';
-			}
-		}
-
-		$totalData = null; // Not computed for fast load; use filters and Next/Previous to navigate
-
-		// Storage tab counts: same filters as listing, count clients per storage (local, both, aws)
-		$storageCounts = $this->getStorageTabCounts($request, $fromDate, $toDate, $search, $activityType, $hasApplications, $lastActivityYears, $documentCount, $noPhone, $noEmail);
-
-		return view('AdminConsole.recent_clients.index', compact([
-			'lists', 
-			'totalData', 
-			'fromDate', 
-			'toDate', 
-			'sortOrder', 
-			'search', 
-			'activityType', 
-			'perPage', 
+		$viewData = compact([
+			'lists',
+			'totalData',
+			'fromDate',
+			'toDate',
+			'sortOrder',
+			'search',
+			'activityType',
+			'perPage',
 			'sortColumn',
 			'hasApplications',
 			'lastActivityYears',
@@ -323,8 +328,72 @@ class RecentlyModifiedClientsController extends Controller
 			'docStorage',
 			'noPhone',
 			'noEmail',
-			'storageCounts'
-		])); 	
+		]);
+
+		return view('AdminConsole.recent_clients.index', $viewData);
+	}
+
+	/**
+	 * Listing total from storage-tab counts (already computed; no extra COUNT).
+	 * When a storage tab is active, total matches that tab's list.
+	 *
+	 * @param  array{local?: int, both?: int, aws?: int, storage?: int}  $storageCounts
+	 */
+	private function totalFromStorageCounts(array $storageCounts, string $docStorage): int
+	{
+		$local = (int) ($storageCounts['local'] ?? 0);
+		$both = (int) ($storageCounts['both'] ?? 0);
+		$aws = (int) ($storageCounts['aws'] ?? 0);
+		$none = (int) ($storageCounts['storage'] ?? 0);
+
+		return match ($docStorage) {
+			'local' => $local,
+			'both' => $both,
+			'aws' => $aws,
+			'none' => $none,
+			default => $local + $both + $aws + $none,
+		};
+	}
+
+	/**
+	 * Activity actor first name: staff row if present, otherwise admin (same as client detail).
+	 */
+	private function modifiedByFirstNameSql(): string
+	{
+		return 'CASE WHEN modifier_staff.id IS NOT NULL THEN modifier_staff.first_name ELSE modifier_admins.first_name END';
+	}
+
+	/**
+	 * Activity actor last name: staff row if present, otherwise admin (same as client detail).
+	 */
+	private function modifiedByLastNameSql(): string
+	{
+		return 'CASE WHEN modifier_staff.id IS NOT NULL THEN modifier_staff.last_name ELSE modifier_admins.last_name END';
+	}
+
+	/**
+	 * Full activity actor name used for Modified By sort.
+	 */
+	private function modifiedByFullNameSql(): string
+	{
+		return 'CONCAT('.$this->modifiedByFirstNameSql().", ' ', ".$this->modifiedByLastNameSql().')';
+	}
+
+	/**
+	 * Numbered pagination using the listing COUNT.
+	 */
+	private function withPageNumbers(Paginator $lists, int $totalData, Request $request): LengthAwarePaginator
+	{
+		return (new LengthAwarePaginator(
+			$lists->items(),
+			$totalData,
+			max(1, (int) $lists->perPage()),
+			max(1, (int) $lists->currentPage()),
+			[
+				'path' => $request->url(),
+				'pageName' => $lists->getPageName(),
+			]
+		))->appends($request->query());
 	}
 
 	/**
@@ -344,7 +413,9 @@ class RecentlyModifiedClientsController extends Controller
 	 */
 	private function getStorageTabCounts(Request $request, $fromDate, $toDate, $search, $activityType, $hasApplications, $lastActivityYears, $documentCount, $noPhone, $noEmail): array
 	{
-		$subQuery = $this->latestActivityPerClientSubquery();
+		$subQuery = $this->latestActivityPerClientSubquery(
+			$this->latestActivitySubqueryFromDate((string) $fromDate, (string) $toDate, (string) $lastActivityYears)
+		);
 
 		$docStatsSubQuery = Document::select(
 				'client_id',
@@ -468,11 +539,15 @@ class RecentlyModifiedClientsController extends Controller
 			], 404);
 		}
 		
-		// Get last activity with creator info
+		// Get last activity with creator info (staff first, then admin)
 		$lastActivity = ActivitiesLog::where('client_id', $clientId)
-			->with('createdBy')
 			->orderBy('created_at', 'desc')
 			->first();
+		$activityActor = null;
+		if ($lastActivity && is_numeric($lastActivity->created_by)) {
+			$activityActor = ClientDetailEagerLoads::staffThenAdminByIds([$lastActivity->created_by])
+				->get((int) $lastActivity->created_by);
+		}
 		
 		// Get document count (same conditions as Storage and App/Edu/Mig: appEduMigForStorage + not_used_doc)
 		$documentCount = Document::where('client_id', $clientId)
@@ -615,9 +690,9 @@ class RecentlyModifiedClientsController extends Controller
 					'subject' => $lastActivity->subject,
 					'description' => $lastActivity->description,
 					'date' => $lastActivity->created_at->format('d/m/Y h:i A'),
-					'created_by' => $lastActivity->createdBy ? 
-						($lastActivity->createdBy->first_name . ' ' . $lastActivity->createdBy->last_name) : 
-						'N/A'
+					'created_by' => $activityActor
+						? trim($activityActor->first_name.' '.$activityActor->last_name)
+						: 'N/A'
 				] : null,
 				'document_count' => $documentCount,
 				'document_storage' => $documentStorage,

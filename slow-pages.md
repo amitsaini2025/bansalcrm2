@@ -6,13 +6,14 @@ Measured 20 Aug 2026 on local Postgres (`bansalcrm_local3`), logged in as super 
 
 **Scope:** 126 HTML pages. AJAX, export, download, and delete URLs were skipped. Client detail could not be timed (no `clients` row in this DB).
 
+Recently modified clients was remeasured **21 Aug 2026** after dropping the four storage-split counts: **~0.7 s** (meets Google ≤ 800 ms; was **15.7 s**, then **1.4 s**).
+
 ---
 
 ## Critical (> 4 s)
 
 | Page | URL | Time |
 |---|---|---|
-| Recently modified clients | `/adminconsole/recent-clients` | **15.7 s** |
 | Ongoing sheet | `/clients/sheets/ongoing` | **7.2 s** |
 | COE enrolled sheet | `/clients/sheets/coe-enrolled` | **6.5 s** |
 | Audit logs | `/audit-logs` | **6.3 s** (HTML ~19 MB) |
