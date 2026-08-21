@@ -67,8 +67,11 @@ class RecentlyModifiedClientsController extends Controller
 	 * last-activity-years filter. Windowing with to_date or stale-years would
 	 * pick latest-in-window instead of true latest.
 	 */
-	private function latestActivitySubqueryFromDate(string $fromDate, string $toDate, string $lastActivityYears): ?string
+	private function latestActivitySubqueryFromDate(?string $fromDate, ?string $toDate, ?string $lastActivityYears): ?string
 	{
+		$fromDate = trim((string) $fromDate);
+		$toDate = trim((string) $toDate);
+		$lastActivityYears = trim((string) $lastActivityYears);
 		if ($fromDate === '' || $toDate !== '') {
 			return null;
 		}
@@ -144,11 +147,17 @@ class RecentlyModifiedClientsController extends Controller
 		$perPage = $request->input('per_page', config('constants.limit', 20));
 		$sortColumn = $request->input('sort_column', 'activity_date');
 		$hasApplications = $request->input('has_applications', ''); // '' = all, '0' = no applications
+		$hasApplications = is_array($hasApplications) ? '' : trim((string) $hasApplications);
 		$lastActivityYears = $request->input('last_activity_years', ''); // 1, 2, 3, 4, 5 = X+ years ago
+		$lastActivityYears = is_array($lastActivityYears) ? '' : trim((string) $lastActivityYears);
 		$documentCount = $request->input('document_count', ''); // '', '0', '1', ... '9', '10+' = documents count filter
+		$documentCount = is_array($documentCount) ? '' : trim((string) $documentCount);
 		$docStorage = $request->input('doc_storage', ''); // '', 'local', 'aws', 'both', 'none' = document storage location filter
+		$docStorage = is_array($docStorage) ? '' : trim((string) $docStorage);
 		$noPhone = $request->input('no_phone', ''); // '' = all, '1' = only clients with no phone number
+		$noPhone = is_array($noPhone) ? '' : trim((string) $noPhone);
 		$noEmail = $request->input('no_email', ''); // '' = all, '1' = only clients with no email address
+		$noEmail = is_array($noEmail) ? '' : trim((string) $noEmail);
 
 		// Default to last 12 months when no date/search applied for faster initial load
 		if ($fromDate === '' && $toDate === '' && $search === '') {

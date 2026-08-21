@@ -21,6 +21,7 @@ class RecentlyModifiedClientsLatestActivityTest extends TestCase
         $this->assertNull($this->callPrivate($controller, 'latestActivitySubqueryFromDate', '2026-01-01', '2026-06-01', ''));
         $this->assertNull($this->callPrivate($controller, 'latestActivitySubqueryFromDate', '2026-01-01', '', '2'));
         $this->assertSame('2026-01-01', $this->callPrivate($controller, 'latestActivitySubqueryFromDate', '2026-01-01', '', '0'));
+        $this->assertSame('2026-01-01', $this->callPrivate($controller, 'latestActivitySubqueryFromDate', '2026-01-01', null, null));
     }
 
     public function test_latest_activity_subquery_picks_newest_row_then_highest_id(): void
