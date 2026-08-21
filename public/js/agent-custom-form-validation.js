@@ -32,11 +32,11 @@ function syncEditorContent($form) {
 			var editorId = $field.attr('id');
 			if(editorId) {
 				var editor = tinymce.get(editorId);
-				if(editor) { $field.val(editor.getContent()); return; }
+				if(editor) { editor.save(); return; }
 			}
 			try {
 				var editor = tinymce.get($field[0]);
-				if(editor) { $field.val(editor.getContent()); }
+				if(editor) { editor.save(); }
 			} catch(e) {}
 		}
 	});

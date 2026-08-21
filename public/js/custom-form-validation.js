@@ -33,14 +33,14 @@ function syncEditorContent($form) {
 			if(editorId) {
 				var editor = tinymce.get(editorId);
 				if(editor) {
-					$field.val(editor.getContent());
+					editor.save();
 					return;
 				}
 			}
 			try {
 				var editor = tinymce.get($field[0]);
 				if(editor) {
-					$field.val(editor.getContent());
+					editor.save();
 				}
 			} catch(e) {}
 		}
@@ -1968,16 +1968,12 @@ function customValidate(formName, savetype = '')
 								} catch(e) {
 									console.log('Summernote sync failed, trying TinyMCE');
 								}
-							}
-							
-							// Try TinyMCE directly
-							if(typeof tinymce !== 'undefined'){
+							} else if(typeof tinymce !== 'undefined'){
 								var editorId = $noteField.attr('id');
 								if(editorId){
 									var editor = tinymce.get(editorId);
 									if(editor){
-										var content = editor.getContent();
-										$noteField.val(content);
+										editor.save();
 									}
 								}
 							}

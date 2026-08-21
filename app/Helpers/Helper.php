@@ -6,6 +6,7 @@ namespace App\Helpers; // Your helpers namespace
 // use App\Models\User;
 use App\Models\Company;
 use App\Models\Profile;
+use App\Support\TinymceImageS3Migrator;
 use Auth;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Storage;
@@ -169,9 +170,11 @@ class Helper
                 continue;
             }
 
+            $href = (new TinymceImageS3Migrator)->temporaryDisplayUrl($src);
+
             $label = $total > 1 ? 'View image '.($index + 1) : 'View image';
             $link = $dom->createElement('a', $label);
-            $link->setAttribute('href', $src);
+            $link->setAttribute('href', $href);
             $link->setAttribute('target', '_blank');
             $link->setAttribute('rel', 'noopener noreferrer');
             $link->setAttribute('class', 'note-image-link');

@@ -54,10 +54,55 @@ class TinyMCEImageUploadTest extends TestCase
 
         $response->assertOk()
             ->assertJson([
-                'location' => Storage::disk('s3')->url($files[0]),
+                'location' => route('tinymce.preview-image', ['filename' => basename($files[0])]),
             ]);
 
         $this->assertSame([], Storage::disk('public')->allFiles());
+    }
+
+    public function test_paste_blob_without_extension_still_stores_png_on_s3(): void
+    {
+        Storage::fake('s3');
+
+        $this->actingAsStaff();
+
+        $fake = UploadedFile::fake()->image('screenshot.png', 20, 20);
+        $file = new UploadedFile($fake->getRealPath(), 'clipboard-image', 'image/png', null, true);
+
+        $response = $this->postJson(route('tinymce.upload-image'), [
+            'file' => $file,
+        ]);
+
+        $files = Storage::disk('s3')->allFiles('tinymce-images');
+
+        $this->assertCount(1, $files);
+        $this->assertStringEndsWith('.png', $files[0]);
+        $response->assertOk();
+    }
+
+    public function test_guest_cannot_preview_tinymce_image(): void
+    {
+        $response = $this->get(route('tinymce.preview-image', [
+            'filename' => '1211171e-7479-40b0-82fb-646e61edb032.png',
+        ]));
+
+        $response->assertRedirect();
+        $this->assertStringNotContainsString('tinymce-images', (string) $response->headers->get('Location'));
+    }
+
+    public function test_authenticated_staff_preview_redirects_to_temporary_s3_url(): void
+    {
+        Storage::fake('s3');
+        Storage::disk('s3')->put('tinymce-images/1211171e-7479-40b0-82fb-646e61edb032.png', 'img');
+
+        $this->actingAsStaff();
+
+        $response = $this->get(route('tinymce.preview-image', [
+            'filename' => '1211171e-7479-40b0-82fb-646e61edb032.png',
+        ]));
+
+        $response->assertRedirect();
+        $this->assertStringContainsString('tinymce-images', (string) $response->headers->get('Location'));
     }
 
     public function test_non_image_upload_is_rejected(): void

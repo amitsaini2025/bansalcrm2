@@ -379,6 +379,9 @@ Route::get('/invoice/general-invoice', [InvoiceController::class, 'general_invoi
 Route::post('/upload-mail', [ClientMessagingController::class, 'uploadmail']);
 Route::post('/mail/enhance', [ClientMessagingController::class, 'enhanceMessage'])->name('mail.enhance');
 Route::post('/tinymce/upload-image', [TinyMCEImageUploadController::class, 'upload'])->name('tinymce.upload-image');
+Route::get('/tinymce/image/{filename}', [TinyMCEImageUploadController::class, 'preview'])
+    ->where('filename', '[A-Fa-f0-9-]{36}\.(png|jpe?g|gif|webp)')
+    ->name('tinymce.preview-image');
 
 Route::get('/pinnote', [ClientNoteController::class, 'pinnote']);
 Route::get('/pinactivitylog', [ClientActivityController::class, 'pinactivitylog']);

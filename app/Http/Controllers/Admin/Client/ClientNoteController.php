@@ -10,6 +10,7 @@ use App\Models\Application;
 use App\Models\ApplicationActivitiesLog;
 use App\Models\Note;
 use App\Models\Staff;
+use App\Support\TinymceImageS3Migrator;
 use App\Traits\ClientAuthorization;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -89,10 +90,12 @@ class ClientNoteController extends Controller
             $obj = new Note;
         }
 
+        $description = (new TinymceImageS3Migrator)->replaceDataUrisWithS3((string) $request->description);
+
         $obj->client_id = $request->client_id;
         $obj->user_id = Auth::user()->id;
         $obj->title = $request->title;
-        $obj->description = $request->description;
+        $obj->description = $description;
         $obj->mail_id = $request->mailid;
         $obj->type = $request->vtype;
 
@@ -115,9 +118,9 @@ class ClientNoteController extends Controller
                 $objs->created_by = Auth::user()->id;
 
                 if (isset($request->mobileNumber) && $request->mobileNumber != '') {
-                    $objs->description = '<span class="text-semi-bold">'.$request->title.'</span><p>'.$request->description.'</p><p>'.$request->mobileNumber.'</p>';
+                    $objs->description = '<span class="text-semi-bold">'.$request->title.'</span><p>'.$description.'</p><p>'.$request->mobileNumber.'</p>';
                 } else {
-                    $objs->description = '<span class="text-semi-bold">'.$request->title.'</span><p>'.$request->description.'</p>';
+                    $objs->description = '<span class="text-semi-bold">'.$request->title.'</span><p>'.$description.'</p>';
                 }
 
                 $objs->subject = $subject;

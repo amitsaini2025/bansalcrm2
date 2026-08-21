@@ -51,11 +51,56 @@ const FULL_PLUGINS = [
 ].join(' ');
 
 // Keep upload handler URLs (S3) intact on nested pages like /clients/detail/.../application/{id}.
+// Paste/drop uses the same images_upload_handler as the image button (TinyMCE 7 paste_data_images).
 const EDITOR_URL_OPTIONS = {
     convert_urls: false,
     relative_urls: false,
     remove_script_host: false,
+    automatic_uploads: true,
+    paste_data_images: true,
+    images_file_types: 'jpeg,jpg,png,gif,webp',
 };
+
+const TINYMCE_IMAGE_FILE = '([a-f0-9-]{36}\\.(?:png|jpe?g|gif|webp))';
+
+function canonicalizeTinymceImageUrls(html) {
+    if (!html) {
+        return html;
+    }
+    var s3Prefix = (window.TINYMCE_S3_IMAGE_PREFIX || '').replace(/\/$/, '');
+    html = html.replace(
+        new RegExp('(?:https?:\\/\\/[^"\'\\s>]+)?\\/tinymce\\/image\\/' + TINYMCE_IMAGE_FILE, 'gi'),
+        function (match, name) {
+            return s3Prefix ? (s3Prefix + '/' + name.toLowerCase()) : match;
+        }
+    );
+    html = html.replace(
+        new RegExp('(https?:\\/\\/[^"\'\\s>]+\\/tinymce-images\\/' + TINYMCE_IMAGE_FILE + ')(\\?[^"\'\\s>]*)?', 'gi'),
+        '$1'
+    );
+
+    return html;
+}
+
+function editorDisplayImageUrls(html) {
+    if (!html) {
+        return html;
+    }
+    var previewBase = (window.TINYMCE_PREVIEW_BASE || (window.location.origin + '/tinymce/image')).replace(/\/$/, '');
+
+    return html.replace(
+        new RegExp('https?:\\/\\/[^"\'\\s>]+\\/tinymce-images\\/' + TINYMCE_IMAGE_FILE + '(?:\\?[^"\'\\s>]*)?', 'gi'),
+        function (match, name) {
+            return previewBase + '/' + name.toLowerCase();
+        }
+    );
+}
+
+function attachEditorPersistence(editor) {
+    editor.on('SaveContent', function (e) {
+        e.content = canonicalizeTinymceImageUrls(e.content || '');
+    });
+}
 
 function getImageUploadHandler() {
     return function (blobInfo, progress) {
@@ -139,6 +184,7 @@ function initTinyMCE() {
         ...EDITOR_URL_OPTIONS,
         images_upload_handler: getImageUploadHandler(),
         setup: function (editor) {
+            attachEditorPersistence(editor);
             editor.on('change', function () {
                 editor.save();
             });
@@ -168,6 +214,7 @@ function initTinyMCE() {
         ...EDITOR_URL_OPTIONS,
         images_upload_handler: getImageUploadHandler(),
         setup: function (editor) {
+            attachEditorPersistence(editor);
             editor.on('change', function () {
                 editor.save();
             });
@@ -196,6 +243,9 @@ function initTinyMCE() {
         browser_spellcheck: true,
         ...EDITOR_URL_OPTIONS,
         images_upload_handler: getImageUploadHandler(),
+        setup: function (editor) {
+            attachEditorPersistence(editor);
+        },
     });
 }
 
@@ -203,12 +253,12 @@ window.TinyMCEHelpers = {
     getContent: function (selector) {
         var editor = tinymce.get(selector);
         if (editor) {
-            return editor.getContent();
+            return canonicalizeTinymceImageUrls(editor.getContent());
         }
         if (selector.startsWith('#')) {
             editor = tinymce.get(selector.substring(1));
             if (editor) {
-                return editor.getContent();
+                return canonicalizeTinymceImageUrls(editor.getContent());
             }
         }
         var $ = window.jQuery || window.$;
@@ -222,13 +272,13 @@ window.TinyMCEHelpers = {
     setContent: function (selector, content) {
         var editor = tinymce.get(selector);
         if (editor) {
-            editor.setContent(content || '');
+            editor.setContent(editorDisplayImageUrls(content || ''));
             return;
         }
         if (selector.startsWith('#')) {
             editor = tinymce.get(selector.substring(1));
             if (editor) {
-                editor.setContent(content || '');
+                editor.setContent(editorDisplayImageUrls(content || ''));
                 return;
             }
         }
@@ -290,6 +340,19 @@ window.TinyMCEHelpers = {
 
 function bootTinyMCE() {
     initTinyMCE();
+    var $ = window.jQuery || window.$;
+    if ($ && !window.__tinymceModalResizeBound) {
+        window.__tinymceModalResizeBound = true;
+        $(document).on('shown.bs.modal', '.modal', function () {
+            var modal = this;
+            var editors = tinymce.editors || [];
+            editors.forEach(function (ed) {
+                if (ed && ed.getElement && modal.contains(ed.getElement())) {
+                    ed.dispatch('ResizeEditor');
+                }
+            });
+        });
+    }
 }
 
 if (document.readyState === 'loading') {
