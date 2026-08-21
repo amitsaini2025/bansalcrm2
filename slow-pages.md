@@ -55,6 +55,4 @@ Actions completed was remeasured **21 Aug 2026** after one grouped type-count an
 
 ---
 
-**Also slow but errored:** `/action/assigned-to-me` (~1.3 s, HTTP 500).
-
 Most other pages were under 800 ms (login, admin console masters, office visits, many reports, SMS, workflows).

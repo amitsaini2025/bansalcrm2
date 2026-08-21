@@ -570,14 +570,12 @@ Route::get('/action', [ActionController::class, 'index'])->name('action.index');
 Route::get('/action/list', [ActionController::class, 'getList'])->name('action.list'); // DataTable data
 Route::get('/action/completed', [ActionController::class, 'completed'])->name('action.completed'); // completed actions
 Route::get('/action/assigned-by-me', [ActionController::class, 'assignedByMe'])->name('action.assigned_by_me'); // assigned by me
-Route::get('/action/assigned-to-me', [ActionController::class, 'assignedToMe'])->name('action.assigned_to_me'); // assigned to me
 
 Route::post('/action/task-complete', [ActionController::class, 'markComplete']); // update task to be completed
 Route::post('/action/task-incomplete', [ActionController::class, 'markIncomplete']); // update task to be not completed
 Route::get('/action/get-note-data', [ActionController::class, 'getNoteData']); // get note data for completion modal
 
 Route::delete('/action/destroy-by-me/{note_id}', [ActionController::class, 'destroyByMe'])->name('action.destroy_by_me'); // delete assigned by me
-Route::delete('/action/destroy-to-me/{note_id}', [ActionController::class, 'destroyToMe'])->name('action.destroy_to_me'); // delete assigned to me
 Route::delete('/action/destroy/{note_id}', [ActionController::class, 'destroy'])->name('action.destroy'); // delete action
 Route::delete('/action/destroy-completed/{note_id}', [ActionController::class, 'destroyCompleted'])->name('action.destroy_completed'); // delete completed action
 

@@ -115,9 +115,6 @@
                     </li>-->
                      <!--<li class="{{-- (Route::currentRouteName()=='assignee.assigned_by_me')?'active':'' --}}">
                         <a class="nav-link" id="assigned_by_me"  href="{{URL::to('/assigned_by_me')}}">Assigned by me</a>
-                    </li>
-                    <li class="{{-- (Route::currentRouteName()=='assignee.assigned_to_me')?'active':'' --}}">
-                        <a class="nav-link" id="assigned_to_me" href="{{URL::to('/assigned_to_me')}}">Assigned to me</a>
                     </li>-->
                  <!--</ul>
 			</li>-->

@@ -331,45 +331,6 @@ class ActionController extends Controller
     }
 
 
-    //All assigned to me task list
-    public function assignedToMe(Request $request)
-    {
-        $includeScheduledFollowups = $this->wantsIncludeScheduledFollowups($request);
-        if(\Auth::user()->role == 1){
-            $assignees_notCompleted = $this->applyFollowupAssignDateVisibilityFilter(
-                \App\Models\Note::sortable()
-                ->with(['noteUser','noteClient','assigned_user'])
-                ->where('status','<>','1')
-                ->where('assigned_to',\Auth::user()->id)
-                ->where('type','client')
-                ->whereNotNull('client_id')
-                ->where('is_action',1),
-                $includeScheduledFollowups
-            )->orderByRaw('created_at DESC NULLS LAST')->paginate(20);
-
-            $assignees_completed = \App\Models\Note::sortable()
-            ->with(['noteUser','noteClient','assigned_user'])->where('status','1')->where('assigned_to',\Auth::user()->id)->where('type','client')->whereNotNull('client_id')->where('is_action',1)->orderByRaw('created_at DESC NULLS LAST')->paginate(20);
-        }else{
-            $assignees_notCompleted = $this->applyFollowupAssignDateVisibilityFilter(
-                \App\Models\Note::sortable()
-                ->with(['noteUser','noteClient','assigned_user'])
-                ->where('status','<>','1')
-                ->where('assigned_to',\Auth::user()->id)
-                ->where('type','client')
-                ->where('is_action',1),
-                $includeScheduledFollowups
-            )->orderByRaw('created_at DESC NULLS LAST')->paginate(20);
-
-            $assignees_completed = \App\Models\Note::sortable()
-            ->with(['noteUser','noteClient','assigned_user'])->where('status','1')->where('assigned_to',\Auth::user()->id)->where('type','client')->where('is_action',1)->orderByRaw('created_at DESC NULLS LAST')->paginate(20);
-        }
-        //dd($assignees_notCompleted);
-        //dd($assignees_completed);
-        return view('Admin.action.assigned_to_me', compact('assignees_notCompleted', 'assignees_completed', 'includeScheduledFollowups'))
-         ->with('i', (request()->input('page', 1) - 1) * 20);
-    }
-
-
 
    //All incomplete activities list
     /*public function activities(Request $request)
@@ -1080,23 +1041,6 @@ class ActionController extends Controller
 
         return redirect()->route('action.assigned_by_me')
             ->with('error', 'Failed to delete activity');
-    }
-
-
-    public function destroyToMe($note_id)
-    {
-        $appointment = Note::find($note_id);
-
-        if (!$appointment) {
-            return redirect()->route('action.assigned_to_me')
-                ->with('error', 'Action not found');
-        }
-
-        $appointment->is_action = 0;
-        $appointment->save();
-
-        return redirect()->route('action.assigned_to_me')
-        ->with('success','Action deleted successfully');
     }
 
 
