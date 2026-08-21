@@ -140,6 +140,15 @@ class TinymceImageS3Migrator
         return $out !== '' ? $out : $html;
     }
 
+    public function countDataUris(string $html): int
+    {
+        if ($html === '') {
+            return 0;
+        }
+
+        return preg_match_all('#src=["\']data:image/#i', $html) ?: 0;
+    }
+
     private function storeDataUriOnS3(string $src): ?string
     {
         if (! preg_match('#^data:image/(png|jpe?g|gif|webp);base64,([A-Za-z0-9+/=\s]+)$#i', $src, $matches)) {

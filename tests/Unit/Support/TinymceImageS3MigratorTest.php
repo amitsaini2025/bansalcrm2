@@ -91,4 +91,12 @@ class TinymceImageS3MigratorTest extends TestCase
         $this->assertStringContainsString('DEMO2308/application_documents/other.png', $out);
         $this->assertSame([], Storage::disk('s3')->allFiles());
     }
+
+    public function test_count_data_uris_in_html(): void
+    {
+        $html = '<p><img src="data:image/png;base64,aaa"></p><p><img src="https://example.com/a.png"></p>';
+
+        $this->assertSame(1, (new TinymceImageS3Migrator)->countDataUris($html));
+        $this->assertSame(0, (new TinymceImageS3Migrator)->countDataUris('<p>none</p>'));
+    }
 }
