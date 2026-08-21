@@ -17,6 +17,9 @@ use Auth;
 use Illuminate\Support\Facades\DB;
 use DataTables;
 use App\Support\Utf8Helper;
+use App\Models\Staff;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 
 class ActionController extends Controller
 {
@@ -557,56 +560,114 @@ class ActionController extends Controller
     }*/
 
     public function completed(Request $request)
-    {   //dd($request->all());
-        $req_data = $request->all();
-        if( isset($req_data['group_type'])  && $req_data['group_type'] != ""){
-            $task_group = $req_data['group_type'];
-        } else {
+    {
+        $task_group = $request->input('group_type');
+        $task_group = is_array($task_group) ? 'All' : trim((string) $task_group);
+        if ($task_group === '') {
             $task_group = 'All';
         }
-        //dd($task_group);
-        if($task_group == 'All') {
-            if(\Auth::user()->role == 1){
-                $assignees_completed = \App\Models\Note::sortable()
-                ->with(['noteUser','noteClient','notePartner','assigned_user'])
-                ->where('status','1')
-                ->whereIn('type',['client', 'partner']) // Include both client and partner actions
-                ->whereNotNull('client_id')
-                ->where('is_action',1)
-                ->orderByRaw('created_at DESC NULLS LAST')->paginate(20);
-            } else {
-                $assignees_completed = \App\Models\Note::sortable()
-                ->with(['noteUser','noteClient','notePartner','assigned_user'])
-                ->where('status','1')
-                ->where('assigned_to',\Auth::user()->id)
-                ->whereIn('type',['client', 'partner']) // Include both client and partner actions
-                ->where('is_action',1)
-                ->orderByRaw('created_at DESC NULLS LAST')->paginate(20);
-            }
-        } else {
-            if(\Auth::user()->role == 1){
-                $assignees_completed = \App\Models\Note::sortable()
-                ->with(['noteUser','noteClient','notePartner','assigned_user'])
-                ->where('task_group','like',$task_group)
-                ->where('status','1')
-                ->whereIn('type',['client', 'partner']) // Include both client and partner actions
-                ->whereNotNull('client_id')
-                ->where('is_action',1)
-                ->orderByRaw('created_at DESC NULLS LAST')->paginate(20);
-            } else {
-                $assignees_completed = \App\Models\Note::sortable()
-                ->with(['noteUser','noteClient','notePartner','assigned_user'])
-                ->where('task_group','like',$task_group)
-                ->where('status','1')
-                ->where('assigned_to',\Auth::user()->id)
-                ->whereIn('type',['client', 'partner']) // Include both client and partner actions
-                ->where('is_action',1)
-                ->orderByRaw('created_at DESC NULLS LAST')->paginate(20);
-            }
+
+        $perPage = 20;
+        $page = max(1, (int) $request->input('page', 1));
+        $isSuperAdmin = (Auth::user()->role ?? null) == 1;
+        $userId = (int) Auth::id();
+
+        $groupedCounts = $this->completedActionGroupedCounts(
+            $this->completedActionsBaseQuery($isSuperAdmin, $userId)
+        );
+        $typeCounts = $this->completedActionTypeCounts($groupedCounts);
+        $total = $task_group === 'All'
+            ? (int) $groupedCounts->sum()
+            : (int) ($groupedCounts[$task_group] ?? 0);
+
+        $listQuery = $this->completedActionsBaseQuery($isSuperAdmin, $userId)
+            ->with(['noteUser', 'noteClient', 'notePartner', 'assigned_user']);
+        if ($task_group !== 'All') {
+            $listQuery->where('task_group', $task_group);
         }
-        #dd($assignees_completed);
-        return view('Admin.action.completed',compact('assignees_completed','task_group'))
-         ->with('i', (request()->input('page', 1) - 1) * 20);
+
+        $assignees_completed = new LengthAwarePaginator(
+            $listQuery->sortable()->orderByRaw('created_at DESC NULLS LAST')->forPage($page, $perPage)->get(),
+            $total,
+            $perPage,
+            $page,
+            [
+                'path' => $request->url(),
+                'pageName' => 'page',
+            ]
+        );
+        $assignees_completed->appends($request->query());
+
+        $assignableStaff = Staff::query()
+            ->where('status', 1)
+            ->orderBy('first_name')
+            ->with('office:id,office_name')
+            ->get(['id', 'first_name', 'last_name', 'office_id']);
+
+        return view('Admin.action.completed', compact(
+            'assignees_completed',
+            'task_group',
+            'typeCounts',
+            'assignableStaff'
+        ))->with('i', ($page - 1) * $perPage);
+    }
+
+    /**
+     * Completed-action listing filters (same for type badges and the table).
+     */
+    private function completedActionsBaseQuery(bool $isSuperAdmin, int $userId)
+    {
+        $query = Note::query()
+            ->where('status', '1')
+            ->whereIn('type', ['client', 'partner'])
+            ->where('is_action', 1);
+
+        if ($isSuperAdmin) {
+            $query->whereNotNull('client_id');
+        } else {
+            $query->where('assigned_to', $userId);
+        }
+
+        return $query;
+    }
+
+    /**
+     * One GROUP BY instead of a COUNT per type badge.
+     *
+     * @return Collection<string, int>
+     */
+    private function completedActionGroupedCounts($query): Collection
+    {
+        $rows = (clone $query)->toBase()
+            ->select('task_group', DB::raw('COUNT(*) as aggregate_count'))
+            ->groupBy('task_group')
+            ->get();
+
+        $counts = collect();
+        foreach ($rows as $row) {
+            $counts[(string) ($row->task_group ?? '')] = (int) $row->aggregate_count;
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Badge totals from the grouped count rowset (All = sum of every group).
+     *
+     * @param  Collection<string, int>  $groupedCounts
+     * @return array{All: int, Call: int, Checklist: int, Review: int, Query: int, Urgent: int, Personal Task: int}
+     */
+    private function completedActionTypeCounts(Collection $groupedCounts): array
+    {
+        return [
+            'All' => (int) $groupedCounts->sum(),
+            'Call' => (int) ($groupedCounts['Call'] ?? 0),
+            'Checklist' => (int) ($groupedCounts['Checklist'] ?? 0),
+            'Review' => (int) ($groupedCounts['Review'] ?? 0),
+            'Query' => (int) ($groupedCounts['Query'] ?? 0),
+            'Urgent' => (int) ($groupedCounts['Urgent'] ?? 0),
+            'Personal Task' => (int) ($groupedCounts['Personal Task'] ?? 0),
+        ];
     }
     
     

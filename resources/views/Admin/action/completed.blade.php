@@ -43,76 +43,34 @@
                                 <form action="{{ route('action.completed') }}" method="get">
                                     <div class="row">
                                         <div class="col-md-12 group_type_section">
-                                            <?php
-                                            if(\Auth::user()->role == 1){
-                                                $assigneesCount_All_type = \App\Models\Note::whereIn('type',['client','partner'])->whereNotNull('client_id')->where('is_action',1)->where('status',1)->orderBy('created_at', 'desc')->count();
-
-                                                $assigneesCount_call_type = \App\Models\Note::where('task_group','like','Call')
-                                                ->whereIn('type',['client','partner'])->whereNotNull('client_id')->where('is_action',1)->where('status',1)->orderBy('created_at', 'desc')->count();
-
-                                                $assigneesCount_Checklist_type = \App\Models\Note::where('task_group','like','Checklist')
-                                                ->whereIn('type',['client','partner'])->whereNotNull('client_id')->where('is_action',1)->where('status',1)->orderBy('created_at', 'desc')->count();
-
-                                                $assigneesCount_Review_type = \App\Models\Note::where('task_group','like','Review')
-                                                ->whereIn('type',['client','partner'])->whereNotNull('client_id')->where('is_action',1)->where('status',1)->orderBy('created_at', 'desc')->count();
-
-                                                $assigneesCount_Query_type = \App\Models\Note::where('task_group','like','Query')
-                                                ->whereIn('type',['client','partner'])->whereNotNull('client_id')->where('is_action',1)->where('status',1)->orderBy('created_at', 'desc')->count();
-
-                                                $assigneesCount_Urgent_type = \App\Models\Note::where('task_group','like','Urgent')
-                                                ->whereIn('type',['client','partner'])->whereNotNull('client_id')->where('is_action',1)->where('status',1)->orderBy('created_at', 'desc')->count();
-
-                                                $assigneesCount_Personal_Task_type = \App\Models\Note::where('task_group','like','Personal Task')
-                                                ->whereIn('type',['client','partner'])->whereNotNull('client_id')->where('is_action',1)->where('status',1)->orderBy('created_at', 'desc')->count();
-
-                                            } else {
-                                                $assigneesCount_All_type = \App\Models\Note::where('assigned_to',Auth::user()->id)->whereIn('type',['client','partner'])->where('is_action',1)->where('status',1)->orderBy('created_at', 'desc')->count();
-
-                                                $assigneesCount_call_type = \App\Models\Note::where('task_group','like','Call')
-                                                ->where('assigned_to',Auth::user()->id)->whereIn('type',['client','partner'])->where('is_action',1)->where('status',1)->orderBy('created_at', 'desc')->count();
-
-                                                $assigneesCount_Checklist_type = \App\Models\Note::where('task_group','like','Checklist')
-                                                ->where('assigned_to',Auth::user()->id)->whereIn('type',['client','partner'])->where('is_action',1)->where('status',1)->orderBy('created_at', 'desc')->count();
-
-                                                $assigneesCount_Review_type = \App\Models\Note::where('task_group','like','Review')
-                                                ->where('assigned_to',Auth::user()->id)->whereIn('type',['client','partner'])->where('is_action',1)->where('status',1)->orderBy('created_at', 'desc')->count();
-
-                                                $assigneesCount_Query_type = \App\Models\Note::where('task_group','like','Query')
-                                                ->where('assigned_to',Auth::user()->id)->whereIn('type',['client','partner'])->where('is_action',1)->where('status',1)->orderBy('created_at', 'desc')->count();
-
-                                                $assigneesCount_Urgent_type = \App\Models\Note::where('task_group','like','Urgent')
-                                                ->where('assigned_to',Auth::user()->id)->whereIn('type',['client','partner'])->where('is_action',1)->where('status',1)->orderBy('created_at', 'desc')->count();
-
-                                                $assigneesCount_Personal_Task_type = \App\Models\Note::where('task_group','like','Personal Task')
-                                                ->where('assigned_to',Auth::user()->id)->whereIn('type',['client','partner'])->where('is_action',1)->where('status',1)->orderBy('created_at', 'desc')->count();
-                                            } ?>
-
-
-                                            <?php //echo $task_group;?>
-                                            <a href="{{URL::to('/action/completed?group_type=All')}}" id="All" class="group_type <?php if($task_group == 'All') { echo 'active';}?>">All <span class="countAction">{{ $assigneesCount_All_type }}</span></a> | &nbsp;
+                                            @php
+                                                $typeCounts = $typeCounts ?? [];
+                                                $assignableStaff = $assignableStaff ?? collect();
+                                            @endphp
+                                            <a href="{{URL::to('/action/completed?group_type=All')}}" id="All" class="group_type <?php if($task_group == 'All') { echo 'active';}?>">All <span class="countAction">{{ (int) ($typeCounts['All'] ?? 0) }}</span></a> | &nbsp;
 
                                             <button type="button" class="btn btn-light">
-                                                <a href="{{URL::to('/action/completed?group_type=Call')}}" id="Call" class="group_type <?php if($task_group == 'Call') { echo 'active';}?>"> @icon('phone') Call <span class="countAction">{{ $assigneesCount_call_type }}</span></a> &nbsp;
+                                                <a href="{{URL::to('/action/completed?group_type=Call')}}" id="Call" class="group_type <?php if($task_group == 'Call') { echo 'active';}?>"> @icon('phone') Call <span class="countAction">{{ (int) ($typeCounts['Call'] ?? 0) }}</span></a> &nbsp;
                                             </button>
 
                                             <button type="button" class="btn btn-light">
-                                                <a href="{{URL::to('/action/completed?group_type=Checklist')}}" id="Checklist" class="group_type <?php if($task_group == 'Checklist') { echo 'active';}?>">@icon('bars') Checklist <span class="countAction">{{ $assigneesCount_Checklist_type }}</span></a> &nbsp;
+                                                <a href="{{URL::to('/action/completed?group_type=Checklist')}}" id="Checklist" class="group_type <?php if($task_group == 'Checklist') { echo 'active';}?>">@icon('bars') Checklist <span class="countAction">{{ (int) ($typeCounts['Checklist'] ?? 0) }}</span></a> &nbsp;
                                             </button>
 
                                             <button type="button" class="btn btn-light">
-                                                <a href="{{URL::to('/action/completed?group_type=Review')}}" id="Review" class="group_type <?php if($task_group == 'Review') { echo 'active';}?>"> @icon('check') Review <span class="countAction">{{ $assigneesCount_Review_type }}</span></a> &nbsp;
+                                                <a href="{{URL::to('/action/completed?group_type=Review')}}" id="Review" class="group_type <?php if($task_group == 'Review') { echo 'active';}?>"> @icon('check') Review <span class="countAction">{{ (int) ($typeCounts['Review'] ?? 0) }}</span></a> &nbsp;
                                             </button>
 
                                             <button type="button" class="btn btn-light">
-                                                <a href="{{URL::to('/action/completed?group_type=Query')}}" id="Query" class="group_type <?php if($task_group == 'Query') { echo 'active';}?>">@icon('question') Query <span class="countAction">{{ $assigneesCount_Query_type }}</span></a> &nbsp;
+                                                <a href="{{URL::to('/action/completed?group_type=Query')}}" id="Query" class="group_type <?php if($task_group == 'Query') { echo 'active';}?>">@icon('question') Query <span class="countAction">{{ (int) ($typeCounts['Query'] ?? 0) }}</span></a> &nbsp;
                                             </button>
 
                                             <button type="button" class="btn btn-light">
-                                                <a href="{{URL::to('/action/completed?group_type=Urgent')}}" id="Urgent" class="group_type <?php if($task_group == 'Urgent') { echo 'active';}?>"> @icon('flag') Urgent <span class="countAction">{{ $assigneesCount_Urgent_type }}</span></a> &nbsp;
+                                                <a href="{{URL::to('/action/completed?group_type=Urgent')}}" id="Urgent" class="group_type <?php if($task_group == 'Urgent') { echo 'active';}?>"> @icon('flag') Urgent <span class="countAction">{{ (int) ($typeCounts['Urgent'] ?? 0) }}</span></a> &nbsp;
                                             </button>
 
                                             <button type="button" class="btn btn-light">
-                                                <a href="{{URL::to('/action/completed?group_type=Personal Task')}}" id="Personal Task" class="group_type <?php if($task_group == 'Personal Task') { echo 'active';}?>"> @icon('tasks') Personal Task <span class="countAction">{{ $assigneesCount_Personal_Task_type }}</span></a> &nbsp;
+                                                <a href="{{URL::to('/action/completed?group_type=Personal Task')}}" id="Personal Task" class="group_type <?php if($task_group == 'Personal Task') { echo 'active';}?>"> @icon('tasks') Personal Task <span class="countAction">{{ (int) ($typeCounts['Personal Task'] ?? 0) }}</span></a> &nbsp;
                                             </button>
                                         </div>
                                     </div>
@@ -141,8 +99,8 @@
                                             if(count($assignees_completed)>0){
                                             ?>
                                             @foreach ($assignees_completed as $list)
-                                            <?php //echo "<pre>list==";print_r($list);
-                                                $admin = \App\Models\Staff::find($list->user_id);//dd($admin);
+                                            <?php
+                                                $admin = $list->noteUser;
                                                 if($admin){
                                                     $first_name = $admin->first_name ?? 'N/A';
                                                     $last_name = $admin->last_name ?? 'N/A';
@@ -157,7 +115,7 @@
                                                 if ($list->isPersonalTaskWithoutClient()) {
                                                     $client_reference_html = '<span class="badge badge-info bg-info">Personal Task</span>';
                                                 } elseif($list->type == 'partner'){
-                                                    $partnerInfo = \App\Models\Partner::select('partner_name')->where('id',$list->client_id)->first();
+                                                    $partnerInfo = $list->notePartner;
                                                     if($partnerInfo){
                                                         $user_name = $partnerInfo->partner_name;
                                                         $reference_link = '<a href="'.route('partners.detail', base64_encode(convert_uuencode(@$list->client_id))).'" target="_blank" >'.$partnerInfo->partner_name.'</a>';
@@ -221,9 +179,8 @@
                                                                     <div class="col-sm-9">
                                                                         <select class="assignee-tomselect tomselect form-control selec_reg rem_cat" name="rem_cat">
                                                                             <option value="">Select</option>
-                                                                            @foreach(\App\Models\Staff::where('status',1)->orderby('first_name','ASC')->get() as $admin)
-                                                                            <?php $branchname = \App\Models\Branch::where('id',$admin->office_id)->first(); ?>
-                                                                            <option value="{{ $admin->id }}" {{ $admin->id == $list->assigned_to ? 'selected' : '' }}>{{ $admin->first_name.' '.$admin->last_name.' ('.@$branchname->office_name.')' }}</option>
+                                                                            @foreach($assignableStaff as $admin)
+                                                                            <option value="{{ $admin->id }}" {{ $admin->id == $list->assigned_to ? 'selected' : '' }}>{{ $admin->first_name.' '.$admin->last_name.' ('.($admin->office->office_name ?? '').')' }}</option>
                                                                             @endforeach
                                                                         </select>
                                                                     </div>
@@ -286,9 +243,8 @@
                                                                     <div class="col-sm-9">
                                                                         <select class="assignee-tomselect tomselect form-control selec_reg rem_cat" name="rem_cat">
                                                                             <option value="">Select</option>
-                                                                            @foreach(\App\Models\Staff::where('status',1)->orderby('first_name','ASC')->get() as $admin)
-                                                                            <?php $branchname = \App\Models\Branch::where('id',$admin->office_id)->first(); ?>
-                                                                            <option value="{{ $admin->id }}">{{ $admin->first_name.' '.$admin->last_name.' ('.@$branchname->office_name.')' }}</option>
+                                                                            @foreach($assignableStaff as $admin)
+                                                                            <option value="{{ $admin->id }}">{{ $admin->first_name.' '.$admin->last_name.' ('.($admin->office->office_name ?? '').')' }}</option>
                                                                             @endforeach
                                                                         </select>
                                                                     </div>

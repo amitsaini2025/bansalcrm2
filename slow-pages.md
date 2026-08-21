@@ -8,6 +8,8 @@ Measured 20 Aug 2026 on local Postgres (`bansalcrm_local3`), logged in as super 
 
 Recently modified clients was remeasured **21 Aug 2026** after dropping the four storage-split counts: **~0.7 s** (meets Google ≤ 800 ms; was **15.7 s**, then **1.4 s**).
 
+Actions completed was remeasured **21 Aug 2026** after one grouped type-count and numbered pagination from that total: **~0.3 s** (meets Google ≤ 800 ms; was **5.1 s**).
+
 ---
 
 ## Critical (> 4 s)
@@ -20,7 +22,6 @@ Recently modified clients was remeasured **21 Aug 2026** after dropping the four
 | Discontinue sheet | `/clients/sheets/discontinue` | **6.1 s** |
 | Checklist sheet | `/clients/sheets/checklist` | **5.9 s** |
 | Refund sheet | `/clients/sheets/refund` | **5.9 s** |
-| Actions completed | `/action/completed` | **5.1 s** |
 | Partners | `/partners` | **4.3 s** |
 
 ## Poor (2.5–4 s)
