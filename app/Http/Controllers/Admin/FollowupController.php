@@ -8,6 +8,7 @@ use App\Models\FollowupConsultant;
 use App\Models\Note;
 use App\Support\FollowupAvailability;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -39,6 +40,8 @@ class FollowupController extends Controller
         'jaspreet' => 'Jaspreet Followups',
         'syed' => 'Syed Followups',
     ];
+
+    public const DASHBOARD_DEFAULT_CONSULTANT = 'ankit';
 
     /**
      * Suffix used in historical note titles (still matched on consultant calendars).
@@ -358,7 +361,7 @@ class FollowupController extends Controller
      *
      * Listing is not scoped by role or assignee — any authenticated CRM user sees the same rows.
      */
-    protected function followupListingQuery(): \Illuminate\Database\Eloquent\Builder
+    protected function followupListingQuery(): Builder
     {
         return Note::query()
             ->where('type', 'client')
@@ -371,12 +374,111 @@ class FollowupController extends Controller
      * UI defaults to showing open (confirmed) only; filter can show completed/cancelled/no_show/all.
      * Consultant routing uses note title in {@see calendar()}; status colours come from the view payload.
      */
-    protected function calendarFollowupNotesQuery(): \Illuminate\Database\Eloquent\Builder
+    protected function calendarFollowupNotesQuery(): Builder
     {
         return Note::query()
             ->where('type', 'client')
             ->where('is_action', 1)
             ->where('task_group', 'Followup');
+    }
+
+    /**
+     * Calendar event rows keyed by note id (same payload as the dedicated calendar page).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function calendarScheduleRows(string $consultant): array
+    {
+        $titleVariants = self::followupNoteTitlesForCalendar($consultant);
+        if ($titleVariants === []) {
+            return [];
+        }
+
+        $notes = $this->calendarFollowupNotesQuery()
+            ->whereIn('title', $titleVariants)
+            ->whereNotNull('action_assign_date')
+            ->with([
+                'noteClient:id,first_name,last_name,client_id,email,phone,office_id',
+                'noteClient.office:id,office_name',
+            ])
+            ->orderBy('action_assign_date')
+            ->get();
+
+        $hasOutcomeColumn = Schema::hasColumn('notes', 'followup_outcome');
+        $durationCache = [];
+        $schedRes = [];
+
+        foreach ($notes as $note) {
+            $client = $note->noteClient;
+            if (! $client) {
+                continue;
+            }
+
+            $parsed = self::parseScheduledFollowupNoteHtml((string) $note->description);
+            $consultantSlug = self::consultantSlugFromFollowupNoteTitle($note->title);
+
+            $dt = Carbon::parse($note->action_assign_date)->timezone(config('app.timezone'));
+
+            $displayName = trim(implode(' ', array_filter([(string) ($client->first_name ?? ''), (string) ($client->last_name ?? '')])));
+            if ($displayName === '') {
+                $displayName = (string) ($client->client_id ?: ('#'.$client->id));
+            }
+
+            $durationMin = 30;
+            if ($consultantSlug) {
+                if (! array_key_exists($consultantSlug, $durationCache)) {
+                    $durationCache[$consultantSlug] = FollowupAvailability::slotDurationMinutes($consultantSlug, 'free') ?? 30;
+                }
+                $durationMin = $durationCache[$consultantSlug];
+            }
+
+            $followupOutcome = $hasOutcomeColumn ? $note->followup_outcome : null;
+
+            $calendarStatus = 'confirmed';
+            if ($followupOutcome === 'completed') {
+                $calendarStatus = 'completed';
+            } elseif ($followupOutcome === 'cancelled') {
+                $calendarStatus = 'cancelled';
+            } elseif ($followupOutcome === 'no_show') {
+                $calendarStatus = 'no_show';
+            } elseif ((int) $note->status === 1 && $followupOutcome === null) {
+                $calendarStatus = 'completed';
+            }
+
+            $schedRes[$note->id] = [
+                'id' => $note->id,
+                'clientid' => $client->id,
+                'stitle' => $client->client_id ?: ('#'.$client->id),
+                'name' => base64_encode(trim($client->first_name.' '.$client->last_name)),
+                'email' => base64_encode((string) ($client->email ?? '')),
+                'phone' => base64_encode((string) ($client->phone ?? '')),
+                'startdate' => $dt->format('Y-m-d'),
+                'end' => $dt->format('Y-m-d'),
+                'start_iso' => $dt->format('Y-m-d\TH:i:s'),
+                'end_iso' => $dt->copy()->addMinutes(max(5, $durationMin))->format('Y-m-d\TH:i:s'),
+                'time_label' => $dt->format('g:ia'),
+                'client_display_name' => $displayName,
+                'channel_short' => self::followupChannelShortLabel($parsed['followup_detail']),
+                'followup_date' => date('F j, Y g:i A', strtotime((string) $note->action_assign_date)),
+                'date_pretty' => $dt->format('j M Y, g:i a'),
+                'datetime_local' => $dt->format('Y-m-d\TH:i'),
+                'duration_minutes' => $durationMin,
+                'location_display' => $client->office?->office_name ?? '—',
+                'consultant_display' => $consultantSlug ? self::consultantDisplayForSlug($consultantSlug) : '—',
+                'followup_outcome' => $followupOutcome,
+                'calendar_status' => $calendarStatus,
+                'note_status' => (int) $note->status,
+                'url' => url('/clients/detail/'.base64_encode(convert_uuencode($client->id))),
+                'followup_type' => $parsed['followup_type'],
+                'service' => $parsed['service'],
+                'followup_detail' => $parsed['followup_detail'],
+                'preferred_language' => $parsed['preferred_language'],
+                'details_plain' => $parsed['details_plain'],
+                'consultant_slug' => $consultantSlug,
+            ];
+        }
+
+        return $schedRes;
     }
 
     /**
@@ -518,6 +620,91 @@ class FollowupController extends Controller
         ]);
     }
 
+    /**
+     * Tabs for the dashboard follow-up calendar (Ankit, Rakshita, Jaspreet, Syed).
+     *
+     * @return list<array{slug: string, label: string, events_url: string, calendar_url: string}>
+     */
+    public static function dashboardCalendarTabs(): array
+    {
+        $tabs = [];
+        foreach (self::CONSULTANT_LABELS as $slug => $label) {
+            $tabs[] = [
+                'slug' => $slug,
+                'label' => FollowupConsultant::shortLabelFromName($label, $slug),
+                'events_url' => route('followups.calendar.events', ['consultant' => $slug]),
+                'calendar_url' => route('followups.calendar', ['consultant' => $slug]),
+            ];
+        }
+
+        return $tabs;
+    }
+
+    /**
+     * @param  array<int|string, array<string, mixed>>  $sched
+     * @return array{today: int, this_week: int, upcoming: int}
+     */
+    public static function metricsFromSchedule(array $sched): array
+    {
+        $tz = config('app.timezone');
+        $now = Carbon::now($tz);
+        $today = $now->toDateString();
+        $weekStart = $now->copy()->startOfWeek()->toDateString();
+        $weekEnd = $now->copy()->endOfWeek()->toDateString();
+
+        $todayCount = 0;
+        $weekCount = 0;
+        $upcomingCount = 0;
+
+        foreach ($sched as $row) {
+            $date = (string) ($row['startdate'] ?? '');
+            if ($date === $today) {
+                $todayCount++;
+            }
+            if ($date !== '' && $date >= $weekStart && $date <= $weekEnd) {
+                $weekCount++;
+            }
+            $startIso = (string) ($row['start_iso'] ?? '');
+            if ($startIso === '') {
+                continue;
+            }
+            try {
+                $start = Carbon::parse($startIso, $tz);
+            } catch (\Throwable) {
+                continue;
+            }
+            if ($start->gte($now)) {
+                $upcomingCount++;
+            }
+        }
+
+        return [
+            'today' => $todayCount,
+            'this_week' => $weekCount,
+            'upcoming' => $upcomingCount,
+        ];
+    }
+
+    /**
+     * Drop appointments before today (dashboard widget only).
+     *
+     * @param  array<int|string, array<string, mixed>>  $sched
+     * @return array<int|string, array<string, mixed>>
+     */
+    public static function withoutBackdatedSchedule(array $sched): array
+    {
+        $today = Carbon::now(config('app.timezone'))->toDateString();
+        $kept = [];
+        foreach ($sched as $key => $row) {
+            $date = (string) ($row['startdate'] ?? '');
+            if ($date !== '' && $date >= $today) {
+                $kept[$key] = $row;
+            }
+        }
+
+        return $kept;
+    }
+
     public function calendar(string $consultant)
     {
         if (! self::isCalendarConsultantSlug($consultant)) {
@@ -530,15 +717,7 @@ class FollowupController extends Controller
         }
         $consultantLabel = self::consultantLabel($consultant) ?? self::consultantDisplayForSlug($consultant);
 
-        $notes = $this->calendarFollowupNotesQuery()
-            ->whereIn('title', $titleVariants)
-            ->whereNotNull('action_assign_date')
-            ->with([
-                'noteClient:id,first_name,last_name,client_id,email,phone,office_id',
-                'noteClient.office:id,office_name',
-            ])
-            ->orderBy('action_assign_date')
-            ->get();
+        $sched_res = $this->calendarScheduleRows($consultant);
 
         $followupConsultants = collect();
         if (Schema::hasTable('followup_consultants')) {
@@ -547,75 +726,6 @@ class FollowupController extends Controller
                 ->orderBy('sort_order')
                 ->orderBy('name')
                 ->get();
-        }
-
-        $sched_res = [];
-        foreach ($notes as $note) {
-            $client = $note->noteClient;
-            if (! $client) {
-                continue;
-            }
-
-            $parsed = self::parseScheduledFollowupNoteHtml((string) $note->description);
-            $consultantSlug = self::consultantSlugFromFollowupNoteTitle($note->title);
-
-            $dt = Carbon::parse($note->action_assign_date)->timezone(config('app.timezone'));
-
-            $displayName = trim(implode(' ', array_filter([(string) ($client->first_name ?? ''), (string) ($client->last_name ?? '')])));
-            if ($displayName === '') {
-                $displayName = (string) ($client->client_id ?: ('#'.$client->id));
-            }
-
-            $durationMin = $consultantSlug
-                ? (FollowupAvailability::slotDurationMinutes($consultantSlug, 'free') ?? 30)
-                : 30;
-
-            $followupOutcome = (Schema::hasColumn('notes', 'followup_outcome'))
-                ? $note->followup_outcome
-                : null;
-
-            $calendarStatus = 'confirmed';
-            if ($followupOutcome === 'completed') {
-                $calendarStatus = 'completed';
-            } elseif ($followupOutcome === 'cancelled') {
-                $calendarStatus = 'cancelled';
-            } elseif ($followupOutcome === 'no_show') {
-                $calendarStatus = 'no_show';
-            } elseif ((int) $note->status === 1 && $followupOutcome === null) {
-                $calendarStatus = 'completed';
-            }
-
-            $sched_res[$note->id] = [
-                'id' => $note->id,
-                'clientid' => $client->id,
-                'stitle' => $client->client_id ?: ('#'.$client->id),
-                'name' => base64_encode(trim($client->first_name.' '.$client->last_name)),
-                'email' => base64_encode((string) ($client->email ?? '')),
-                'phone' => base64_encode((string) ($client->phone ?? '')),
-                'startdate' => $dt->format('Y-m-d'),
-                'end' => $dt->format('Y-m-d'),
-                'start_iso' => $dt->format('Y-m-d\TH:i:s'),
-                'end_iso' => $dt->copy()->addMinutes(max(5, $durationMin))->format('Y-m-d\TH:i:s'),
-                'time_label' => $dt->format('g:ia'),
-                'client_display_name' => $displayName,
-                'channel_short' => self::followupChannelShortLabel($parsed['followup_detail']),
-                'followup_date' => date('F j, Y g:i A', strtotime((string) $note->action_assign_date)),
-                'date_pretty' => $dt->format('j M Y, g:i a'),
-                'datetime_local' => $dt->format('Y-m-d\TH:i'),
-                'duration_minutes' => $durationMin,
-                'location_display' => $client->office?->office_name ?? '—',
-                'consultant_display' => $consultantSlug ? self::consultantDisplayForSlug($consultantSlug) : '—',
-                'followup_outcome' => $followupOutcome,
-                'calendar_status' => $calendarStatus,
-                'note_status' => (int) $note->status,
-                'url' => url('/clients/detail/'.base64_encode(convert_uuencode($client->id))),
-                'followup_type' => $parsed['followup_type'],
-                'service' => $parsed['service'],
-                'followup_detail' => $parsed['followup_detail'],
-                'preferred_language' => $parsed['preferred_language'],
-                'details_plain' => $parsed['details_plain'],
-                'consultant_slug' => $consultantSlug,
-            ];
         }
 
         $followupsReassignUrl = route('followups.reassign-consultant');
@@ -631,6 +741,42 @@ class FollowupController extends Controller
             'followupsRescheduleUrl',
             'followupsOutcomeUrl'
         ));
+    }
+
+    public function calendarEvents(string $consultant): JsonResponse
+    {
+        if (! self::isCalendarConsultantSlug($consultant)) {
+            abort(404);
+        }
+
+        $titleVariants = self::followupNoteTitlesForCalendar($consultant);
+        if ($titleVariants === []) {
+            abort(404);
+        }
+
+        $sched = self::withoutBackdatedSchedule($this->calendarScheduleRows($consultant));
+        $events = [];
+        foreach ($sched as $row) {
+            $events[] = [
+                'id' => $row['id'],
+                'start_iso' => $row['start_iso'],
+                'end_iso' => $row['end_iso'],
+                'startdate' => $row['startdate'],
+                'time_label' => $row['time_label'],
+                'client_display_name' => $row['client_display_name'],
+                'channel_short' => $row['channel_short'],
+                'location_display' => $row['location_display'],
+                'calendar_status' => $row['calendar_status'],
+                'url' => $row['url'],
+                'view_url' => url('/followups/view/'.$row['id']),
+            ];
+        }
+
+        return response()->json([
+            'consultant' => $consultant,
+            'events' => $events,
+            'metrics' => self::metricsFromSchedule($sched),
+        ]);
     }
 
     public function reassignConsultant(Request $request): JsonResponse

@@ -160,6 +160,9 @@ Route::delete('/followups/blocked-times/{followupCalendarBlockTiming}', [Followu
 Route::get('/followups/calendar-settings', [FollowupCalendarSettingController::class, 'index'])->name('followups.calendar-settings.index');
 Route::get('/followups/calendar-settings/{followupCalendarSetting}/edit', [FollowupCalendarSettingController::class, 'edit'])->name('followups.calendar-settings.edit');
 Route::put('/followups/calendar-settings/{followupCalendarSetting}', [FollowupCalendarSettingController::class, 'update'])->name('followups.calendar-settings.update');
+Route::get('/followups/calendar/{consultant}/events', [FollowupController::class, 'calendarEvents'])
+    ->where('consultant', '[A-Za-z0-9][A-Za-z0-9\-_]*')
+    ->name('followups.calendar.events');
 Route::get('/followups/calendar/{consultant}', [FollowupController::class, 'calendar'])
     ->where('consultant', '[A-Za-z0-9][A-Za-z0-9\-_]*')
     ->name('followups.calendar');

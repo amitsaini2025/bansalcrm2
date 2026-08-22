@@ -1597,7 +1597,7 @@
                         <div class="col-9 col-md-9 col-lg-9">
 							<div class="form-group">
 								<label for="inputEmail3">Note<span class="span_req">*</span></label>
-					            <textarea id="assignnote" data-valid="required" name="assignnote" class="form-control tinymce-simple f13" placeholder="Enter an note...." type="text"></textarea>
+					            <textarea id="assignnote" data-valid="required" name="assignnote" class="form-control tinymce-simple js-staff-mentions f13" placeholder="Enter a note... (type @ to tag staff)" type="text"></textarea>
 				            </div>
 						</div>
                     </div>

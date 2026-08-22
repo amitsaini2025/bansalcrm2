@@ -226,7 +226,17 @@
     }
 
     function sizeClass(size) {
-        return SIZE_CLASSES[size] || (size.indexOf('icon-') === 0 ? size : 'icon-' + size.replace(/^fa-/, ''));
+        if (size == null || size === '') {
+            return '';
+        }
+        var key = String(size);
+        if (SIZE_CLASSES[key]) {
+            return SIZE_CLASSES[key];
+        }
+        if (SIZE_CLASSES[size]) {
+            return SIZE_CLASSES[size];
+        }
+        return key.indexOf('icon-') === 0 ? key : 'icon-' + key.replace(/^fa-/, '');
     }
 
     function buildLucideClasses(faSlug, style, options, legacyClassString) {

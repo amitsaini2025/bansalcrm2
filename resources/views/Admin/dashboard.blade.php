@@ -823,6 +823,8 @@
           </div>
       	</div>
 
+        @include('Admin.partials.dashboard-followup-calendar')
+
         @if(!empty($accessApprovals))
         <div class="row mb-4">
             <div class="col-12">
@@ -1319,5 +1321,290 @@ $(document).ready(function() {
         }
     });
 });
+</script>
+<script>
+(function() {
+    function startDashboardFollowupCalendar() {
+    try {
+        var panel = document.getElementById('dashboardFollowupCalendarPanel');
+        if (!panel) {
+            return;
+        }
+
+        var calendarEl = document.getElementById('dashboardFollowupCalendar');
+        var listEl = document.getElementById('dashboardFollowupAppointments');
+        var tabs = panel.querySelectorAll('.dash-followup-cal-tab');
+        var cache = {};
+        var calendar = null;
+        var weekdayFmt = new Intl.DateTimeFormat('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+
+        function escHtml(text) {
+            if (text === undefined || text === null) {
+                return '';
+            }
+            var d = document.createElement('div');
+            d.textContent = String(text);
+            return d.innerHTML;
+        }
+
+        function setMetrics(metrics) {
+            var map = metrics || {};
+            panel.querySelectorAll('[data-metric]').forEach(function(el) {
+                var key = el.getAttribute('data-metric');
+                el.textContent = String(map[key] != null ? map[key] : 0);
+            });
+        }
+
+        function statusLabel(status) {
+            if (status === 'completed') return 'Completed';
+            if (status === 'cancelled') return 'Cancelled';
+            if (status === 'no_show') return 'No show';
+            return 'Confirmed';
+        }
+
+        function buildEvents(rows) {
+            var out = [];
+            (rows || []).forEach(function(row) {
+                var cs = row.calendar_status || 'confirmed';
+                if (cs !== 'confirmed' && cs !== 'completed' && cs !== 'cancelled' && cs !== 'no_show') {
+                    cs = 'confirmed';
+                }
+                out.push({
+                    id: String(row.id),
+                    title: row.client_display_name || '',
+                    start: row.start_iso,
+                    end: row.end_iso || row.start_iso,
+                    allDay: false,
+                    classNames: ['fc-followup-pill-wrap', 'fc-followup-status-' + cs],
+                    display: 'block',
+                    backgroundColor: 'transparent',
+                    borderColor: 'transparent',
+                    textColor: '#ffffff',
+                    url: row.view_url || row.url || '',
+                    extendedProps: {
+                        timeLabel: row.time_label || '',
+                        clientName: row.client_display_name || '',
+                        channelShort: row.channel_short || '',
+                        calendarStatus: cs
+                    }
+                });
+            });
+            return out;
+        }
+
+        function renderList(rows) {
+            if (!listEl) {
+                return;
+            }
+            var now = new Date();
+            var upcoming = (rows || []).filter(function(row) {
+                if (!row.start_iso) {
+                    return false;
+                }
+                var d = new Date(row.start_iso);
+                return !isNaN(d.getTime()) && d >= now;
+            }).sort(function(a, b) {
+                return String(a.start_iso).localeCompare(String(b.start_iso));
+            });
+
+            if (upcoming.length === 0) {
+                listEl.innerHTML = '<p class="dash-followup-cal-empty mb-0">No upcoming follow-ups.</p>';
+                return;
+            }
+
+            var html = '';
+            var lastDate = '';
+            upcoming.forEach(function(row) {
+                var d = new Date(row.start_iso);
+                var dateKey = row.startdate || '';
+                if (dateKey !== lastDate) {
+                    lastDate = dateKey;
+                    html += '<div class="dash-followup-cal-group-label">' + escHtml(weekdayFmt.format(d)) + '</div>';
+                }
+                var cs = row.calendar_status || 'confirmed';
+                var href = row.view_url || row.url || '#';
+                var metaParts = [];
+                if (row.channel_short) {
+                    metaParts.push(row.channel_short);
+                }
+                if (row.location_display && row.location_display !== '—') {
+                    metaParts.push(row.location_display);
+                }
+                html += '<a class="dash-followup-cal-item" href="' + escHtml(href) + '">' +
+                    '<div class="dash-followup-cal-item-top">' +
+                    '<span class="dash-followup-cal-item-time">' + escHtml(row.time_label || '') + '</span>' +
+                    '<span class="dash-followup-cal-badge dash-followup-cal-badge-' + escHtml(cs) + '">' + escHtml(statusLabel(cs)) + '</span>' +
+                    '</div>' +
+                    '<div class="dash-followup-cal-item-name">' + escHtml(row.client_display_name || '') +
+                    (row.channel_short ? ' (' + escHtml(row.channel_short) + ')' : '') +
+                    '</div>' +
+                    (metaParts.length ? '<div class="dash-followup-cal-item-meta">' + escHtml(metaParts.join(' · ')) + '</div>' : '') +
+                    '</a>';
+            });
+            listEl.innerHTML = html;
+        }
+
+        function withoutBackdates(rows) {
+            var now = new Date();
+            var todayStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+            return (rows || []).filter(function(row) {
+                var date = String(row.startdate || '').slice(0, 10);
+                if (!date && row.start_iso) {
+                    date = String(row.start_iso).slice(0, 10);
+                }
+                return date >= todayStr;
+            });
+        }
+
+        function showCurrentMonth() {
+            if (!calendar) {
+                return;
+            }
+            calendar.changeView('dayGridMonth');
+            calendar.today();
+        }
+
+        function applyPayload(payload) {
+            var rows = withoutBackdates((payload && payload.events) ? payload.events : []);
+            setMetrics(payload && payload.metrics ? payload.metrics : { today: 0, this_week: 0, upcoming: 0 });
+            renderList(rows);
+            if (!calendar) {
+                return;
+            }
+            calendar.removeAllEvents();
+            calendar.addEventSource(buildEvents(rows));
+            showCurrentMonth();
+        }
+
+        function loadConsultant(btn) {
+            var slug = btn.getAttribute('data-slug');
+            var eventsUrl = btn.getAttribute('data-events-url');
+            if (!slug || !eventsUrl) {
+                return;
+            }
+
+            tabs.forEach(function(tab) {
+                var on = tab === btn;
+                tab.classList.toggle('is-active', on);
+                tab.setAttribute('aria-selected', on ? 'true' : 'false');
+            });
+
+            showCurrentMonth();
+
+            if (cache[slug]) {
+                applyPayload(cache[slug]);
+                return;
+            }
+
+            if (listEl) {
+                listEl.innerHTML = '<p class="dash-followup-cal-empty mb-0">Loading appointments…</p>';
+            }
+
+            fetch(eventsUrl, {
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                credentials: 'same-origin'
+            })
+                .then(function(res) {
+                    if (!res.ok) {
+                        throw new Error('Calendar request failed');
+                    }
+                    return res.json();
+                })
+                .then(function(payload) {
+                    cache[slug] = payload;
+                    applyPayload(payload);
+                })
+                .catch(function() {
+                    setMetrics({ today: 0, this_week: 0, upcoming: 0 });
+                    if (listEl) {
+                        listEl.innerHTML = '<p class="dash-followup-cal-empty mb-0">Could not load this calendar.</p>';
+                    }
+                    if (calendar) {
+                        calendar.removeAllEvents();
+                    }
+                });
+        }
+
+        if (calendarEl && typeof window.FullCalendar !== 'undefined' && window.FullCalendar.Calendar) {
+            calendar = new window.FullCalendar.Calendar(calendarEl, {
+                height: 'auto',
+                initialView: 'dayGridMonth',
+                editable: false,
+                selectable: false,
+                dayMaxEvents: true,
+                moreLinkText: 'more',
+                plugins: [
+                    window.FullCalendar.dayGridPlugin,
+                    window.FullCalendar.timeGridPlugin,
+                    window.FullCalendar.interactionPlugin
+                ],
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: 'dayGridMonth,timeGridWeek,timeGridDay'
+                },
+                buttonText: {
+                    today: 'today',
+                    month: 'month',
+                    week: 'week',
+                    day: 'day'
+                },
+                events: [],
+                eventContent: function(arg) {
+                    var props = arg.event.extendedProps || {};
+                    var time = props.timeLabel || '';
+                    var name = props.clientName || arg.event.title || '';
+                    return {
+                        html: '<div class="dash-fc-pill">' +
+                            '<span>' + escHtml(time) + '</span>' +
+                            '<span>' + escHtml(name) + '</span>' +
+                            '</div>'
+                    };
+                },
+                eventDidMount: function(info) {
+                    var props = info.event.extendedProps || {};
+                    var time = props.timeLabel || '';
+                    var name = props.clientName || info.event.title || '';
+                    var full = [time, name].filter(Boolean).join(' ');
+                    var slab = statusLabel(props.calendarStatus || 'confirmed');
+                    if (slab) {
+                        full += full ? (' — ' + slab) : slab;
+                    }
+                    if (full) {
+                        info.el.setAttribute('title', full);
+                    }
+                }
+            });
+            calendar.render();
+        } else if (listEl) {
+            listEl.innerHTML = '<p class="dash-followup-cal-empty mb-0">Calendar view is unavailable.</p>';
+        }
+
+        tabs.forEach(function(tab) {
+            tab.addEventListener('click', function() {
+                loadConsultant(tab);
+            });
+        });
+
+        var initial = panel.querySelector('.dash-followup-cal-tab.is-active') || tabs[0];
+        if (initial) {
+            loadConsultant(initial);
+        }
+    } catch (e) {
+        if (typeof console !== 'undefined' && console.warn) {
+            console.warn('Dashboard followup calendar failed to start', e);
+        }
+    }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', startDashboardFollowupCalendar);
+    } else {
+        startDashboardFollowupCalendar();
+    }
+})();
 </script>
 @endsection

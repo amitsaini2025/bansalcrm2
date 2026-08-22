@@ -56,6 +56,14 @@ class AdminController extends Controller
      */
     public function dashboard()
     {
+        $followupCalendarTabs = [];
+        $followupCalendarDefault = FollowupController::DASHBOARD_DEFAULT_CONSULTANT;
+        try {
+            $followupCalendarTabs = FollowupController::dashboardCalendarTabs();
+        } catch (\Throwable $e) {
+            Log::warning('Dashboard followup calendar tabs failed: '.$e->getMessage());
+        }
+
         try {
             // Get dashboard data using service (always show today's actions)
             $todayTasks = $this->dashboardService->getTodayTasks('today');
@@ -73,6 +81,8 @@ class AdminController extends Controller
                 'loginStats',
                 'recentActivities',
                 'accessApprovals',
+                'followupCalendarTabs',
+                'followupCalendarDefault',
             ]));
         } catch (\Exception $e) {
             Log::error('Dashboard error: ' . $e->getMessage());
@@ -86,6 +96,8 @@ class AdminController extends Controller
                 'loginStats' => $this->dashboardService->getLoginStatistics(),
                 'recentActivities' => collect([]),
                 'accessApprovals' => null,
+                'followupCalendarTabs' => $followupCalendarTabs,
+                'followupCalendarDefault' => $followupCalendarDefault,
             ])->with('error', 'An error occurred while loading the dashboard. Some data may not be available.');
         }
     }

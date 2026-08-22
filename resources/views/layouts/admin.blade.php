@@ -685,6 +685,7 @@ i[style*="color:rgba"] {
 	@endauth
 
 	@include('partials.email-from-ses-script')
+	<script src="{{ asset('js/components/task-description-mentions.js') }}?v={{ @filemtime(public_path('js/components/task-description-mentions.js')) ?: time() }}"></script>
 
 @stack('scripts')
 @yield('scripts')

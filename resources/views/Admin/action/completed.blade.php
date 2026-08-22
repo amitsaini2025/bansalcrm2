@@ -190,7 +190,7 @@
                                                                 <div class="form-group row" style="margin-bottom:12px">
                                                                     <label class="col-sm-3 control-label c6 f13" style="margin-top:8px">Note</label>
                                                                     <div class="col-sm-9">
-                                                                        <textarea class="form-control assignnote tinymce-simple f13" placeholder="Enter an note...." rows="3"></textarea>
+                                                                        <textarea class="form-control assignnote tinymce-simple js-staff-mentions f13" placeholder="Enter a note... (type @ to tag staff)" rows="3"></textarea>
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -254,7 +254,7 @@
                                                                 <div class="form-group row" style="margin-bottom:12px">
                                                                     <label class="col-sm-3 control-label c6 f13" style="margin-top:8px">Note</label>
                                                                     <div class="col-sm-9">
-                                                                        <textarea class="form-control assignnote tinymce-simple f13" placeholder="Enter an note...." rows="3"></textarea>
+                                                                        <textarea class="form-control assignnote tinymce-simple js-staff-mentions f13" placeholder="Enter a note... (type @ to tag staff)" rows="3"></textarea>
                                                                     </div>
                                                                 </div>
                                                             </div>

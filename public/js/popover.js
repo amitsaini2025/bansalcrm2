@@ -17,16 +17,16 @@ function convertDateFormat(calchangedate, format) {
             start_date = "0" + start_date;
         }
         if (format === "yyyy-mm-dd") {
-            return newdate = start_year + "-" + start_month + "-" + start_date;
+            return start_year + "-" + start_month + "-" + start_date;
         }
         else if (format === "dd/mm/yyyy") {
-            return newdate = start_date + "/" + start_month + "/" + start_year;
+            return start_date + "/" + start_month + "/" + start_year;
         }
         else if (format === "mm/dd/yyyy") {
-            return newdate = start_month + "/" + start_date + "/" + start_year;
+            return start_month + "/" + start_date + "/" + start_year;
         }
         else if (format === "dd NNN yyyy") {
-            return newdate = start_date + " " + monthNames[monthstring] + " " + start_year;
+            return start_date + " " + monthNames[monthstring] + " " + start_year;
         }
 
     }
