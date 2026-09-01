@@ -2,7 +2,6 @@
 
 namespace Tests\Unit\Services;
 
-use App\Services\DashboardService;
 use App\Services\StaffWorkloadService;
 use Carbon\Carbon;
 use ReflectionMethod;
@@ -12,7 +11,7 @@ class StaffWorkloadServiceTest extends TestCase
 {
     private function service(): StaffWorkloadService
     {
-        return new StaffWorkloadService($this->createMock(DashboardService::class));
+        return new StaffWorkloadService;
     }
 
     public function test_day_bounds_use_app_timezone_start_and_end(): void

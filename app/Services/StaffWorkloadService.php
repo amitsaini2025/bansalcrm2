@@ -33,10 +33,6 @@ class StaffWorkloadService
     /** @var list<string> */
     private const NOTE_AUDIT_SUBJECTS = ['added a note', 'updated a note', 'deleted a note'];
 
-    public function __construct(
-        private DashboardService $dashboardService,
-    ) {}
-
     /**
      * @return array<string, mixed>
      */
@@ -53,7 +49,6 @@ class StaffWorkloadService
             'day' => $day,
             'day_label' => $day->format('l, j F Y'),
             'range' => ['start' => $start, 'end' => $end],
-            'login_stats' => $this->dashboardService->getLoginStatistics(),
             'caseload' => $caseload,
             'contact' => $contact,
             'throughput' => $throughput,
@@ -124,19 +119,6 @@ class StaffWorkloadService
             'day_label' => $day->format('l, j F Y'),
             'rows' => $rows,
         ];
-    }
-
-    /**
-     * Full summary for a staff member (admin detail view). Omits login stats for the admin viewer.
-     *
-     * @return array<string, mixed>
-     */
-    public function getDaySummaryForStaff(int $staffId, ?Carbon $day = null): array
-    {
-        $summary = $this->getDaySummary($staffId, $day);
-        $summary['login_stats'] = [];
-
-        return $summary;
     }
 
     /**

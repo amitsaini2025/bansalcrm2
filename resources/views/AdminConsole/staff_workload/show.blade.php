@@ -12,6 +12,7 @@
             @include('Admin.partials.my-day-panel', [
                 'summary' => $summary,
                 'panelTitle' => $staff->full_name.' — My Day',
+                'workloadSectionTitle' => $staff->full_name.'\'s workload',
                 'embeddedOnDashboard' => true,
             ])
         </div>

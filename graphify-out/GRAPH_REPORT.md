@@ -1,29 +1,29 @@
 # Graph Report - bansalcrm2  (2026-09-01)
 
 ## Corpus Check
-- 906 files · ~1,193,231 words
+- 906 files · ~1,193,185 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 5866 nodes · 11667 edges · 688 communities (462 shown, 226 thin omitted)
+- 5864 nodes · 11660 edges · 695 communities (454 shown, 241 thin omitted)
 - Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 630 edges (avg confidence: 0.77)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `169f7de7`
+- Built from commit: `63155b7d`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- Controller
-- Illuminate\Http\Request
 - Admin
+- Illuminate\Http\Request
+- ClientController
 - Auth
 - Illuminate\Database\Eloquent\Model
 - Illuminate\Database\Schema\Blueprint
 - Illuminate\Support\Facades\Schema
 - ActivitiesLog
-- Invoice
+- InvoiceController
 - Illuminate\Database\Migrations\Migration
 - PartnersController
 - DB
@@ -77,23 +77,23 @@
 - OngoingSheetController
 - Medium
 - document-rename.js
-- EducationEliteMail
+- FromEmail
 - Email
 - PhoneVerification
 - Partner
 - EmailQueryV2Controller
-- loadEmailsFromServer
+- uploadFiles
 - PDFService
-- .time
+- PythonEmailParserService
 - ActionController
-- Note
+- ClientNoteController
 - EliteEmailController
 - High
 - emails_v2.js
 - document-handlers.js
 - IconHelper
 - EliteEmail
-- SearchService
+- Kyslik\ColumnSortable\Sortable
 - DocxConverterService
 - dependencies
 - RecentlyModifiedClientsLatestActivityTest
@@ -116,7 +116,7 @@
 - Form
 - PhoneVerificationController
 - PartnerAgreement
-- SmsTemplateVariableResolver
+- Profile
 - .importClient
 - Client Export/Import Implementation Guide for bansalcrm2
 - FIXED / CLOSED (audit history below)
@@ -139,12 +139,11 @@
 - Fixes Applied to Assigned by Me Page
 - custom-form-validation.js
 - escapeHtml
-- uploadFiles
+- showDuplicateEmailPrompt
 - count-fa-usage.cjs
-- FromEmail
+- Note
 - SesInboundSyncCommand
 - UnifiedSmsManager
-- StaffController
 - ClientExportService
 - Low
 - Email Debug Report (AWS SES)
@@ -152,7 +151,7 @@
 - main
 - MigrateLeadsToAdminsCommand
 - Branch
-- ClientReceiptController
+- Country
 - 11. Staff / Roles / Teams / Branches
 - 13. Admin Console
 - Detection Checklist
@@ -164,8 +163,8 @@
 - action-popover-tomselect.js
 - handleReply
 - createEmailItem
-- AuditLogController
-- OutlookController
+- ReportController
+- FollowupCalendarSetting
 - bansalcrm2 Implementation Summary
 - OPEN — Needs Fixing (verified 2026-08-09)
 - Medium
@@ -183,7 +182,7 @@
 - EmailTemplateController.php
 - AppServiceProvider.php
 - FollowupAvailability
-- StaffAllocationScope
+- StaffWorkloadService.php
 - composer.json
 - Advanced Query Patterns
 - Database Performance Best Practices
@@ -197,7 +196,7 @@
 - restore-recent-clients-tail.cjs
 - FixDuplicateTables
 - UploadChecklistController
-- EmailController
+- AdminLoginController
 - TinyMCEImageUploadTest
 - ClientDetailTab
 - 16. Notifications
@@ -230,10 +229,10 @@
 - AWS SES Email Configuration
 - AWS SES Integration – Verification Report
 - ClientDetailLeadRedirectTest
-- Handler
+- Handler.php
 - SmsWebhookController
 - config
-- 14. Auth / CRM Access
+- Illuminate\Support\Collection
 - Collection Best Practices
 - HTTP Client Best Practices
 - Mail Best Practices
@@ -252,7 +251,7 @@
 - Kernel
 - EventServiceProvider.php
 - TwilioService
-- FromEmailAddress
+- AgentController
 - autoload
 - Fix: Git commit/push from chat (Permission denied on .git)
 - adminconsole.blade.php
@@ -298,22 +297,37 @@
 - EncryptCookies
 - TrimStrings
 - VerifyCsrfToken.php
-- SearchService.php
+- LeadController
 - CrmAccessDeniedException
 - extra
 - keywords
 - logging.php
+- CrmSentEmailS3Service
+- handleDeleteEmail
 - 2026_01_22_100001_create_document_categories_table.php
-- 2026_01_22_100002_add_category_id_to_documents_table.php
+- 15. Ongoing Sheet
 - 2026_01_24_005942_insert_default_email_labels.php
+- UserAgentParser
 - 2026_01_24_155620_create_and_sync_sequences_for_five_tables.php
-- 2026_02_16_000006_modify_staff_table_columns.php
+- health_check
+- PartnerType
+- CheckinHistory
+- IncomeSharing
+- 2026_01_24_230000_fix_mail_reports_metadata_columns.php
+- 2026_02_21_120002_migrate_leads_to_admins.php
+- 2026_03_09_160000_ensure_mail_reports_renamed_to_emails.php
+- ClientDetailAgeDisplayTest
+- Settings.php
+- TrustProxies.php
 - 2026_02_21_120003_add_client_id_to_followups.php
 - 2026_02_22_140000_migrate_lead_emails_to_client_emails.php
 - 2026_02_22_150000_migrate_pending_lead_emails_to_client_emails.php
 - 2026_02_22_150001_migrate_pending_lead_phones_to_client_phones.php
+- 2026_01_24_163045_sync_all_table_sequences.php
+- 2026_02_07_100002_create_sms_templates_table.php
 - 2026_03_09_200000_fix_emails_sequence_permanent.php
-- 2026_04_02_160000_create_client_access_grants_table.php
+- 2026_02_16_000007_move_role_after_id_postgresql.php
+- 2026_02_16_000009_migrate_att_phone_to_client_phones.php
 - 2026_08_21_193430_add_client_latest_index_to_activities_logs_table.php
 - laravel-boost
 - client-detail.js
@@ -455,6 +469,8 @@
 - outlook.blade.php
 - reset_link.blade.php
 - vite.config.js
+- 2026_02_25_000001_fix_checkin_histories_created_by_foreign_key.php
+- 2026_03_09_190000_sync_emails_sequence_force.php
 
 ## God Nodes (most connected - your core abstractions)
 1. `Admin` - 227 edges
@@ -483,51 +499,47 @@
 ## Import Cycles
 - None detected.
 
-## Communities (688 total, 226 thin omitted)
+## Communities (695 total, 241 thin omitted)
 
-### Community 0 - "Controller"
-Cohesion: 0.03
-Nodes (22): ChecklistController, CrmEmailTemplateController, LeadServiceController, MasterCategoryController, PartnerTypeController, ProductTypeController, ProfileController, SourceController (+14 more)
+### Community 0 - "Admin"
+Cohesion: 0.05
+Nodes (14): TagController, Controller, Admin, DataTables, Illuminate\Contracts\Database\Eloquent\Builder, Illuminate\Foundation\Auth\Access\AuthorizesRequests, Illuminate\Foundation\Bus\DispatchesJobs, Illuminate\Foundation\Validation\ValidatesRequests (+6 more)
 
 ### Community 1 - "Illuminate\Http\Request"
-Cohesion: 0.03
-Nodes (11): AddressController, AgentController, ApplicationsController, ProductsController, DocumentChecklistController, SmsSendController, TrustProxies, Application (+3 more)
-
-### Community 2 - "Admin"
-Cohesion: 0.03
-Nodes (17): ClientActivityController, ClientController, Collection, ClientMessagingController, ClientServiceController, Admin, canAssignClients(), canDeleteClient() (+9 more)
+Cohesion: 0.02
+Nodes (17): AddressController, ApplicationsController, ProductsController, ChecklistController, CrmEmailTemplateController, DocumentChecklistController, LeadServiceController, MasterCategoryController (+9 more)
 
 ### Community 3 - "Auth"
-Cohesion: 0.04
-Nodes (7): Settings, AdminController, ClientActionController, TagController, Notification, Auth, Config
+Cohesion: 0.05
+Nodes (5): AdminController, ClientActionController, StaffroleController, Auth, Config
 
 ### Community 4 - "Illuminate\Database\Eloquent\Model"
-Cohesion: 0.05
-Nodes (26): AccountClientReceipt, ApplicationDocument, ApplicationDocumentList, ApplicationFeeOptionType, Category, CheckinHistory, Checklist, ClientEmail (+18 more)
+Cohesion: 0.07
+Nodes (12): ApplicationDocumentList, Category, ClientEmail, clientServiceTaken, ClientTestScore, DocumentChecklist, OutlookDraftEmail, ShareInvoice (+4 more)
 
 ### Community 5 - "Illuminate\Database\Schema\Blueprint"
-Cohesion: 0.03
-Nodes (9): up(), addIndexIfNotExists(), up(), up(), up(), up(), up(), up() (+1 more)
+Cohesion: 0.02
+Nodes (7): up(), down(), up(), up(), up(), up(), Illuminate\Database\Schema\Blueprint
 
 ### Community 6 - "Illuminate\Support\Facades\Schema"
 Cohesion: 0.03
-Nodes (10): up(), up(), up(), up(), up(), up(), up(), up() (+2 more)
+Nodes (7): up(), up(), up(), up(), up(), up(), Illuminate\Support\Facades\Schema
 
 ### Community 7 - "ActivitiesLog"
-Cohesion: 0.06
-Nodes (23): UserAgentParser, ActivitiesLog, formatValue(), logClientActivity(), logClientActivityWithChanges(), Barryvdh\DomPDF\Facade\Pdf, Illuminate\Contracts\Filesystem\Cloud, Illuminate\Database\QueryException (+15 more)
+Cohesion: 0.07
+Nodes (25): ActivitiesLog, ClientPhone, formatValue(), logClientActivity(), logClientActivityWithChanges(), Barryvdh\DomPDF\Facade\Pdf, GuzzleHttp\Client, Illuminate\Contracts\Filesystem\Cloud (+17 more)
 
-### Community 8 - "Invoice"
-Cohesion: 0.05
-Nodes (9): CronJob, AccountController, InvoiceController, Carbon, Invoice, InvoiceDetail, InvoicePayment, Maatwebsite\Excel\Facades\Excel (+1 more)
+### Community 8 - "InvoiceController"
+Cohesion: 0.06
+Nodes (7): CronJob, AccountController, InvoiceController, Carbon, InvoiceDetail, InvoicePayment, PDF
 
 ### Community 9 - "Illuminate\Database\Migrations\Migration"
 Cohesion: 0.04
-Nodes (13): CreateUsersTable, CreatePasswordResetsTable, CreateAdminsTable, CreateSessionsTable, RenameMartialStatusToMaritalStatusAndNormalize, AddEmailSignatureToAdminsTable, AddDefaultEmailIdToAdminsTable, AddVisaColumnsToAdminsTable (+5 more)
+Nodes (14): CreateUsersTable, CreatePasswordResetsTable, CreateAdminsTable, CreateSessionsTable, up(), RenameMartialStatusToMaritalStatusAndNormalize, AddEmailSignatureToAdminsTable, AddDefaultEmailIdToAdminsTable (+6 more)
 
 ### Community 11 - "DB"
-Cohesion: 0.05
-Nodes (29): ClientMergeController, ClientDocumentStaffResolver, down(), up(), down(), up(), down(), up() (+21 more)
+Cohesion: 0.06
+Nodes (27): ClientMergeController, ClientReceiptController, ClientDocumentStaffResolver, down(), up(), down(), up(), down() (+19 more)
 
 ### Community 12 - "jquery-3.7.1.min.js"
 Cohesion: 0.08
@@ -535,15 +547,15 @@ Nodes (37): Ae(), B(), Be(), c(), $e(), ee(), F(), fe() (+29 more)
 
 ### Community 13 - "Illuminate\Console\Command"
 Cohesion: 0.05
-Nodes (17): CheckinLogColumnStats, CompleteTaskRemoval, ExpireCrmAccessGrants, ExportAdminsLowDataColumns, InPersonCompleteTaskRemoval, LeadsColumnStats, ListTables, MaxColumnsTable (+9 more)
+Nodes (16): CheckinLogColumnStats, CompleteTaskRemoval, ExpireCrmAccessGrants, ExportAdminsLowDataColumns, LeadsColumnStats, ListTables, MaxColumnsTable, MigrateClientConversationsToEmailTab (+8 more)
 
 ### Community 14 - "main.py"
-Cohesion: 0.07
-Nodes (42): DateTime, get, Path, health_check(), parse_analyze_render_email(), parse_email(), parse_render_pdf_email(), Health check endpoint. (+34 more)
+Cohesion: 0.08
+Nodes (37): DateTime, Path, parse_analyze_render_email(), parse_email(), parse_render_pdf_email(), Return a unique temp email path preserving the original extension., Backward-compatible alias for .msg temp paths., Remove temp file; log only on failure (e.g. WinError 5 Access denied). (+29 more)
 
 ### Community 16 - "FollowupController"
-Cohesion: 0.07
-Nodes (4): FollowupController, FollowupConsultant, Illuminate\Http\JsonResponse, FollowupCalendarMetricsTest
+Cohesion: 0.08
+Nodes (3): FollowupController, FollowupConsultant, FollowupCalendarMetricsTest
 
 ### Community 17 - "Document"
 Cohesion: 0.08
@@ -558,16 +570,12 @@ Cohesion: 0.09
 Nodes (18): OfficeVisitNotificationCreated, ClientVerifyMail, CommonMail, GoogleReviewMail, InvoiceEmailManager, MultipleattachmentEmailManager, PRPointsEmail, VisaExpireReminderMail (+10 more)
 
 ### Community 20 - "StaffClientVisibility"
-Cohesion: 0.08
-Nodes (4): LeadController, AccessGrantController, StaffClientVisibility, Illuminate\Contracts\Auth\Authenticatable
+Cohesion: 0.09
+Nodes (12): AccessGrantController, StaffClientVisibility, canAssignClients(), canDeleteClient(), canEditClient(), canViewAllClients(), canViewClient(), getCurrentUserRole() (+4 more)
 
 ### Community 21 - "EmailRendererService"
 Cohesion: 0.08
 Nodes (17): EmailRendererService, Any, Clean and enhance HTML content., Create a responsive email template., Extract and analyze images from HTML content., Service for rendering email content with enhanced HTML and styling., Process and analyze links in HTML content., Check if a link is suspicious. (+9 more)
-
-### Community 22 - "PhoneHelper"
-Cohesion: 0.07
-Nodes (4): PhoneHelper, ClientPhone, Country, PartnerPhone
 
 ### Community 23 - "recipient-select.js"
 Cohesion: 0.13
@@ -578,16 +586,16 @@ Cohesion: 0.12
 Nodes (37): applyWidth(), buildAjaxLoader(), buildAjaxQueryString(), cleanupTomSelectArtifacts(), clearEnhancedSelectValue(), deliverAjaxResults(), destroyEnhancedSelect(), destroyTomSelect() (+29 more)
 
 ### Community 25 - "CheckinLog"
-Cohesion: 0.08
-Nodes (3): OfficeVisitController, ReportController, CheckinLog
+Cohesion: 0.10
+Nodes (3): InPersonCompleteTaskRemoval, OfficeVisitController, CheckinLog
 
 ### Community 26 - "Carbon\Carbon"
-Cohesion: 0.14
-Nodes (5): Carbon, StaffWorkloadService, ClientDetailEagerLoads, Carbon\Carbon, Illuminate\Support\Collection
+Cohesion: 0.21
+Nodes (3): Carbon, StaffWorkloadService, Carbon\Carbon
 
 ### Community 27 - "FollowupCalendarBlockTiming"
-Cohesion: 0.10
-Nodes (8): FollowupCalendarBlockTimingController, FollowupCalendarSettingController, MyDayController, FollowupCalendarBlockTiming, FollowupCalendarSetting, followups_console_route(), Illuminate\Http\RedirectResponse, Illuminate\View\View
+Cohesion: 0.15
+Nodes (6): FollowupCalendarBlockTimingController, MyDayController, FollowupCalendarBlockTiming, followups_console_route(), Illuminate\Http\RedirectResponse, Illuminate\View\View
 
 ### Community 28 - "Illuminate\Support\Facades\Route"
 Cohesion: 0.07
@@ -606,11 +614,11 @@ Cohesion: 0.11
 Nodes (16): Message, EmailParserService, Any, Parse a .eml (RFC 822) email file saved from Outlook or other clients., Safely get value and convert to JSON-serializable format., Extract sender name and email from message., Service for parsing Outlook email files (.msg, .eml)., Extract recipient information from message. (+8 more)
 
 ### Community 32 - "web.php"
-Cohesion: 0.07
-Nodes (8): PromotionController, TeamController, TinyMCEImageUploadController, AdminLoginController, ExceptionController, Promotion, Illuminate\Foundation\Auth\AuthenticatesUsers, Symfony\Component\HttpFoundation\IpUtils
+Cohesion: 0.06
+Nodes (8): ClientActivityController, ClientMessagingController, ClientServiceController, PromotionController, TeamController, TinyMCEImageUploadController, ExceptionController, Promotion
 
 ### Community 33 - "DocumentCategory"
-Cohesion: 0.09
+Cohesion: 0.11
 Nodes (4): MigrateApplicationDocumentsToDocumentsTable, DocumentCategoryController, DocumentCategoryController, DocumentCategory
 
 ### Community 34 - "Illuminate\Database\Eloquent\Relations\BelongsTo"
@@ -618,7 +626,7 @@ Cohesion: 0.07
 Nodes (4): ClientOngoingReference, Illuminate\Database\Eloquent\Relations\BelongsTo, Illuminate\Database\Eloquent\Relations\BelongsToMany, Illuminate\Database\Eloquent\Relations\HasMany
 
 ### Community 35 - "Illuminate\Database\Eloquent\Builder"
-Cohesion: 0.10
+Cohesion: 0.09
 Nodes (13): ClientDetailActivities, applyArchivedFilters(), applyClientFilters(), applyStaffRowVisibilityIfNeeded(), getArchivedClientQuery(), getBaseClientQuery(), getClientByEncodedId(), getClientById() (+5 more)
 
 ### Community 36 - "EmailLabel"
@@ -650,8 +658,8 @@ Cohesion: 0.06
 Nodes (30): 10. Implementation Order, 1.1 Ensure Education & Migration Categories Exist, 1.2 Run Existing Migrations (if not yet run), 1. Prerequisites (Data & Migrations), 2.1 DocumentCategoryController — `getDocuments()`, 2.2 DocumentCategory Model — `getDocumentCount()`, 2. Backend Changes, 3.1 Remove Tab Navigation Items (lines ~612–617) (+22 more)
 
 ### Community 43 - "StaffRole"
-Cohesion: 0.11
-Nodes (5): StaffroleController, StaffRole, UserRole, Mockery, ClientAuthorizationTest
+Cohesion: 0.09
+Nodes (5): StaffRole, UserRole, Mockery, ClientAuthorizationTest, ClientQueriesTest
 
 ### Community 45 - "EmailAnalyzerService"
 Cohesion: 0.11
@@ -662,32 +670,32 @@ Cohesion: 0.07
 Nodes (27): APIs & Eloquent Resources, Application Structure & Architecture, Artisan, Conventions, Deployment, Do Things the Laravel Way, Documentation Files, Foundational Context (+19 more)
 
 ### Community 48 - "TinymceImageS3Migrator"
-Cohesion: 0.12
-Nodes (7): TinymceDataUrisMigrateToS3Command, TinymceImagesMigrateToS3Command, ApplicationActivitiesLog, TinymceImageS3Migrator, Generator, Illuminate\Console\Attributes\Description, Illuminate\Console\Attributes\Signature
+Cohesion: 0.11
+Nodes (8): TinymceDataUrisMigrateToS3Command, TinymceImagesMigrateToS3Command, ApplicationActivitiesLog, App\Models\Company, TinymceImageS3Migrator, Generator, Illuminate\Console\Attributes\Description, Illuminate\Console\Attributes\Signature
 
 ### Community 49 - "Staff"
-Cohesion: 0.16
-Nodes (3): ClientAccessGrant, Staff, CrmAccessService
+Cohesion: 0.05
+Nodes (10): AuditLogController, Carbon, StaffController, ClientAccessGrant, Notification, Staff, CrmAccessService, SearchService (+2 more)
 
 ### Community 51 - "TestCase"
-Cohesion: 0.09
-Nodes (6): Illuminate\Foundation\Testing\TestCase, DashboardFollowupCalendarTest, TestCase, ClientDetailAgeDisplayTest, ClientDetailEagerLoadsTest, TinymceImageS3MigratorTest
+Cohesion: 0.11
+Nodes (6): Illuminate\Foundation\Testing\TestCase, Illuminate\Pagination\LengthAwarePaginator, ReflectionMethod, TestCase, CompletedActionsCountsTest, TinymceImageS3MigratorTest
 
 ### Community 53 - "SanitizesEmail.php"
-Cohesion: 0.10
-Nodes (9): Agent, BaseModel, Client, PartnerEmail, Profile, Report, Illuminate\Database\Eloquent\Relations\MorphTo, Illuminate\Notifications\Notifiable (+1 more)
+Cohesion: 0.12
+Nodes (6): Agent, BaseModel, Client, PartnerEmail, Illuminate\Database\Eloquent\Relations\MorphTo, Model
 
 ### Community 54 - "EducationEliteInboxService"
 Cohesion: 0.16
 Nodes (3): EducationEliteInboxService, self, Illuminate\Database\Query\Builder
 
 ### Community 55 - "Helper"
-Cohesion: 0.09
-Nodes (5): Helper, App\Models\Company, DOMDocument, DOMElement, HelperNoteImageLinkTest
+Cohesion: 0.08
+Nodes (6): Helper, self, StaffAssigneeResolver, DOMDocument, DOMElement, HelperNoteImageLinkTest
 
 ### Community 56 - "Product"
-Cohesion: 0.10
-Nodes (5): ClientApplicationController, PartnerBranch, Product, DataTables, Illuminate\Contracts\Database\Eloquent\Builder
+Cohesion: 0.12
+Nodes (3): ClientApplicationController, PartnerBranch, Product
 
 ### Community 58 - "modern-search.js"
 Cohesion: 0.17
@@ -705,17 +713,17 @@ Nodes (23): 7. Email / Messaging (CRM compose, SES, Elite, Outlook), Critical, ~
 Cohesion: 0.24
 Nodes (22): appendRenameEditControls(), bindChecklistEditActions(), bindFileEditActions(), cancelChecklistRename(), cancelFileRename(), createActionButton(), enterChecklistEditMode(), enterFileEditMode() (+14 more)
 
-### Community 62 - "EducationEliteMail"
-Cohesion: 0.15
-Nodes (4): SesTestCommand, SesSenderService, EducationEliteMail, Aws\SesV2\SesV2Client
+### Community 62 - "FromEmail"
+Cohesion: 0.06
+Nodes (11): DebugEmailCredentials, SesTestCommand, OutlookController, EmailController, FromEmail, EmailService, SesSenderService, EducationEliteMail (+3 more)
 
 ### Community 63 - "Email"
-Cohesion: 0.13
-Nodes (3): EmailLabelV2Controller, Email, CrmSentEmailS3Service
-
-### Community 67 - "loadEmailsFromServer"
 Cohesion: 0.15
-Nodes (22): applyLabel(), getCsrfToken(), getEntityId(), getEntityType(), getSelectedLabelIds(), handleDeleteEmail(), hideContextMenu(), initializeContextMenu() (+14 more)
+Nodes (4): EmailLabelV2Controller, Email, Illuminate\Support\Facades\Response, ZipArchive
+
+### Community 67 - "uploadFiles"
+Cohesion: 0.20
+Nodes (16): flattenBatchAttachments(), getDuplicateUploadError(), getEntityId(), getEntityType(), getSelectedLabelIds(), groupAttachmentStorageByEmail(), hideEmailUploadLoading(), loadDocumentCategoriesForAttachmentModal() (+8 more)
 
 ### Community 68 - "PDFService"
 Cohesion: 0.13
@@ -726,16 +734,20 @@ Cohesion: 0.10
 Nodes (21): 1. Clients, C-10. ~~Activity log & “not picked call” without authorization (IDOR + SMS)~~ — **FIXED**, C-11. ~~Application create/list without authorization; fragile partner_branch parse~~ — **FIXED**, C-12. ~~Soft-delete filter semantics inconsistent with LeadController~~ — **FIXED**, C-13. ~~Clients index includes leads (no default type filter)~~ — **FIXED**, C-14. ~~Phone OTP endpoints lack allocation checks~~ — **FIXED**, C-1. ~~Client merge with no visibility check or transaction~~ — **FIXED**, ~~C-25. `checkclientexist` no rate limiting / enumeration hardening~~ — **FIXED** (+13 more)
 
 ### Community 74 - "emails_v2.js"
-Cohesion: 0.16
-Nodes (16): RFC-5987, checkEmailPythonServiceStatus(), filterAllowedEmailUploadFiles(), getAllowedEmailExtensions(), getAllowedExtensionsLabel(), getEmailPreviewText(), handleFiles(), hidePreviewModal() (+8 more)
+Cohesion: 0.15
+Nodes (20): RFC-5987, checkEmailPythonServiceStatus(), filterAllowedEmailUploadFiles(), getAllowedEmailExtensions(), getAllowedExtensionsLabel(), handleFiles(), hidePreviewModal(), initializeNewFeatures() (+12 more)
 
 ### Community 75 - "document-handlers.js"
 Cohesion: 0.20
 Nodes (20): attachPreviewLoadHandler(), buildPreviewFilename(), fetchPresignedPreviewUrl(), file_explorer(), findDocumentPreviewContainerClass(), getPreviewDocumentBaseUrl(), hidePreviewLoader(), isLocalPreviewUrl() (+12 more)
 
 ### Community 77 - "EliteEmail"
-Cohesion: 0.14
+Cohesion: 0.13
 Nodes (5): EliteEmail, EliteEmailAttachment, EliteInboundAttachmentService, EliteEmailCidRewriter, Illuminate\Contracts\Filesystem\Filesystem
+
+### Community 78 - "Kyslik\ColumnSortable\Sortable"
+Cohesion: 0.08
+Nodes (11): AccountClientReceipt, ApplicationDocument, ApplicationFeeOptionType, Checklist, LeadService, ProductType, Setting, Source (+3 more)
 
 ### Community 79 - "DocxConverterService"
 Cohesion: 0.13
@@ -744,10 +756,6 @@ Nodes (13): Exception, FastAPI, create_app(), Factory function to create and con
 ### Community 80 - "dependencies"
 Cohesion: 0.11
 Nodes (19): apexcharts, datatables.net, datatables.net-bs5, @fullcalendar/list, @fullcalendar/timegrid, lucide, dependencies, apexcharts (+11 more)
-
-### Community 81 - "RecentlyModifiedClientsLatestActivityTest"
-Cohesion: 0.16
-Nodes (5): Illuminate\Pagination\LengthAwarePaginator, Illuminate\Pagination\Paginator, ReflectionMethod, CompletedActionsCountsTest, RecentlyModifiedClientsLatestActivityTest
 
 ### Community 84 - "devDependencies"
 Cohesion: 0.11
@@ -768,10 +776,6 @@ Nodes (10): changDatepickerDate(), checkvaliddate(), convertDateFormat(), format
 ### Community 88 - "fix-icon-migration-bugs.cjs"
 Cohesion: 0.24
 Nodes (18): eliteInboxNeedsFix(), { execSync }, fixEliteInbox(), fixExplanationCircle(), fixJsTemplateLiterals(), fixMinimalLayoutScripts(), fixRecentClients(), fixSignaturesShow() (+10 more)
-
-### Community 90 - "MailReportAttachment"
-Cohesion: 0.18
-Nodes (3): MailReportAttachment, Illuminate\Support\Facades\Response, ZipArchive
 
 ### Community 91 - "require"
 Cohesion: 0.11
@@ -797,9 +801,9 @@ Nodes (16): 1. Add `application_id` (optional) to receipts, 2. Reassign payment 
 Cohesion: 0.19
 Nodes (12): applyComposeRecipientsOnShown(), applyComposeRecipientsOnShownNow(), buildClientRecipientEntry(), composeToFieldHasValue(), ensureComposeRecipientSelectInitialized(), getDefaultClientRecipientEntry(), getEmailRecipientInitOptions(), populateComposeLabelDropdown() (+4 more)
 
-### Community 101 - "SmsTemplateVariableResolver"
-Cohesion: 0.13
-Nodes (3): self, SmsTemplateVariableResolver, StaffAssigneeResolver
+### Community 101 - "Profile"
+Cohesion: 0.32
+Nodes (3): Profile, Report, Illuminate\Notifications\Notifiable
 
 ### Community 103 - "Client Export/Import Implementation Guide for bansalcrm2"
 Cohesion: 0.12
@@ -807,7 +811,7 @@ Nodes (15): A. Add Import Button in Header, B. Add Import Modal, C. Add JavaScri
 
 ### Community 104 - "FIXED / CLOSED (audit history below)"
 Cohesion: 0.12
-Nodes (16): 15. Ongoing Sheet, 18. SMS Webhooks (new), Cross-cutting themes (for prioritization), Deep review changelog (2026-07-26), FIXED / CLOSED (audit history below), High, High, Low (+8 more)
+Nodes (16): 14. Auth / CRM Access, 18. SMS Webhooks (new), ~~CA-1. Quick grant POST does not re-check cross-access eligibility~~ — **FIXED**, ~~CA-2. Active grants require `ends_at` not null~~ — **FIXED**, ~~CA-3. Notification URLs depend on `APP_URL` (`CrmAccessService` uses `url('/crm/access/...')`)~~ — **FIXED**, Cross-cutting themes (for prioritization), Deep review changelog (2026-07-26), FIXED / CLOSED (audit history below) (+8 more)
 
 ### Community 105 - "High"
 Cohesion: 0.12
@@ -834,7 +838,7 @@ Cohesion: 0.19
 Nodes (13): bladeFiles, BS4_MAP, bs4Files, fs, jsFiles, migrateBladeConfirm(), migrateBs4(), migrateJsConfirm() (+5 more)
 
 ### Community 114 - "ClientHelpers.php"
-Cohesion: 0.15
+Cohesion: 0.17
 Nodes (8): deleteClientFile(), generateClientId(), getClientValidationRules(), normalizeTags(), processFollowers(), processRelatedFiles(), processTags(), uploadClientFile()
 
 ### Community 115 - "Workflow"
@@ -865,17 +869,13 @@ Nodes (13): appendFieldValidationError(), customInvoiceValidate(), customValidat
 Cohesion: 0.22
 Nodes (14): clearAllSelectedLabels(), clearComposeLabelChips(), escapeHtml(), fetchLabels(), initializeUploadLabelSelector(), labelIconHtml(), populateComposeLabelSelector(), populateLabelFilter() (+6 more)
 
-### Community 124 - "uploadFiles"
-Cohesion: 0.25
-Nodes (14): flattenBatchAttachments(), getDuplicateUploadError(), groupAttachmentStorageByEmail(), hideEmailUploadLoading(), processSingleEmailUpload(), showDuplicateEmailPrompt(), cleanup(), onAccept() (+6 more)
+### Community 124 - "showDuplicateEmailPrompt"
+Cohesion: 0.73
+Nodes (6): showDuplicateEmailPrompt(), cleanup(), onAccept(), onKeyDown(), onOverlayClick(), onReject()
 
 ### Community 125 - "count-fa-usage.cjs"
 Cohesion: 0.14
 Nodes (10): bladeIcon, bladeRaw, blades, fs, jsFa, jsFiles, path, phpBroken (+2 more)
-
-### Community 126 - "FromEmail"
-Cohesion: 0.27
-Nodes (4): DebugEmailCredentials, FromEmail, EmailService, Illuminate\Mail\Message
 
 ### Community 127 - "SesInboundSyncCommand"
 Cohesion: 0.32
@@ -934,8 +934,8 @@ Cohesion: 0.29
 Nodes (11): cleanRecipients(), extractEmailAddress(), formatForwardSubject(), formatQuotedMessage(), formatReplySubject(), handleForward(), handleReply(), handleReplyAll() (+3 more)
 
 ### Community 148 - "createEmailItem"
-Cohesion: 0.21
-Nodes (11): createEmailItem(), formatDate(), formatRecipientLine(), getEmailDate(), isEmailAdminUser(), loadEmailDetail(), renderEmailBodyInIframe(), renderHtmlIframe() (+3 more)
+Cohesion: 0.18
+Nodes (13): createEmailItem(), formatDate(), formatRecipientLine(), getEmailDate(), getEmailPreviewText(), isEmailAdminUser(), loadEmailDetail(), normalizePreviewText() (+5 more)
 
 ### Community 151 - "bansalcrm2 Implementation Summary"
 Cohesion: 0.18
@@ -994,8 +994,8 @@ Cohesion: 0.24
 Nodes (3): EmailTemplateController, EmailTemplate, Illuminate\Routing\Route
 
 ### Community 166 - "AppServiceProvider.php"
-Cohesion: 0.24
-Nodes (5): AppServiceProvider, BroadcastServiceProvider, Illuminate\Support\Facades\Blade, Illuminate\Support\Facades\Broadcast, Illuminate\Support\ServiceProvider
+Cohesion: 0.22
+Nodes (6): AppServiceProvider, BroadcastServiceProvider, Illuminate\Pagination\Paginator, Illuminate\Support\Facades\Blade, Illuminate\Support\Facades\Broadcast, Illuminate\Support\ServiceProvider
 
 ### Community 169 - "composer.json"
 Cohesion: 0.20
@@ -1040,6 +1040,10 @@ Nodes (9): hydrateSortIcons(), nodeNeedsIconHydration(), normalizeDataLucideAttr
 ### Community 179 - "restore-recent-clients-tail.cjs"
 Cohesion: 0.20
 Nodes (9): current, { execSync }, file, fs, head, original, path, root (+1 more)
+
+### Community 182 - "AdminLoginController"
+Cohesion: 0.18
+Nodes (4): AdminLoginController, Cookie, Illuminate\Foundation\Auth\AuthenticatesUsers, Symfony\Component\HttpFoundation\IpUtils
 
 ### Community 185 - "16. Notifications"
 Cohesion: 0.22
@@ -1153,17 +1157,17 @@ Nodes (8): AWS SES Email Configuration, Email Areas Using AWS SES, .env Configur
 Cohesion: 0.25
 Nodes (7): 1. Email Sending Paths Verified, 2. Queued Mailables, 3. Configuration Summary, 4. Frontend, 5. Commands, 6. Test Checklist, AWS SES Integration – Verification Report
 
-### Community 215 - "Handler"
-Cohesion: 0.33
-Nodes (4): Handler, Illuminate\Auth\AuthenticationException, Illuminate\Foundation\Exceptions\Handler, Throwable
+### Community 215 - "Handler.php"
+Cohesion: 0.31
+Nodes (5): Handler, Illuminate\Auth\AuthenticationException, Illuminate\Foundation\Exceptions\Handler, Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException, Throwable
 
 ### Community 217 - "config"
 Cohesion: 0.29
 Nodes (7): kylekatarnls/update-helper, php-http/discovery, config, allow-plugins, optimize-autoloader, preferred-install, sort-packages
 
-### Community 218 - "14. Auth / CRM Access"
-Cohesion: 0.29
-Nodes (7): 14. Auth / CRM Access, ~~CA-1. Quick grant POST does not re-check cross-access eligibility~~ — **FIXED**, ~~CA-2. Active grants require `ends_at` not null~~ — **FIXED**, ~~CA-3. Notification URLs depend on `APP_URL` (`CrmAccessService` uses `url('/crm/access/...')`)~~ — **FIXED**, High, Low, Medium
+### Community 218 - "Illuminate\Support\Collection"
+Cohesion: 0.24
+Nodes (3): ClientDetailEagerLoads, Illuminate\Support\Collection, ClientDetailEagerLoadsTest
 
 ### Community 219 - "Collection Best Practices"
 Cohesion: 0.29
@@ -1341,19 +1345,35 @@ Nodes (3): extra, laravel, dont-discover
 Cohesion: 0.67
 Nodes (3): keywords, framework, laravel
 
+### Community 293 - "handleDeleteEmail"
+Cohesion: 0.32
+Nodes (8): applyLabel(), getCsrfToken(), handleDeleteEmail(), hideContextMenu(), initializeContextMenu(), removeLabel(), resetReadingPane(), showLabelSubmenu()
+
+### Community 300 - "15. Ongoing Sheet"
+Cohesion: 0.29
+Nodes (7): 15. Ongoing Sheet, High, Low, Medium, OS-1. Mutating endpoints lack client visibility checks — **FIXED**, OS-2. Insights “clients seen” / load not visibility-scoped the same way as list — **FIXED**, OS-3. Session filter persistence surprises (hard to clear without `clear_filters`) — **FIXED**
+
+### Community 304 - "health_check"
+Cohesion: 0.40
+Nodes (5): get, health_check(), Health check endpoint., Root endpoint with service information., root()
+
+### Community 321 - "2026_03_09_160000_ensure_mail_reports_renamed_to_emails.php"
+Cohesion: 0.83
+Nodes (3): down(), renameSequenceIfExists(), up()
+
 ## Knowledge Gaps
 - **1017 isolated node(s):** `php`, `HttpsProtocol`, `name`, `description`, `framework` (+1012 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **226 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **241 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Controller` connect `Controller` to `Illuminate\Http\Request`, `Admin`, `Auth`, `StaffController`, `Illuminate\Database\Eloquent\Model`, `ActivitiesLog`, `Invoice`, `Branch`, `ClientReceiptController`, `DB`, `PartnersController`, `ClientDocumentController`, `FollowupController`, `Document`, `StaffClientVisibility`, `AuditLogController`, `OutlookController`, `CheckinLog`, `FollowupCalendarBlockTiming`, `web.php`, `DocumentCategory`, `EmailLabel`, `EmailTemplateController.php`, `StaffRole`, `SmsLog`, `EmailUploadV2Controller`, `SmsTemplate`, `UploadChecklistController`, `EmailController`, `Product`, `RecentlyModifiedClientsController`, `OngoingSheetController`, `Email`, `EmailQueryV2Controller`, `ActionController`, `Note`, `EliteEmailController`, `PublicDocumentController`, `SmsWebhookController`, `MailReportAttachment`, `MailReportAttachmentController`, `PhoneVerificationController`, `ClientHelpers.php`, `Workflow`, `StaffWorkloadController`?**
-  _High betweenness centrality (0.041) - this node is a cross-community bridge._
-- **Why does `Admin` connect `Admin` to `Controller`, `Illuminate\Http\Request`, `ClientExportService`, `Auth`, `Illuminate\Database\Eloquent\Model`, `ActivitiesLog`, `Invoice`, `ClientReceiptController`, `DB`, `Illuminate\Console\Command`, `ClientDocumentController`, `Document`, `StaffClientVisibility`, `CheckinLog`, `Carbon\Carbon`, `SearchService.php`, `web.php`, `Illuminate\Database\Eloquent\Relations\BelongsTo`, `Illuminate\Database\Eloquent\Builder`, `EmailLabel`, `StaffAllocationScope`, `StaffRole`, `Illuminate\Database\Seeder`, `EmailUploadV2Controller`, `TinymceImageS3Migrator`, `ClientLeadListExportService`, `SanitizesEmail.php`, `Product`, `RecentlyModifiedClientsController`, `Email`, `PhoneVerification`, `EmailQueryV2Controller`, `Note`, `SearchService`, `PhoneVerificationController`, `SmsTemplateVariableResolver`, `.importClient`, `ClientHelpers.php`?**
-  _High betweenness centrality (0.028) - this node is a cross-community bridge._
-- **Why does `PhoneHelper` connect `PhoneHelper` to `Illuminate\Http\Request`, `Admin`, `Auth`, `StaffController`, `.importClient`, `ActivitiesLog`, `Invoice`, `StaffRole`, `StaffClientVisibility`, `Product`?**
+- **Why does `Controller` connect `Admin` to `Illuminate\Http\Request`, `ClientController`, `Auth`, `Illuminate\Database\Eloquent\Model`, `ActivitiesLog`, `InvoiceController`, `Branch`, `PartnersController`, `DB`, `ClientDocumentController`, `FollowupController`, `Document`, `StaffClientVisibility`, `ReportController`, `FollowupCalendarSetting`, `CheckinLog`, `FollowupCalendarBlockTiming`, `LeadController`, `web.php`, `DocumentCategory`, `EmailLabel`, `EmailTemplateController.php`, `SmsLog`, `EmailUploadV2Controller`, `Staff`, `SmsTemplate`, `UploadChecklistController`, `AdminLoginController`, `Product`, `RecentlyModifiedClientsController`, `OngoingSheetController`, `FromEmail`, `Email`, `EmailQueryV2Controller`, `ActionController`, `ClientNoteController`, `EliteEmailController`, `PublicDocumentController`, `SmsWebhookController`, `MailReportAttachmentController`, `PhoneVerificationController`, `AgentController`, `Workflow`, `StaffWorkloadController`?**
+  _High betweenness centrality (0.042) - this node is a cross-community bridge._
+- **Why does `Admin` connect `Admin` to `UnifiedSmsManager`, `Illuminate\Http\Request`, `ClientController`, `Auth`, `ClientExportService`, `Illuminate\Support\Facades\Schema`, `ActivitiesLog`, `InvoiceController`, `DB`, `Illuminate\Console\Command`, `ClientDocumentController`, `Document`, `StaffClientVisibility`, `ReportController`, `CheckinLog`, `Carbon\Carbon`, `LeadController`, `web.php`, `Illuminate\Database\Eloquent\Relations\BelongsTo`, `CrmSentEmailS3Service`, `EmailLabel`, `Illuminate\Database\Eloquent\Builder`, `StaffWorkloadService.php`, `StaffRole`, `Illuminate\Database\Seeder`, `EmailUploadV2Controller`, `TinymceImageS3Migrator`, `Staff`, `ClientLeadListExportService`, `SanitizesEmail.php`, `Helper`, `Product`, `RecentlyModifiedClientsController`, `Email`, `PhoneVerification`, `EmailQueryV2Controller`, `ClientNoteController`, `Kyslik\ColumnSortable\Sortable`, `Illuminate\Support\Collection`, `PhoneVerificationController`, `Profile`, `.importClient`?**
+  _High betweenness centrality (0.024) - this node is a cross-community bridge._
+- **Why does `PhoneHelper` connect `PhoneHelper` to `Admin`, `ClientController`, `Auth`, `.importClient`, `ActivitiesLog`, `Country`, `AgentController`, `Kyslik\ColumnSortable\Sortable`, `Staff`, `Product`, `LeadController`?**
   _High betweenness centrality (0.019) - this node is a cross-community bridge._
 - **Are the 172 inferred relationships involving `Auth` (e.g. with `.accessApprovalsPanelData()` and `.allnotification()`) actually correct?**
   _`Auth` has 172 INFERRED edges - model-reasoned connections that need verification._
@@ -1361,5 +1381,5 @@ _Questions this graph is uniquely positioned to answer:_
   _`DB` has 212 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `php`, `HttpsProtocol`, `name` to the rest of the system?**
   _1017 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `Controller` be split into smaller, more focused modules?**
-  _Cohesion score 0.027548209366391185 - nodes in this community are weakly interconnected._
+- **Should `Admin` be split into smaller, more focused modules?**
+  _Cohesion score 0.04832474226804124 - nodes in this community are weakly interconnected._

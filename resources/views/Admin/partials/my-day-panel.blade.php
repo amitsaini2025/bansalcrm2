@@ -6,6 +6,7 @@
     $leads = $summary['leads'] ?? [];
     $embeddedOnDashboard = $embeddedOnDashboard ?? false;
     $panelTitle = $panelTitle ?? 'My Day';
+    $workloadSectionTitle = $workloadSectionTitle ?? 'My workload';
 @endphp
 
 <style>
@@ -136,7 +137,7 @@
     </div>
 
     <div class="my-day-section">
-        <h3>My workload</h3>
+        <h3>{{ $workloadSectionTitle }}</h3>
         <div class="row">
             @foreach([
                 ['Active clients assigned', $caseload['active_clients_count'] ?? 0],

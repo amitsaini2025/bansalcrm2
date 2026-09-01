@@ -93,6 +93,8 @@ class AdminController extends Controller
             Log::warning('Dashboard followup calendar tabs failed: '.$e->getMessage());
         }
 
+        $myDaySummary = $this->loadMyDaySummary();
+
         try {
             // Get dashboard data using service (always show today's actions)
             $todayTasks = $this->dashboardService->getTodayTasks('today');
@@ -102,7 +104,6 @@ class AdminController extends Controller
             $recentActivities = $this->dashboardService->getRecentActivities(10);
 
             $accessApprovals = $this->accessApprovalsPanelData();
-            $myDaySummary = $this->loadMyDaySummary();
 
             return view('Admin.dashboard', compact([
                 'todayTasks',
@@ -129,7 +130,7 @@ class AdminController extends Controller
                 'accessApprovals' => null,
                 'followupCalendarTabs' => $followupCalendarTabs,
                 'followupCalendarDefault' => $followupCalendarDefault,
-                'myDaySummary' => null,
+                'myDaySummary' => $myDaySummary,
             ])->with('error', 'An error occurred while loading the dashboard. Some data may not be available.');
         }
     }

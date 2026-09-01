@@ -53,7 +53,7 @@ class StaffWorkloadController extends Controller
         }
 
         try {
-            $summary = $this->staffWorkloadService->getDaySummaryForStaff((int) $staff->id);
+            $summary = $this->staffWorkloadService->getDaySummary((int) $staff->id);
         } catch (\Throwable $e) {
             Log::error('Staff workload detail failed: '.$e->getMessage(), ['staff_id' => $staff->id]);
 
