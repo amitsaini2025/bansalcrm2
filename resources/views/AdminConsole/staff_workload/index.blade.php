@@ -66,6 +66,9 @@
                                 </table>
                             </div>
                         </div>
+                        @if($teamOverview['rows']->hasPages())
+                            <div class="card-footer bg-white">{{ $teamOverview['rows']->links() }}</div>
+                        @endif
                     </div>
                 </div>
             </div>

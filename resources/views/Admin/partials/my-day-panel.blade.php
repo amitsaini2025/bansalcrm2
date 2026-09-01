@@ -55,6 +55,14 @@
         margin-bottom: 1.5rem;
         scroll-margin-top: 80px;
     }
+    .my-day-list {
+        scroll-margin-top: 80px;
+    }
+    .my-day-list .pagination {
+        margin-bottom: 0;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
 </style>
 
 <div class="my-day-panel-wrap" id="my-day">
@@ -209,17 +217,24 @@
         </div>
 
         <div class="col-lg-6 mb-4">
-            <div class="card my-day-tile my-day-list dash_card">
+            <div class="card my-day-tile my-day-list dash_card" id="quiet-inactive-clients">
                 <div class="card-header"><h4 class="mb-0">Quiet / inactive clients</h4></div>
                 <div class="card-body p-0">
-                    @php $quietRows = array_merge($caseload['quiet_students'] ?? [], $caseload['inactive_students'] ?? []); @endphp
-                    @if(empty($quietRows))
+                    @php
+                        $quietPaginator = \App\Support\ArrayPaginator::make(
+                            array_merge($caseload['quiet_students'] ?? [], $caseload['inactive_students'] ?? []),
+                            'quiet_page',
+                            \App\Support\ArrayPaginator::DEFAULT_PER_PAGE,
+                            'quiet-inactive-clients',
+                        );
+                    @endphp
+                    @if($quietPaginator->isEmpty())
                         <p class="text-muted p-3 mb-0">No quiet or inactive allocated clients.</p>
                     @else
                         <table class="table table-striped mb-0">
                             <thead><tr><th>Client</th><th>Ref</th><th>Last work</th></tr></thead>
                             <tbody>
-                            @foreach($quietRows as $row)
+                            @foreach($quietPaginator as $row)
                                 <tr>
                                     <td>@if(!empty($row['url']))<a href="{{ $row['url'] }}">{{ $row['name'] }}</a>@else{{ $row['name'] }}@endif</td>
                                     <td>{{ $row['reference'] ?? '—' }}</td>
@@ -230,20 +245,31 @@
                         </table>
                     @endif
                 </div>
+                @if($quietPaginator->hasPages())
+                    <div class="card-footer bg-white">{{ $quietPaginator->links() }}</div>
+                @endif
             </div>
         </div>
 
         <div class="col-lg-6 mb-4">
-            <div class="card my-day-tile my-day-list dash_card">
+            <div class="card my-day-tile my-day-list dash_card" id="applications-worked-today">
                 <div class="card-header"><h4 class="mb-0">Applications worked on today</h4></div>
                 <div class="card-body p-0">
-                    @if(empty($throughput['applications']))
+                    @php
+                        $appsPaginator = \App\Support\ArrayPaginator::make(
+                            $throughput['applications'] ?? [],
+                            'apps_page',
+                            \App\Support\ArrayPaginator::DEFAULT_PER_PAGE,
+                            'applications-worked-today',
+                        );
+                    @endphp
+                    @if($appsPaginator->isEmpty())
                         <p class="text-muted p-3 mb-0">No application activity logged today.</p>
                     @else
                         <table class="table table-striped mb-0">
                             <thead><tr><th>Client</th><th>Ref</th><th>Stage</th></tr></thead>
                             <tbody>
-                            @foreach($throughput['applications'] as $row)
+                            @foreach($appsPaginator as $row)
                                 <tr>
                                     <td>@if(!empty($row['url']))<a href="{{ $row['url'] }}">{{ $row['client_name'] }}</a>@else{{ $row['client_name'] }}@endif</td>
                                     <td>{{ $row['client_reference'] ?? '—' }}</td>
@@ -254,6 +280,9 @@
                         </table>
                     @endif
                 </div>
+                @if($appsPaginator->hasPages())
+                    <div class="card-footer bg-white">{{ $appsPaginator->links() }}</div>
+                @endif
             </div>
         </div>
     </div>

@@ -5,12 +5,16 @@ namespace App\Http\Controllers\AdminConsole;
 use App\Http\Controllers\Controller;
 use App\Models\Staff;
 use App\Services\StaffWorkloadService;
+use App\Support\ArrayPaginator;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 
 class StaffWorkloadController extends Controller
 {
+    public const TEAM_OVERVIEW_PER_PAGE = 20;
+
     public function __construct(
         private StaffWorkloadService $staffWorkloadService,
     ) {
@@ -32,12 +36,15 @@ class StaffWorkloadController extends Controller
         $this->ensureSuperAdminAccess();
 
         try {
-            $teamOverview = $this->staffWorkloadService->getTeamOverview();
+            $teamOverview = $this->paginateTeamOverview($this->staffWorkloadService->getTeamOverview());
         } catch (\Throwable $e) {
             Log::error('Staff workload team overview failed: '.$e->getMessage());
 
             return view('AdminConsole.staff_workload.index', [
-                'teamOverview' => ['day_label' => now()->timezone(config('app.timezone'))->format('l, j F Y'), 'rows' => []],
+                'teamOverview' => $this->paginateTeamOverview([
+                    'day_label' => now()->timezone(config('app.timezone'))->format('l, j F Y'),
+                    'rows' => [],
+                ]),
             ])->with('error', 'Could not load staff workload data. Please try again.');
         }
 
@@ -66,5 +73,20 @@ class StaffWorkloadController extends Controller
             'staff' => $staff,
             'summary' => $summary,
         ]);
+    }
+
+    /**
+     * @param  array{day_label?: string, rows?: list<array<string, mixed>>}  $teamOverview
+     * @return array{day_label?: string, rows: LengthAwarePaginator}
+     */
+    private function paginateTeamOverview(array $teamOverview): array
+    {
+        $teamOverview['rows'] = ArrayPaginator::make(
+            $teamOverview['rows'] ?? [],
+            'page',
+            self::TEAM_OVERVIEW_PER_PAGE,
+        );
+
+        return $teamOverview;
     }
 }
