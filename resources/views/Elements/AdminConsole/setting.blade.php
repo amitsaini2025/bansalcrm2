@@ -41,6 +41,9 @@
 		@endif
 		
 		<li class="{{(Route::currentRouteName() == 'adminconsole.recentclients.index') ? 'active' : ''}}"><a class="nav-link" href="{{route('adminconsole.recentclients.index')}}">Recently Modified Clients</a></li>
+		@if((Auth::user()->role ?? null) == 1)
+		<li class="{{ str_starts_with(Route::currentRouteName() ?? '', 'adminconsole.staff-workload') ? 'active' : '' }}"><a class="nav-link" href="{{ route('adminconsole.staff-workload.index') }}">Staff Workload Today</a></li>
+		@endif
 		
 		<?php
 			if(Route::currentRouteName() == 'adminconsole.branch.index' || Route::currentRouteName() == 'adminconsole.branch.create' || Route::currentRouteName() == 'adminconsole.branch.edit' || Route::currentRouteName() == 'adminconsole.branch.userview' || Route::currentRouteName() == 'adminconsole.branch.clientview' || Route::currentRouteName() == 'adminconsole.staff.active' || Route::currentRouteName() == 'adminconsole.staff.inactive' || Route::currentRouteName() == 'adminconsole.staffrole.index' || Route::currentRouteName() == 'adminconsole.staffrole.create' || Route::currentRouteName() == 'adminconsole.staffrole.edit' || Route::currentRouteName() == 'adminconsole.teams.index' || Route::currentRouteName() == 'adminconsole.teams.edit' || Route::currentRouteName() == 'adminconsole.upload_checklists.index'){ 

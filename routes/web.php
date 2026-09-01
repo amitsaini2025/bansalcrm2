@@ -1,7 +1,5 @@
 <?php
 
-use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AddressController;
 use App\Http\Controllers\Admin\AccountController;
 use App\Http\Controllers\Admin\ActionController;
@@ -11,6 +9,7 @@ use App\Http\Controllers\Admin\ApplicationsController;
 use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\BranchesController;
 use App\Http\Controllers\Admin\Client\ClientActivityController;
+use App\Http\Controllers\Admin\Client\ClientController;
 use App\Http\Controllers\Admin\Client\ClientMessagingController;
 use App\Http\Controllers\Admin\Client\ClientNoteController;
 use App\Http\Controllers\Admin\Client\ClientServiceController;
@@ -20,6 +19,7 @@ use App\Http\Controllers\Admin\FollowupCalendarSettingController;
 use App\Http\Controllers\Admin\FollowupController;
 use App\Http\Controllers\Admin\InvoiceController;
 use App\Http\Controllers\Admin\LeadController;
+use App\Http\Controllers\Admin\MyDayController;
 use App\Http\Controllers\Admin\OfficeVisitController;
 use App\Http\Controllers\Admin\OutlookController;
 use App\Http\Controllers\Admin\PartnersController;
@@ -33,6 +33,8 @@ use App\Http\Controllers\Admin\TinyMCEImageUploadController;
 use App\Http\Controllers\Admin\UploadChecklistController;
 use App\Http\Controllers\Auth\AdminLoginController;
 use App\Http\Controllers\ExceptionController;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -147,6 +149,7 @@ Route::post('/admin/logout', [AdminLoginController::class, 'logout'])->name('adm
 
 // General
 Route::get('/dashboard', [AdminController::class, 'dashboard'])->name('dashboard');
+Route::get('/my-day', [MyDayController::class, 'index'])->name('staff.my-day')->middleware('auth:admin');
 Route::redirect('/appointments', '/followups', 301);
 Route::get('/followups', [FollowupController::class, 'index'])->name('followups.index');
 Route::get('/followups/view/{note}', [FollowupController::class, 'viewNote'])->name('followups.view');
@@ -207,8 +210,8 @@ Route::get('/getassigneeajax', [StaffController::class, 'getassigneeajax']);
 Route::get('/getpartnerajax', [AdminController::class, 'getpartnerajax']);
 
 // Client validation (AJAX) - Moved to ClientController
-Route::get('/checkclientexist', [\App\Http\Controllers\Admin\Client\ClientController::class, 'checkclientexist'])
-	->middleware('throttle:60,1');
+Route::get('/checkclientexist', [ClientController::class, 'checkclientexist'])
+    ->middleware('throttle:60,1');
 
 // Address Autocomplete Routes
 Route::post('/address/search', [AddressController::class, 'searchAddress'])->name('address.search');
@@ -254,13 +257,13 @@ Route::post('/staffrole/edit', [StaffroleController::class, 'edit'])->name('staf
 // Note: leads.detail (+ application) live in routes/clients.php under auth:admin (avoid duplicate registration).
 // Route-level auth:admin + LeadController constructor middleware (defense in depth; same paths/names).
 Route::middleware(['auth:admin'])->group(function () {
-	Route::get('/leads', [LeadController::class, 'index'])->name('leads.index');
-	Route::get('/leads/export-list', [LeadController::class, 'exportList'])->name('leads.export-list');
-	Route::get('/leads/create', [LeadController::class, 'create'])->name('leads.create');
-	Route::post('/leads/store', [LeadController::class, 'store'])->name('leads.store');
-	Route::post('/leads/assign', [LeadController::class, 'assign'])->name('leads.assign');
-	Route::post('/leads/import', [LeadController::class, 'import'])->name('leads.import');
-	Route::get('/leads/convert/{id?}', [LeadController::class, 'convertoClient'])->name('leads.convert');
+    Route::get('/leads', [LeadController::class, 'index'])->name('leads.index');
+    Route::get('/leads/export-list', [LeadController::class, 'exportList'])->name('leads.export-list');
+    Route::get('/leads/create', [LeadController::class, 'create'])->name('leads.create');
+    Route::post('/leads/store', [LeadController::class, 'store'])->name('leads.store');
+    Route::post('/leads/assign', [LeadController::class, 'assign'])->name('leads.assign');
+    Route::post('/leads/import', [LeadController::class, 'import'])->name('leads.import');
+    Route::get('/leads/convert/{id?}', [LeadController::class, 'convertoClient'])->name('leads.convert');
 });
 // Invoices Start
 
@@ -324,7 +327,7 @@ Route::post('/products/store', [ProductsController::class, 'store'])->name('prod
 Route::get('/products/edit/{id}', [ProductsController::class, 'edit'])->name('products.edit');
 Route::post('/products/edit', [ProductsController::class, 'edit'])->name('products.update');
 
-        Route::get('/products/detail/{id}/{tab?}', [ProductsController::class, 'detail'])->name('products.detail');
+Route::get('/products/detail/{id}/{tab?}', [ProductsController::class, 'detail'])->name('products.detail');
 Route::get('/products/get-recipients', [ProductsController::class, 'getrecipients'])->name('products.getrecipients');
 Route::get('/products/get-allclients', [ProductsController::class, 'getallclients'])->name('products.getallclients');
 
@@ -349,7 +352,7 @@ Route::get('/branch/view/{id}', [BranchesController::class, 'view'])->name('bran
 Route::get('/branch/view/client/{id}', [BranchesController::class, 'viewclient'])->name('branch.clientview');
 Route::post('/branch/edit', [BranchesController::class, 'edit'])->name('branch.update');
 
-        // Agent Start
+// Agent Start
 /* 	Route::get('/agents', 'Admin\AgentController@index')->name('agents.index');
     Route::get('/agents/create', 'Admin\AgentController@create')->name('agents.create');
     Route::post('/agents/store', 'Admin\AgentController@store')->name('agents.store');
@@ -412,7 +415,7 @@ Route::get('/invoice/unpaid', [InvoiceController::class, 'unpaid'])->name('invoi
 Route::get('/invoice/', [InvoiceController::class, 'index'])->name('invoice.index');
 Route::get('/payment/view/{id}', [AccountController::class, 'preview']);
 
-    Route::get('/getapplicationdetail', [ApplicationsController::class, 'getapplicationdetail']);
+Route::get('/getapplicationdetail', [ApplicationsController::class, 'getapplicationdetail']);
 Route::get('/updatestage', [ApplicationsController::class, 'updatestage']);
 Route::get('/completestage', [ApplicationsController::class, 'completestage']);
 Route::get('/updatebackstage', [ApplicationsController::class, 'updatebackstage']);
@@ -482,7 +485,7 @@ Route::get('/getfeeoptionedit', [ProductsController::class, 'editfee']);
 Route::post('/editfee', [ProductsController::class, 'editfeeform']);
 Route::get('/deletefee', [ProductsController::class, 'deletefee']);
 
-        // Task system removed - December 2025
+// Task system removed - December 2025
 // Route::post('/partner/addtask', [PartnersController::class, 'addtask']);
 // Route::get('/partner/get-tasks', [PartnersController::class, 'gettasks']);
 // Route::get('/partner/get-task-detail', [PartnersController::class, 'taskdetail']);
@@ -497,7 +500,7 @@ Route::get('/get-promotions', [PromotionController::class, 'getpromotions']);
 Route::get('/getpromotioneditform', [PromotionController::class, 'getpromotioneditform']);
 Route::get('/change-promotion-status', [PromotionController::class, 'changepromotionstatus']);
 
-        // Applications Start
+// Applications Start
 Route::get('/applications', [ApplicationsController::class, 'index'])->name('applications.index');
 Route::get('/applications/create', [ApplicationsController::class, 'create'])->name('applications.create');
 Route::post('/discontinue_application', [ApplicationsController::class, 'discontinue_application']);
@@ -609,7 +612,7 @@ Route::get('/partners-inactive', [PartnersController::class, 'inactivePartnerLis
 Route::post('/partner_change_to_inactive', [AdminController::class, 'partnerChangeToInactive']);
 Route::post('/partner_change_to_active', [AdminController::class, 'partnerChangeToActive']);
 
-  // Partner Student Invoice
+// Partner Student Invoice
 Route::get('/partners/savepartnerstudentinvoice/{id}', [PartnersController::class, 'savepartnerstudentinvoice'])->name('partners.savepartnerstudentinvoice');
 Route::post('/partners/savepartnerstudentinvoice', [PartnersController::class, 'savepartnerstudentinvoice'])->name('partners.savepartnerstudentinvoice.update');
 Route::post('/partners/getTopReceiptValInDB', [PartnersController::class, 'getTopReceiptValInDB'])->name('partners.getTopReceiptValInDB');
@@ -650,7 +653,7 @@ Route::post('/partners/deleteStudentRecordByInvoiceId', [PartnersController::cla
 Route::post('/partners/deleteStudentRecordInvoiceByInvoiceId', [PartnersController::class, 'deleteStudentRecordInvoiceByInvoiceId'])->name('partners.deleteStudentRecordInvoiceByInvoiceId');
 Route::post('/partners/deleteStudentPaymentInvoiceByInvoiceId', [PartnersController::class, 'deleteStudentPaymentInvoiceByInvoiceId'])->name('partners.deleteStudentPaymentInvoiceByInvoiceId');
 
-  // partner inbox and sent email
+// partner inbox and sent email
 Route::post('/upload-partner-fetch-mail', [PartnersController::class, 'uploadpartnerfetchmail']);
 Route::post('/upload-partner-sent-fetch-mail', [PartnersController::class, 'uploadpartnersentfetchmail']);
 
@@ -672,17 +675,17 @@ Route::post('/partners/fetchPartnerContactNo', [PartnersController::class, 'fetc
 // update student application overall status
 Route::post('/partners/update-student-application-overall-status', [PartnersController::class, 'updateStudentApplicationOverallStatus'])->name('partners.updateStudentApplicationOverallStatus');
 
-  // Add Note To Student
+// Add Note To Student
 Route::post('/add-student-note', [PartnersController::class, 'addstudentnote'])->name('partners.addstudentnote');
 // Fetch all partner activity logs
 Route::get('/get-partner-activities', [PartnersController::class, 'activities'])->name('partners.activities');
 
-  // Note deadline task complete
+// Note deadline task complete
 Route::post('/update-note-deadline-completed', [AdminController::class, 'updatenotedeadlinecompleted']);
 // Note deadline extend
 Route::post('/extenddeadlinedate', [AdminController::class, 'extenddeadlinedate']);
 
-  // Application Refund
+// Application Refund
 Route::post('/refund_application', [ApplicationsController::class, 'refund_application']);
 
 // save student note
@@ -692,7 +695,7 @@ Route::post('/partners/save-student-enrolment-type', [PartnersController::class,
 // Get partner notes
 Route::get('/get-partner-notes', [PartnersController::class, 'getPartnerNotes'])->name('partners.getPartnerNotes');
 
-  // SMS and phone verification: now in AdminConsole (features.sms) and PhoneVerificationController (Phase 9)
+// SMS and phone verification: now in AdminConsole (features.sms) and PhoneVerificationController (Phase 9)
 
 // Client routes moved to routes/clients.php (unified routes): is_greview_mail_sent, mail/enhance, download-document
 

@@ -668,6 +668,13 @@
 			</div>
 		</div>
 
+        @if(!empty($myDaySummary))
+            @include('Admin.partials.my-day-panel', [
+                'summary' => $myDaySummary,
+                'embeddedOnDashboard' => true,
+            ])
+        @endif
+
         <div class="row">
 
             <div class="col-xl-4 col-lg-4 col-md-6 col-sm-6 col-xs-12 mb-4">
